@@ -96,6 +96,14 @@ export const BoardInputLayer = forwardRef<BoardInputHandle, BoardInputLayerProps
       [cancelActiveStroke, machine],
     );
 
+    // A busy/disabled transition mid-gesture cancels it (clearing the preview) so the
+    // release can never commit a stroke the workspace would silently refuse.
+    useEffect(() => {
+      if (props.disabled) {
+        handleTouchCancel(machine);
+      }
+    }, [props.disabled, machine]);
+
     // Backgrounding the app cancels any in-progress stroke so it cannot commit later.
     useEffect(() => {
       const subscription = AppState.addEventListener('change', (state) => {
@@ -140,6 +148,7 @@ export const BoardInputLayer = forwardRef<BoardInputHandle, BoardInputLayerProps
     const onTouchMove = useCallback(
       (event: GestureResponderEvent) => {
         if (propsRef.current.disabled) {
+          handleTouchCancel(machine);
           return;
         }
         const samples = toSamples(event.nativeEvent.touches as RawTouch[]).map((t) => {
@@ -153,6 +162,10 @@ export const BoardInputLayer = forwardRef<BoardInputHandle, BoardInputLayerProps
 
     const onTouchEnd = useCallback(
       (event: GestureResponderEvent) => {
+        if (propsRef.current.disabled) {
+          handleTouchCancel(machine);
+          return;
+        }
         const changed = toSamples(event.nativeEvent.changedTouches as RawTouch[]);
         handleTouchEnd(machine, changed);
       },

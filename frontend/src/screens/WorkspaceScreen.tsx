@@ -226,9 +226,11 @@ export function WorkspaceScreen({ client, sessionId, persona, displayName, onSes
           style={[styles.saveNotice, { backgroundColor: theme.surface, borderColor: theme.surfaceEdge }]}
         >
           <Text style={[styles.saveNoticeText, { color: theme.labelText }]}>
-            {workspace.pendingCount === 1
-              ? 'One change is not saved yet. It is kept on this device and will save itself when the tutor is reachable.'
-              : `${workspace.pendingCount} changes are not saved yet. They are kept on this device and will save when the tutor is reachable.`}
+            {workspace.memoryOnlyCount > 0
+              ? 'Some of your ink is not saved and could not be kept on this device. It is held only in memory while this screen stays open. Use Retry now once the tutor is reachable.'
+              : workspace.pendingCount === 1
+                ? 'One change is not saved yet. It is kept on this device and will save itself when the tutor is reachable.'
+                : `${workspace.pendingCount} changes are not saved yet. They are kept on this device and will save when the tutor is reachable.`}
           </Text>
           <Pressable
             testID="save-retry"

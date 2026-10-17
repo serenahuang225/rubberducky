@@ -10,6 +10,9 @@
  *   its original operation id, stays visible as an honest "not saved yet" mark, and is
  *   retried with that SAME id on reconnect — the server's idempotent commit makes the
  *   retry land exactly once.
+ * - If the outbox itself is unavailable (storage error), the finished stroke is held in
+ *   memory for this session only: still visible as unsaved, retried with its original
+ *   operation id, and described honestly as NOT kept on the device.
  * - History edits (erase/undo/redo/tutor-move undo) depend on current server state, so
  *   they are never queued: without a connection they are refused honestly instead.
  * - A server rejection surfaces the server's own message; nothing is retried blindly.
@@ -55,6 +58,8 @@ export type WorkspaceController = {
   pendingStrokes: readonly PendingStrokePreview[];
   /** Number of changes not yet saved to the server. */
   pendingCount: number;
+  /** Subset of pendingCount held only in memory because device storage failed. */
+  memoryOnlyCount: number;
   needsCheckIn: boolean;
   retry: () => void;
   /** Retry saving queued changes now (also happens automatically after any success). */
@@ -76,6 +81,19 @@ function isNetworkFailure(error: unknown): boolean {
   return error instanceof Error && (error.name === 'AbortError' || error instanceof TypeError);
 }
 
+const MEMORY_ONLY_MESSAGE =
+  'Your last stroke is not saved to the tutor and could not be kept on this device. It stays on the board only in memory while this screen is open. Tap Retry now once the tutor is reachable.';
+
+/** Durable entries plus session-memory entries, oldest first, without duplicate ids. */
+function mergeQueues(
+  durable: readonly PendingSceneOperation[],
+  memory: readonly PendingSceneOperation[],
+): PendingSceneOperation[] {
+  const known = new Set(durable.map((entry) => entry.operationId));
+  const merged = [...durable, ...memory.filter((entry) => !known.has(entry.operationId))];
+  return merged.sort((a, b) => (a.queuedAt < b.queuedAt ? -1 : a.queuedAt > b.queuedAt ? 1 : 0));
+}
+
 function previewsFromQueue(queue: readonly PendingSceneOperation[]): PendingStrokePreview[] {
   const previews: PendingStrokePreview[] = [];
   for (const entry of queue) {
@@ -90,7 +108,8 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
   const [phase, setPhase] = useState<WorkspacePhase>('loading');
   const [state, setState] = useState<SessionState | null>(null);
   const [scene, setScene] = useState<SceneSnapshot | null>(null);
-  const [pendingOps, setPendingOps] = useState<readonly PendingSceneOperation[]>([]);
+  const [pendingOps, setPendingOpsState] = useState<readonly PendingSceneOperation[]>([]);
+  const [memoryOps, setMemoryOpsState] = useState<readonly PendingSceneOperation[]>([]);
   const [lastUtterance, setLastUtterance] = useState<string | null>(null);
   const [lastExpectedAction, setLastExpectedAction] = useState<string | null>(null);
   const [providerLabel, setProviderLabel] = useState<string | null>(null);
@@ -101,6 +120,17 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
   const busyRef = useRef(false);
   const sceneRef = useRef<SceneSnapshot | null>(null);
   const flushingRef = useRef(false);
+  const pendingOpsRef = useRef<readonly PendingSceneOperation[]>([]);
+  const memoryOpsRef = useRef<readonly PendingSceneOperation[]>([]);
+
+  const setPendingOps = useCallback((next: readonly PendingSceneOperation[]) => {
+    pendingOpsRef.current = next;
+    setPendingOpsState(next);
+  }, []);
+  const setMemoryOps = useCallback((next: readonly PendingSceneOperation[]) => {
+    memoryOpsRef.current = next;
+    setMemoryOpsState(next);
+  }, []);
 
   const sync = useMemo(() => makeSceneSync(client, sessionId), [client, sessionId]);
 
@@ -145,7 +175,9 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
     }
     flushingRef.current = true;
     try {
-      let queued = await loadPendingOperations(sessionId);
+      // An unreadable outbox must not hide ink: fall back to what this session knows.
+      const durable = await loadPendingOperations(sessionId).catch(() => pendingOpsRef.current);
+      const queued = mergeQueues(durable, memoryOpsRef.current);
       if (queued.length === 0) {
         setPendingOps([]);
         return true;
@@ -154,7 +186,12 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
         const currentRevision = sceneRef.current?.scene_revision ?? 0;
         try {
           // SAME operation id: a retried-but-already-saved op replays, never duplicates.
-          await commitWithResync(sync, entry.operationId, currentRevision, entry.action);
+          const outcome = await commitWithResync(sync, entry.operationId, currentRevision, entry.action);
+          // Publish the authoritative snapshot BEFORE the pending preview goes away, so the
+          // accepted stroke moves from preview to scene object without a gap.
+          sceneRef.current = outcome.scene;
+          setScene(outcome.scene);
+          await saveCachedScene(outcome.scene).catch(() => undefined);
         } catch (error) {
           if (isNetworkFailure(error)) {
             return false;
@@ -165,14 +202,17 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
             'One unsaved change could not be accepted and was set aside. The rest of your work is unaffected.',
           );
         }
-        queued = await removeOperation(sessionId, entry.operationId);
-        setPendingOps(queued);
+        setMemoryOps(memoryOpsRef.current.filter((op) => op.operationId !== entry.operationId));
+        // Drop the preview locally first; a failed durable removal only leaves an
+        // idempotent replay for the next flush.
+        setPendingOps(pendingOpsRef.current.filter((op) => op.operationId !== entry.operationId));
+        await removeOperation(sessionId, entry.operationId).catch(() => undefined);
       }
       return true;
     } finally {
       flushingRef.current = false;
     }
-  }, [sessionId, sync]);
+  }, [sessionId, setMemoryOps, setPendingOps, sync]);
 
   const retryPending = useCallback(async () => {
     if (!guardBusy('Saving…')) {
@@ -239,7 +279,7 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
     return () => {
       active = false;
     };
-  }, [refresh, attempt, sessionId, flushPending, client]);
+  }, [refresh, attempt, sessionId, flushPending, client, setPendingOps]);
 
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
@@ -279,7 +319,9 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
           }
         } else if (isNetworkFailure(error)) {
           setErrorMessage(
-            'The tutor is not reachable right now. Your board work is kept on this device.',
+            memoryOpsRef.current.length > 0
+              ? 'The tutor is not reachable right now. Some of your board work is held only in memory, not on this device.'
+              : 'The tutor is not reachable right now. Your board work is kept on this device.',
           );
         } else {
           setErrorMessage(
@@ -336,14 +378,19 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
         if (isNetworkFailure(error)) {
           if (action.op === 'add_stroke') {
             // Keep the finished stroke on-device, visibly unsaved, for exactly-once retry.
-            const queued = await enqueueOperation({
+            const entry: PendingSceneOperation = {
               operationId,
               sessionId,
               queuedAt: new Date().toISOString(),
               action,
-            }).catch(() => null);
-            if (queued !== null) {
-              setPendingOps(queued);
+            };
+            try {
+              setPendingOps(await enqueueOperation(entry));
+            } catch {
+              // Device storage failed too: keep the ink visible and retryable from memory
+              // for this session, and say plainly that it is not durable.
+              setMemoryOps([...memoryOpsRef.current, entry]);
+              setErrorMessage(MEMORY_ONLY_MESSAGE);
             }
           } else {
             // History edits depend on current server state; refuse rather than guess.
@@ -364,7 +411,7 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
         releaseBusy();
       }
     },
-    [flushPending, guardBusy, refresh, releaseBusy, sessionId, sync],
+    [flushPending, guardBusy, refresh, releaseBusy, sessionId, setMemoryOps, setPendingOps, sync],
   );
 
   const commitStroke = useCallback(
@@ -397,7 +444,8 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
   );
 
   const needsCheckIn = state !== null && state.current_problem === null;
-  const pendingStrokes = useMemo(() => previewsFromQueue(pendingOps), [pendingOps]);
+  const unsavedOps = useMemo(() => mergeQueues(pendingOps, memoryOps), [pendingOps, memoryOps]);
+  const pendingStrokes = useMemo(() => previewsFromQueue(unsavedOps), [unsavedOps]);
 
   return {
     phase,
@@ -410,7 +458,10 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
     busyLabel,
     errorMessage,
     pendingStrokes,
-    pendingCount: pendingOps.length,
+    pendingCount: unsavedOps.length,
+    memoryOnlyCount: memoryOps.filter(
+      (op) => !pendingOps.some((durable) => durable.operationId === op.operationId),
+    ).length,
     needsCheckIn,
     retry,
     retryPending,

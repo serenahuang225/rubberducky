@@ -8,11 +8,15 @@
  *   "Finish for today" really ends the session and hands control back to the app.
  */
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import React from 'react';
+import { View } from 'react-native';
 
 import { ApiClient } from '../api/client';
 import type { TutorConfiguration } from '../api/contracts';
+
+import { BoardInputLayer } from '../components/BoardInputLayer';
 
 import { WorkspaceScreen } from './WorkspaceScreen';
 
@@ -219,5 +223,45 @@ describe('WorkspaceScreen', () => {
     fireEvent.press(screen.getByTestId('workspace-retry'));
     await waitFor(() => expect(screen.getByTestId('prompt-problem')).toBeTruthy());
     expect(screen.getByTestId('prompt-problem').props.children).toBe('2(x + 3) = 14');
+  });
+
+  it('warns that unsaved ink is memory-only when the network and device storage both fail', async () => {
+    const { fetchImpl } = makeFakeApi();
+    const offlineFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('/scene/operations')) {
+        throw new TypeError('Network request failed');
+      }
+      return fetchImpl(input, init);
+    }) as typeof fetch;
+    const screen = renderWorkspace(offlineFetch);
+    await waitFor(() => expect(screen.getByTestId('prompt-problem')).toBeTruthy());
+
+    // Device storage fails after the initial load.
+    const setItem = AsyncStorage.setItem as unknown as jest.Mock;
+    const originalSetItem = setItem.getMockImplementation() as (...args: unknown[]) => Promise<void>;
+    setItem.mockImplementation(async (key: string, ...rest: unknown[]) => {
+      if (key.startsWith('rubberducky.outbox.')) {
+        throw new Error('storage unavailable');
+      }
+      return originalSetItem(key, ...rest);
+    });
+    try {
+      fireEvent(screen.getByTestId('whiteboard'), 'onLayout', {
+        nativeEvent: { layout: { width: 800, height: 600 } },
+      });
+      const layer = screen.UNSAFE_getByType(BoardInputLayer).findByType(View);
+      const point = { identifier: 1, locationX: 100, locationY: 100 };
+      fireEvent(layer, 'touchStart', {
+        nativeEvent: { changedTouches: [point], touches: [point] },
+      });
+      fireEvent(layer, 'touchEnd', { nativeEvent: { changedTouches: [point], touches: [] } });
+
+      await waitFor(() => expect(screen.getByTestId('save-notice')).toBeTruthy());
+      expect(screen.getByText(/not saved and could not be kept on this device/i)).toBeTruthy();
+      expect(screen.queryByText(/It is kept on this device/)).toBeNull();
+      expect(screen.getByText('Your dot (not saved yet)')).toBeTruthy();
+    } finally {
+      setItem.mockImplementation(originalSetItem);
+    }
   });
 });

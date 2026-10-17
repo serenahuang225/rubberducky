@@ -52,6 +52,8 @@ function makeFakeBackend(seed?: { objects?: FakeObject[]; sceneRevision?: number
     objects: [...(seed?.objects ?? [])],
     /** Every POST the client attempted, including ones the network swallowed. */
     attempts: [] as PostedOp[],
+    /** Tutor work turns the client submitted. */
+    turns: 0,
     /** Successful (accepted) commits only. */
     posted: [] as PostedOp[],
     opLog: new Map<string, string>(),
@@ -279,6 +281,29 @@ function makeFakeBackend(seed?: { objects?: FakeObject[]; sceneRevision?: number
       const result = commit(JSON.parse(String(init.body)));
       return respond(result.status, result.body);
     }
+    if (url.endsWith(`/sessions/${SESSION_ID}/work`) && init?.method === 'POST') {
+      backend.turns += 1;
+      return respond(200, {
+        schema_version: 'tutor-turn-result.v1',
+        turn_id: `turn-${backend.turns}`,
+        session_id: SESSION_ID,
+        kind: 'work',
+        status: 'committed',
+        base_revision: 1,
+        session_revision: 2,
+        provider: { name: 'mock', is_mock: true, label: 'Deterministic mock tutor' },
+        student_input: null,
+        current_problem: null,
+        pace: 'standard',
+        action_type: 'prompt',
+        utterance: 'Nice. What is the next step?',
+        expected_student_action: 'next_step',
+        hint_level: 0,
+        answer_revealed: false,
+        drawings: [],
+        replayed: false,
+      });
+    }
     return respond(404, errorEnvelope('not_found', url));
   }) as typeof fetch;
 
@@ -317,6 +342,32 @@ async function renderWorkspace(fetchImpl: typeof fetch) {
 beforeEach(async () => {
   await AsyncStorage.clear();
 });
+
+const restoreStorage: (() => void)[] = [];
+
+afterEach(() => {
+  while (restoreStorage.length > 0) {
+    restoreStorage.pop()?.();
+  }
+});
+
+/** Make the durable OUTBOX key (only) fail, leaving the scene cache working. */
+function breakOutbox(method: 'getItem' | 'setItem'): { restore: () => void } {
+  // The jest AsyncStorage mock exposes jest.fn methods; wrap their own implementation.
+  const mock = AsyncStorage[method] as unknown as jest.Mock;
+  const original = mock.getMockImplementation() as (...args: unknown[]) => Promise<unknown>;
+  mock.mockImplementation(async (key: string, ...rest: unknown[]) => {
+    if (key.startsWith('rubberducky.outbox.')) {
+      throw new Error('storage unavailable');
+    }
+    return original(key, ...rest);
+  });
+  const restore = () => {
+    mock.mockImplementation(original);
+  };
+  restoreStorage.push(restore);
+  return { restore };
+}
 
 describe('useWorkspace durable scene pipeline', () => {
   it('loads the scene and mirrors it into the durable cache', async () => {
@@ -549,5 +600,157 @@ describe('useWorkspace durable scene pipeline', () => {
     });
     const finalVisible = hook.result.current.scene?.objects.map((o) => o.id) ?? [];
     expect(finalVisible).toEqual([strokeB]);
+  });
+});
+
+describe('useWorkspace save failure with an unavailable outbox', () => {
+  const STROKE = [
+    { x: 1, y: 1 },
+    { x: 2, y: 8 },
+  ];
+
+  it.each(['setItem', 'getItem'] as const)(
+    'keeps a finished stroke visible as memory-only unsaved ink when network and outbox %s both fail',
+    async (method) => {
+      const { backend, fetchImpl } = makeFakeBackend();
+      const hook = await renderWorkspace(fetchImpl);
+      backend.online = false;
+      breakOutbox(method);
+      await act(async () => {
+        await hook.result.current.commitStroke(STROKE);
+      });
+
+      // The ink is not dropped: still previewed, counted, and not marked saved.
+      expect(hook.result.current.pendingStrokes).toHaveLength(1);
+      expect(hook.result.current.pendingStrokes[0].points).toEqual(STROKE);
+      expect(hook.result.current.pendingCount).toBe(1);
+      expect(hook.result.current.memoryOnlyCount).toBe(1);
+      expect(hook.result.current.scene?.objects).toHaveLength(0);
+      // Honest wording: it is NOT durable, and must not claim to be kept on this device.
+      const message = hook.result.current.errorMessage ?? '';
+      expect(message).toMatch(/not saved/i);
+      expect(message).toMatch(/could not be kept on this device/i);
+      expect(message).toMatch(/memory/i);
+      // The busy guard is released so the learner can retry or keep working.
+      expect(hook.result.current.busyLabel).toBeNull();
+    },
+  );
+
+  it('retry reuses the original operation id and lands exactly one operation', async () => {
+    const { backend, fetchImpl } = makeFakeBackend();
+    const hook = await renderWorkspace(fetchImpl);
+    backend.online = false;
+    const spy = breakOutbox('setItem');
+    await act(async () => {
+      await hook.result.current.commitStroke(STROKE);
+    });
+    const originalId = backend.attempts[0].operationId;
+
+    spy.restore();
+    backend.online = true;
+    await act(async () => {
+      await hook.result.current.retryPending();
+    });
+
+    expect(backend.attempts.map((a) => a.operationId)).toEqual([originalId, originalId]);
+    expect(backend.posted).toHaveLength(1);
+    expect(backend.posted[0].operationId).toBe(originalId);
+    expect(hook.result.current.pendingCount).toBe(0);
+    expect(hook.result.current.memoryOnlyCount).toBe(0);
+    expect(hook.result.current.pendingStrokes).toHaveLength(0);
+    expect(hook.result.current.scene?.objects.map((o) => o.id)).toEqual([`obj-${originalId}`]);
+    // Not stuck busy: a following stroke commits normally.
+    await act(async () => {
+      await hook.result.current.commitStroke([{ x: 50, y: 50 }]);
+    });
+    expect(backend.posted).toHaveLength(2);
+  });
+
+  it('retry still works from memory while the outbox stays unavailable', async () => {
+    const { backend, fetchImpl } = makeFakeBackend();
+    const hook = await renderWorkspace(fetchImpl);
+    backend.online = false;
+    breakOutbox('getItem');
+    await act(async () => {
+      await hook.result.current.commitStroke(STROKE);
+    });
+    const originalId = backend.attempts[0].operationId;
+
+    backend.online = true;
+    await act(async () => {
+      await hook.result.current.retryPending();
+    });
+    expect(backend.posted.map((p) => p.operationId)).toEqual([originalId]);
+    expect(hook.result.current.pendingCount).toBe(0);
+    expect(hook.result.current.memoryOnlyCount).toBe(0);
+    expect(hook.result.current.scene?.objects).toHaveLength(1);
+  });
+
+  it('keeps the stroke unsaved when the retry itself is still offline', async () => {
+    const { backend, fetchImpl } = makeFakeBackend();
+    const hook = await renderWorkspace(fetchImpl);
+    backend.online = false;
+    breakOutbox('setItem');
+    await act(async () => {
+      await hook.result.current.commitStroke(STROKE);
+    });
+    await act(async () => {
+      await hook.result.current.retryPending();
+    });
+    expect(hook.result.current.pendingStrokes).toHaveLength(1);
+    expect(hook.result.current.memoryOnlyCount).toBe(1);
+    expect(hook.result.current.busyLabel).toBeNull();
+    expect(new Set(backend.attempts.map((a) => a.operationId)).size).toBe(1);
+  });
+});
+
+describe('useWorkspace replay after a tutor turn', () => {
+  it('moves a queued stroke from pending preview to the authoritative scene without a gap', async () => {
+    const { backend, fetchImpl } = makeFakeBackend();
+    const renders: { objects: number; pending: number }[] = [];
+    const client = new ApiClient('http://tutor.test', 'token', fetchImpl);
+    const hook = renderHook(() => {
+      const workspace = useWorkspace(client, SESSION_ID);
+      renders.push({
+        objects: workspace.scene?.objects.length ?? 0,
+        pending: workspace.pendingStrokes.length,
+      });
+      return workspace;
+    });
+    await waitFor(() => expect(hook.result.current.phase).toBe('ready'));
+
+    backend.online = false;
+    await act(async () => {
+      await hook.result.current.commitStroke([
+        { x: 5, y: 5 },
+        { x: 9, y: 9 },
+      ]);
+    });
+    const queuedId = backend.attempts[0].operationId;
+    expect(hook.result.current.pendingStrokes).toHaveLength(1);
+
+    backend.online = true;
+    const mark = renders.length;
+    await act(async () => {
+      await hook.result.current.submitWork('2x + 6 = 14');
+    });
+
+    expect(backend.turns).toBe(1);
+    // Exactly one server operation for the queued stroke.
+    expect(backend.posted.filter((p) => p.operationId === queuedId)).toHaveLength(1);
+    expect(backend.posted).toHaveLength(1);
+    // The authoritative scene is published, the preview is gone.
+    expect(hook.result.current.pendingStrokes).toHaveLength(0);
+    expect(hook.result.current.pendingCount).toBe(0);
+    expect(hook.result.current.scene?.objects.map((o) => o.id)).toEqual([`obj-${queuedId}`]);
+    // The ink never vanished: every render had it as a preview and/or an object.
+    for (const frame of renders.slice(mark)) {
+      expect(frame.objects + frame.pending).toBeGreaterThan(0);
+    }
+    // And it was persisted through the existing cache path.
+    const cached = JSON.parse(
+      (await AsyncStorage.getItem(`rubberducky.scene-cache.v1.${SESSION_ID}`))!,
+    );
+    expect(cached.objects.map((o: { id: string }) => o.id)).toEqual([`obj-${queuedId}`]);
   });
 });

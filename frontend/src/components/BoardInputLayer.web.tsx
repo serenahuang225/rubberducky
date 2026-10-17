@@ -51,6 +51,14 @@ export const BoardInputLayer = forwardRef<BoardInputHandle, BoardInputLayerProps
       [machine],
     );
 
+    // A busy/disabled transition mid-gesture cancels it (clearing the preview) so the
+    // release can never commit a stroke the workspace would silently refuse.
+    useEffect(() => {
+      if (props.disabled) {
+        handleInterruption(machine);
+      }
+    }, [props.disabled, machine]);
+
     useEffect(() => {
       const node = hostRef.current as unknown as HTMLElement | null;
       if (node === null || typeof node.addEventListener !== 'function') {
@@ -115,6 +123,7 @@ export const BoardInputLayer = forwardRef<BoardInputHandle, BoardInputLayerProps
       };
       const onPointerMove = (event: PointerEvent) => {
         if (propsRef.current.disabled) {
+          handleInterruption(machine);
           return;
         }
         if (propsRef.current.mode === 'erase') {
@@ -126,6 +135,10 @@ export const BoardInputLayer = forwardRef<BoardInputHandle, BoardInputLayerProps
         }
       };
       const onPointerUp = (event: PointerEvent) => {
+        if (propsRef.current.disabled) {
+          handleInterruption(machine);
+          return;
+        }
         if (propsRef.current.mode === 'erase') {
           return;
         }
