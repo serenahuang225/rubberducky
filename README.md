@@ -91,6 +91,34 @@ the repository-root `.env` file. To load a file, point `TUTOR_ENV_FILE` at it, f
 | `TUTOR_REMOTE_MAX_OUTPUT_TOKENS` / `_MAX_REQUEST_CHARS` | `512` / `32000` | Remote output and request-size ceilings |
 | `TUTOR_ENDPOINT_BASE_URL` / `_MODEL` / `_API_KEY` / `_STREAMING` | unset / unset / unset / `true` | OpenAI-compatible server (`.../chat/completions`) |
 | `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` | unset | Claude; no default model is guessed |
+| `TUTOR_MEDIA_FIXTURES_ENABLED` | `true` | Shows the labeled simulated voice and photo fixtures in the app; real capture is unaffected |
+
+## Optional voice and camera
+
+Voice and camera are off until the learner opens the "Voice and camera" panel and presses a start
+button. Nothing asks for a permission, opens a device or calls the media routes before that.
+Typing and the board always work without media. A denied or missing device, a backgrounded app,
+Stop, an interruption, new work, a new problem, mute and text-only mode all release the device and
+cancel any speech. A speech or caption callback that arrives after that is ignored.
+
+- `GET /media/capabilities` reports what the server can do. Speech recognition and photo
+  perception are **not configured** in this build, so the app says so and never calls an open
+  microphone "listening". A student-facing or work-facing camera choice is the learner's.
+- `POST /sessions/{id}/media/events` accepts bounded, uncertain events: at most 262144 bytes and
+  2048 px per image edge, 500 characters of transcript, 3 image events per minute and 12 per
+  session, and 120 events per minute and 500 per session overall. Excess, stale (old session
+  revision) and foreign-session events are rejected. Interim transcripts stay provisional; a final
+  transcript is idempotent. A recognized transcript or photo reading is a candidate that the
+  learner edits and confirms before it is used. Digital strokes stay authoritative. Nothing infers
+  emotion, identity or disability.
+- Raw audio, video and image bytes are not stored or logged by default. Only a size and an
+  optional width and height leave the device for a photo.
+- The simulated voice sequence and photo events (interim, revised interim, final, duplicate final,
+  late interim) are deterministic fixtures, labeled "simulated" in the app. They are not live
+  transcription, and the deterministic speech events are not live acoustic barge-in.
+- Logs and error bodies share one redaction path (`backend/app/redaction.py`). Request-validation
+  failures return the same `error.v1` envelope as other errors, keep safe field-level diagnostics
+  and never echo the submitted input.
 
 ## Tutor language-model providers
 
