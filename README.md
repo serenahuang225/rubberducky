@@ -282,6 +282,17 @@ while `undo_tutor_move` reverses one whole tutor teaching move (every object fro
 as a group, leaving student objects and the student's history position untouched. Erased or
 undone objects stay hidden after a reload or restart; the operation log is authoritative and
 `scene_objects.deleted_at` is the materialized visibility updated in the same transaction.
+
+The client holds up its end with a durable per-session outbox and scene cache
+(`frontend/src/storage/outbox.ts`, `sceneCache.ts`, AsyncStorage on device and web). A finished
+stroke that cannot reach the server is queued under its original operation id, stays on the
+board as a faded dashed mark labeled "not saved yet", and is retried with the same id on
+reconnect or the next app load, so a lost acknowledgement replays instead of duplicating.
+History edits (erase/undo/redo/tutor-move undo) depend on current server state and are refused
+honestly while offline rather than queued. The last committed server snapshot is cached so
+re-entry paints real work immediately, and the board ignores input until its first real layout
+measurement so an early stroke can never be squashed into a corner. The board always says when
+work is unsaved; quiet means saved.
 ### iPad over trusted Wi-Fi (Expo Go)
 
 Only do this on a private network you trust. There is no public tunnel.

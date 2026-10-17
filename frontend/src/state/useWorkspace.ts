@@ -1,7 +1,18 @@
 /**
- * Workspace controller: owns the session, scene snapshot and tutor conversation state
- * for the whiteboard screen. All mutations go through the real API; the scene is
- * re-fetched after every committed change so the board always shows durable truth.
+ * Workspace controller: owns the session, scene snapshot, tutor conversation state and
+ * the durable save pipeline for the whiteboard screen.
+ *
+ * Durability contract:
+ * - Every committed change is re-fetched from the server and mirrored into the durable
+ *   scene cache, so reload/re-entry paints the last committed scene immediately and then
+ *   replaces it with authoritative state.
+ * - A finished stroke that cannot reach the server is queued in the durable outbox under
+ *   its original operation id, stays visible as an honest "not saved yet" mark, and is
+ *   retried with that SAME id on reconnect — the server's idempotent commit makes the
+ *   retry land exactly once.
+ * - History edits (erase/undo/redo/tutor-move undo) depend on current server state, so
+ *   they are never queued: without a connection they are refused honestly instead.
+ * - A server rejection surfaces the server's own message; nothing is retried blindly.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -11,8 +22,21 @@ import { ApiClient, ApiClientError, type SceneActionRequest } from '../api/clien
 import type { SceneSnapshot, SessionState, TutorTurnResult } from '../api/contracts';
 import { newId } from '../api/ids';
 import { commitWithResync, makeSceneSync } from '../api/sceneSync';
+import {
+  enqueueOperation,
+  loadPendingOperations,
+  removeOperation,
+  type PendingSceneOperation,
+} from '../storage/outbox';
+import { loadCachedScene, saveCachedScene } from '../storage/sceneCache';
 
 export type WorkspacePhase = 'loading' | 'ready' | 'failed';
+
+/** A stroke that is drawn but not yet durably saved. */
+export type PendingStrokePreview = {
+  id: string;
+  points: readonly LogicalPoint[];
+};
 
 export type WorkspaceController = {
   phase: WorkspacePhase;
@@ -24,8 +48,14 @@ export type WorkspaceController = {
   /** Truthful short status for the prompt bar. */
   busyLabel: string | null;
   errorMessage: string | null;
+  /** Finished strokes held in the durable outbox, shown as visibly unsaved. */
+  pendingStrokes: readonly PendingStrokePreview[];
+  /** Number of changes not yet saved to the server. */
+  pendingCount: number;
   needsCheckIn: boolean;
   retry: () => void;
+  /** Retry saving queued changes now (also happens automatically after any success). */
+  retryPending: () => Promise<void>;
   checkIn: (energy: 'ready' | 'a_bit_tired' | 'tired') => Promise<void>;
   submitWork: (text: string) => Promise<void>;
   commitStroke: (points: readonly LogicalPoint[]) => Promise<void>;
@@ -35,18 +65,43 @@ export type WorkspaceController = {
   undoTutorMove: () => Promise<void>;
 };
 
+/** True when the request never reached a decided server response (offline/down/timeout). */
+function isNetworkFailure(error: unknown): boolean {
+  if (error instanceof ApiClientError) {
+    return false;
+  }
+  return error instanceof Error && (error.name === 'AbortError' || error instanceof TypeError);
+}
+
+function previewsFromQueue(queue: readonly PendingSceneOperation[]): PendingStrokePreview[] {
+  const previews: PendingStrokePreview[] = [];
+  for (const entry of queue) {
+    if (entry.action.op === 'add_stroke') {
+      previews.push({ id: entry.operationId, points: entry.action.points });
+    }
+  }
+  return previews;
+}
+
 export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceController {
   const [phase, setPhase] = useState<WorkspacePhase>('loading');
   const [state, setState] = useState<SessionState | null>(null);
   const [scene, setScene] = useState<SceneSnapshot | null>(null);
+  const [pendingOps, setPendingOps] = useState<readonly PendingSceneOperation[]>([]);
   const [lastUtterance, setLastUtterance] = useState<string | null>(null);
   const [lastExpectedAction, setLastExpectedAction] = useState<string | null>(null);
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const busyRef = useRef(false);
+  const sceneRef = useRef<SceneSnapshot | null>(null);
+  const flushingRef = useRef(false);
 
   const sync = useMemo(() => makeSceneSync(client, sessionId), [client, sessionId]);
+
+  useEffect(() => {
+    sceneRef.current = scene;
+  }, [scene]);
 
   const refresh = useCallback(async () => {
     const [nextState, nextScene] = await Promise.all([
@@ -55,16 +110,106 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
     ]);
     setState(nextState);
     setScene(nextScene);
+    // Mirror the committed server truth; never cache optimistic local guesses.
+    await saveCachedScene(nextScene).catch(() => undefined);
   }, [client, sessionId]);
+
+  const guardBusy = useCallback((label: string): boolean => {
+    if (busyRef.current) {
+      return false;
+    }
+    busyRef.current = true;
+    setBusyLabel(label);
+    setErrorMessage(null);
+    return true;
+  }, []);
+
+  const releaseBusy = useCallback((): void => {
+    busyRef.current = false;
+    setBusyLabel(null);
+  }, []);
+
+  /**
+   * Save every queued change with its original operation id, oldest first. Stops at the
+   * first network failure (the rest stay queued and visibly unsaved). Returns true when
+   * the queue is empty afterwards.
+   */
+  const flushPending = useCallback(async (): Promise<boolean> => {
+    if (flushingRef.current) {
+      return false;
+    }
+    flushingRef.current = true;
+    try {
+      let queued = await loadPendingOperations(sessionId);
+      if (queued.length === 0) {
+        setPendingOps([]);
+        return true;
+      }
+      for (const entry of queued) {
+        const currentRevision = sceneRef.current?.scene_revision ?? 0;
+        try {
+          // SAME operation id: a retried-but-already-saved op replays, never duplicates.
+          await commitWithResync(sync, entry.operationId, currentRevision, entry.action);
+        } catch (error) {
+          if (isNetworkFailure(error)) {
+            return false;
+          }
+          // A real rejection (conflict/validation) cannot be repaired by retrying; drop
+          // it from the queue so one bad entry cannot block the rest forever, and say so.
+          setErrorMessage(
+            'One unsaved change could not be accepted and was set aside. The rest of your work is unaffected.',
+          );
+        }
+        queued = await removeOperation(sessionId, entry.operationId);
+        setPendingOps(queued);
+      }
+      return true;
+    } finally {
+      flushingRef.current = false;
+    }
+  }, [sessionId, sync]);
+
+  const retryPending = useCallback(async () => {
+    if (!guardBusy('Saving…')) {
+      return;
+    }
+    try {
+      const drained = await flushPending();
+      if (drained) {
+        await refresh();
+      }
+    } catch {
+      // The queue is still honest; the notice stays until the next successful save.
+    } finally {
+      releaseBusy();
+    }
+  }, [flushPending, guardBusy, refresh, releaseBusy]);
 
   useEffect(() => {
     let active = true;
     const load = async () => {
       setPhase('loading');
       setErrorMessage(null);
+      // Paint the last committed scene from the durable cache while the server answers.
+      const [cached, queued] = await Promise.all([
+        loadCachedScene(sessionId).catch(() => null),
+        loadPendingOperations(sessionId).catch(() => []),
+      ]);
+      if (!active) return;
+      if (cached !== null) {
+        setScene(cached);
+      }
+      setPendingOps(queued);
       try {
         await refresh();
-        if (active) setPhase('ready');
+        if (active) {
+          setPhase('ready');
+        }
+        // Reconnected (or never disconnected): finish anything the outbox still holds.
+        const drained = await flushPending();
+        if (active && drained) {
+          await refresh().catch(() => undefined);
+        }
       } catch (error) {
         if (active) {
           setPhase('failed');
@@ -78,24 +223,9 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
     return () => {
       active = false;
     };
-  }, [refresh, attempt]);
+  }, [refresh, attempt, sessionId, flushPending]);
 
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
-
-  const guardBusy = useCallback((label: string): boolean => {
-    if (busyRef.current) {
-      return false;
-    }
-    busyRef.current = true;
-    setBusyLabel(label);
-    setErrorMessage(null);
-    return true;
-  }, []);
-
-  const releaseBusy = useCallback(() => {
-    busyRef.current = false;
-    setBusyLabel(null);
-  }, []);
 
   const runTurn = useCallback(
     async (label: string, action: () => Promise<TutorTurnResult>) => {
@@ -111,6 +241,7 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
           setErrorMessage('The tutor turn did not complete; your work is unchanged.');
         }
         await refresh();
+        await flushPending();
       } catch (error) {
         if (error instanceof ApiClientError && error.code === 'revision_conflict') {
           try {
@@ -126,6 +257,10 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
             );
             await refresh().catch(() => undefined);
           }
+        } else if (isNetworkFailure(error)) {
+          setErrorMessage(
+            'The tutor is not reachable right now. Your board work is kept on this device.',
+          );
         } else {
           setErrorMessage(
             error instanceof Error ? error.message : 'The tutor turn failed to send.',
@@ -136,7 +271,7 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
         releaseBusy();
       }
     },
-    [guardBusy, refresh, releaseBusy],
+    [flushPending, guardBusy, refresh, releaseBusy],
   );
 
   const checkIn = useCallback(
@@ -165,26 +300,51 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
 
   const commitSceneAction = useCallback(
     async (action: SceneActionRequest, label: string) => {
-      const current = scene;
+      const current = sceneRef.current;
       if (current === null || !guardBusy(label)) return;
+      const operationId = newId();
       try {
-        const outcome = await commitWithResync(
-          sync,
-          newId(),
-          current.scene_revision,
-          action,
-        );
+        const outcome = await commitWithResync(sync, operationId, current.scene_revision, action);
         setScene(outcome.scene);
+        await saveCachedScene(outcome.scene).catch(() => undefined);
+        // A successful save proves connectivity: finish anything still queued.
+        const drained = await flushPending();
+        if (drained) {
+          await refresh().catch(() => undefined);
+        }
       } catch (error) {
-        setErrorMessage(
-          error instanceof Error ? error.message : 'That change could not be saved.',
-        );
-        await refresh().catch(() => undefined);
+        if (isNetworkFailure(error)) {
+          if (action.op === 'add_stroke') {
+            // Keep the finished stroke on-device, visibly unsaved, for exactly-once retry.
+            const queued = await enqueueOperation({
+              operationId,
+              sessionId,
+              queuedAt: new Date().toISOString(),
+              action,
+            }).catch(() => null);
+            if (queued !== null) {
+              setPendingOps(queued);
+            }
+          } else {
+            // History edits depend on current server state; refuse rather than guess.
+            setErrorMessage(
+              'That change needs a connection to the tutor. Nothing was changed — try again when it is back.',
+            );
+          }
+        } else {
+          // The server answered and refused: show its reason, resync to real state.
+          setErrorMessage(
+            error instanceof Error
+              ? `The tutor could not save that: ${error.message}`
+              : 'That change could not be saved.',
+          );
+          await refresh().catch(() => undefined);
+        }
       } finally {
         releaseBusy();
       }
     },
-    [guardBusy, refresh, releaseBusy, scene, sync],
+    [flushPending, guardBusy, refresh, releaseBusy, sessionId, sync],
   );
 
   const commitStroke = useCallback(
@@ -217,6 +377,7 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
   );
 
   const needsCheckIn = state !== null && state.current_problem === null;
+  const pendingStrokes = useMemo(() => previewsFromQueue(pendingOps), [pendingOps]);
 
   return {
     phase,
@@ -226,8 +387,11 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
     lastExpectedAction,
     busyLabel,
     errorMessage,
+    pendingStrokes,
+    pendingCount: pendingOps.length,
     needsCheckIn,
     retry,
+    retryPending,
     checkIn,
     submitWork,
     commitStroke,

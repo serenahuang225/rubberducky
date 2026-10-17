@@ -25,10 +25,23 @@ import { distanceToStroke, ERASE_TOLERANCE } from '../board/pathData';
 import { payloadPoints, type SceneObjectRecord } from '../board/sceneTypes';
 
 import { BoardInputLayer, type BoardInputHandle, type BoardInputMode } from './BoardInputLayer';
-import { describeObject, LiveStroke, orderedObjects, SceneObjectView } from './SceneObjectView';
+import {
+  describeObject,
+  LiveStroke,
+  orderedObjects,
+  PendingStrokeView,
+  SceneObjectView,
+} from './SceneObjectView';
+
+export type PendingStroke = {
+  id: string;
+  points: readonly LogicalPoint[];
+};
 
 export type WhiteboardCanvasProps = {
   objects: readonly SceneObjectRecord[];
+  /** Finished strokes held in the durable outbox, painted faded and honestly labeled. */
+  pendingStrokes?: readonly PendingStroke[];
   theme: BoardTheme;
   mode: BoardInputMode;
   /** Commit a finished student stroke (logical points; a single point is a dot). */
@@ -42,6 +55,7 @@ export type WhiteboardCanvasProps = {
 
 export function WhiteboardCanvas({
   objects,
+  pendingStrokes = [],
   theme,
   mode,
   onStroke,
@@ -50,6 +64,10 @@ export function WhiteboardCanvas({
   testID,
 }: WhiteboardCanvasProps) {
   const [transform, setTransform] = useState<ViewTransform>(() => computeFitTransform(1, 1));
+  // Input is ignored until the first real layout measurement: the placeholder 1x1 fit
+  // would squash any point into a board corner, so a stroke drawn that early would be
+  // garbage. Better to ignore input for a frame than to commit a degenerate mark.
+  const [measured, setMeasured] = useState(false);
   const [livePoints, setLivePoints] = useState<readonly LogicalPoint[]>([]);
   const inputRef = useRef<BoardInputHandle>(null);
   const objectsRef = useRef(objects);
@@ -64,6 +82,9 @@ export function WhiteboardCanvas({
     (event: LayoutChangeEvent) => {
       const { width, height } = event.nativeEvent.layout;
       const next = computeFitTransform(width, height);
+      if (width > 1 && height > 1) {
+        setMeasured(true);
+      }
       setTransform((previous) => {
         if (transformChanged(previous, next)) {
           inputRef.current?.cancelActiveStroke();
@@ -140,7 +161,7 @@ export function WhiteboardCanvas({
       <BoardInputLayer
         ref={inputRef}
         mode={mode}
-        disabled={inputDisabled}
+        disabled={inputDisabled || !measured}
         getTransform={getTransform}
         onPreview={setLivePoints}
         onStroke={handleStroke}
@@ -161,6 +182,10 @@ export function WhiteboardCanvas({
               resolveTarget={resolveTarget}
             />
           ))}
+          {/* Queued-but-unsaved strokes stay visible, faded, never mistaken for saved. */}
+          {pendingStrokes.map((stroke) => (
+            <PendingStrokeView key={stroke.id} points={stroke.points} theme={theme} />
+          ))}
           <LiveStroke points={livePoints} theme={theme} />
         </Svg>
       </BoardInputLayer>
@@ -174,7 +199,14 @@ export function WhiteboardCanvas({
         {objects.map((object) => (
           <Text key={object.id}>{describeObject(object)}</Text>
         ))}
-        {objects.length === 0 ? <Text>The board is empty.</Text> : null}
+        {pendingStrokes.map((stroke) => (
+          <Text key={stroke.id}>
+            {stroke.points.length <= 1 ? 'Your dot' : 'Your pen stroke'} (not saved yet)
+          </Text>
+        ))}
+        {objects.length === 0 && pendingStrokes.length === 0 ? (
+          <Text>The board is empty.</Text>
+        ) : null}
       </View>
     </View>
   );

@@ -159,6 +159,30 @@ export function WorkspaceScreen({ client, sessionId, persona, displayName }: Wor
         </Text>
       ) : null}
 
+      {workspace.pendingCount > 0 ? (
+        <View
+          testID="save-notice"
+          accessibilityLiveRegion="polite"
+          style={[styles.saveNotice, { backgroundColor: theme.surface, borderColor: theme.surfaceEdge }]}
+        >
+          <Text style={[styles.saveNoticeText, { color: theme.labelText }]}>
+            {workspace.pendingCount === 1
+              ? 'One change is not saved yet. It is kept on this device and will save itself when the tutor is reachable.'
+              : `${workspace.pendingCount} changes are not saved yet. They are kept on this device and will save when the tutor is reachable.`}
+          </Text>
+          <Pressable
+            testID="save-retry"
+            accessibilityRole="button"
+            accessibilityLabel="Retry saving now"
+            disabled={workspace.busyLabel !== null}
+            onPress={() => void workspace.retryPending()}
+            style={[styles.saveRetryButton, { backgroundColor: theme.controlBackground }]}
+          >
+            <Text style={[styles.saveRetryText, { color: theme.controlText }]}>Retry now</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       {workspace.needsCheckIn ? (
         <View
           style={[styles.checkInCard, { backgroundColor: theme.surface, borderColor: theme.surfaceEdge }]}
@@ -193,6 +217,7 @@ export function WorkspaceScreen({ client, sessionId, persona, displayName }: Wor
         <WhiteboardCanvas
           testID="whiteboard"
           objects={scene.objects}
+          pendingStrokes={workspace.pendingStrokes}
           theme={theme}
           mode={mode}
           inputDisabled={workspace.busyLabel !== null}
@@ -283,6 +308,24 @@ const styles = StyleSheet.create({
   loadingText: { fontSize: 16 },
   errorTitle: { fontSize: 20, fontWeight: '700' },
   errorText: { fontSize: 14 },
+  saveNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  saveNoticeText: { flex: 1, fontSize: 14, lineHeight: 20 },
+  saveRetryButton: {
+    minHeight: 44,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveRetryText: { fontSize: 15, fontWeight: '600' },
   retryButton: {
     minHeight: 44,
     paddingHorizontal: 20,

@@ -1,9 +1,10 @@
-import { render } from '@testing-library/react-native';
+import { fireEvent, render } from '@testing-library/react-native';
 import React from 'react';
 
 import { getTheme } from '../board/palette';
 import type { SceneObjectRecord } from '../board/sceneTypes';
 
+import { BoardInputLayer } from './BoardInputLayer';
 import { describeObject, objectBounds, orderedObjects } from './SceneObjectView';
 import { WhiteboardCanvas } from './WhiteboardCanvas';
 
@@ -192,6 +193,65 @@ describe('WhiteboardCanvas', () => {
     expect(screen.getByTestId('whiteboard')).toBeTruthy();
     expect(screen.getByText('Tutor highlight on your work')).toBeTruthy();
     expect(screen.getByText('Tutor focus frame')).toBeTruthy();
+  });
+
+  it('renders queued strokes as visibly unsaved, never as committed work', () => {
+    const screen = render(
+      <WhiteboardCanvas
+        testID="whiteboard"
+        objects={[object({ id: 's1', payload: { points: [{ x: 1, y: 1 }, { x: 9, y: 9 }] } })]}
+        pendingStrokes={[
+          { id: 'pending-1', points: [{ x: 100, y: 100 }, { x: 200, y: 120 }] },
+          { id: 'pending-2', points: [{ x: 300, y: 300 }] },
+        ]}
+        theme={theme}
+        mode="draw"
+        onStroke={noop}
+        onEraseAt={noop}
+      />,
+    );
+    // Committed work keeps its normal label; queued marks say "not saved yet".
+    expect(screen.getByText('Your pen stroke')).toBeTruthy();
+    expect(screen.getByText('Your pen stroke (not saved yet)')).toBeTruthy();
+    expect(screen.getByText('Your dot (not saved yet)')).toBeTruthy();
+  });
+
+  it('ignores board input until the first real layout measurement', () => {
+    // The placeholder 1x1 fit transform would squash any early point into a board
+    // corner; input must stay disabled until onLayout reports a real size.
+    const screen = render(
+      <WhiteboardCanvas
+        testID="whiteboard"
+        objects={[]}
+        theme={theme}
+        mode="draw"
+        onStroke={noop}
+        onEraseAt={noop}
+      />,
+    );
+    expect(screen.UNSAFE_getByType(BoardInputLayer).props.disabled).toBe(true);
+    fireEvent(screen.getByTestId('whiteboard'), 'onLayout', {
+      nativeEvent: { layout: { width: 800, height: 600 } },
+    });
+    expect(screen.UNSAFE_getByType(BoardInputLayer).props.disabled).toBe(false);
+  });
+
+  it('keeps input disabled after layout while a save is in flight', () => {
+    const screen = render(
+      <WhiteboardCanvas
+        testID="whiteboard"
+        objects={[]}
+        theme={theme}
+        mode="draw"
+        inputDisabled
+        onStroke={noop}
+        onEraseAt={noop}
+      />,
+    );
+    fireEvent(screen.getByTestId('whiteboard'), 'onLayout', {
+      nativeEvent: { layout: { width: 800, height: 600 } },
+    });
+    expect(screen.UNSAFE_getByType(BoardInputLayer).props.disabled).toBe(true);
   });
 
   it('ignores a malformed payload instead of crashing the board', () => {

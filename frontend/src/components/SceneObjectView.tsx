@@ -235,6 +235,36 @@ export function LiveStroke({ points, theme }: { points: readonly LogicalPoint[];
   );
 }
 
+/** A finished stroke waiting in the durable outbox: visibly unsaved (faded), never
+ *  confused with committed work, and never dropped from view while unsaved. */
+export function PendingStrokeView({
+  points,
+  theme,
+}: {
+  points: readonly LogicalPoint[];
+  theme: BoardTheme;
+}) {
+  if (points.length === 0) return null;
+  const ink = theme.studentInk;
+  return (
+    <G opacity={0.45}>
+      {points.length === 1 ? (
+        <Circle cx={points[0].x} cy={points[0].y} r={DOT_RADIUS} fill={ink} />
+      ) : (
+        <Path
+          d={pointsToPathData(points) ?? ''}
+          stroke={ink}
+          strokeWidth={PEN_WIDTH}
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeDasharray="10 8"
+        />
+      )}
+    </G>
+  );
+}
+
 /** Stable render order: highlight washes and focus frames paint underneath ink. */
 export function orderedObjects(objects: readonly SceneObjectRecord[]): SceneObjectRecord[] {
   const underlay = objects.filter((o) => o.kind === 'highlight' || o.kind === 'focus_region');
