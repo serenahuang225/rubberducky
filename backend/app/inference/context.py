@@ -26,6 +26,7 @@ from app.inference.tokens import DEFAULT_TOKEN_COUNTER, TokenCounter
 from app.learner.memory import (
     active_session_context,
     latest_estimates,
+    non_current_memory_ids,
     preferences,
     stale_session_context_count,
     usable_notes,
@@ -334,12 +335,13 @@ def _select(
     return selection, gaps
 
 
-def _citable(items: list[ContextItem]) -> list[str]:
+def _citable(items: list[ContextItem], non_current: frozenset[str] = frozenset()) -> list[str]:
     ids: dict[str, None] = {}
     for item in items:
         ids[item.ref] = None
         for source_id in item.source_ids:
-            ids[source_id] = None
+            if source_id not in non_current:
+                ids[source_id] = None
         if item.hypothesis_id is not None:
             ids[item.hypothesis_id] = None
         for key in _LINK_FACTS:
@@ -473,9 +475,12 @@ def build_tutor_context(
     if insufficient:
         payload, text, tokens = render(insufficient=True)
 
-    citable = _citable([c.item for c in kept])
+    non_current = non_current_memory_ids(repo)
+    citable = _citable([c.item for c in kept], non_current)
     citable_set = set(citable)
-    omitted_ids = [i for i in _citable([c.item for c in dropped]) if i not in citable_set]
+    omitted_ids = [
+        i for i in _citable([c.item for c in dropped], non_current) if i not in citable_set
+    ]
     return TutorContext(
         learner_id=repo.learner_id,
         generated_at=now,

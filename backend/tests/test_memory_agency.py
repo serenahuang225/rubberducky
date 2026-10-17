@@ -391,6 +391,89 @@ class TestHypothesesAndNotes:
             assert response.status_code == 422
 
 
+class TestCorrectedNoteCitation:
+    """A corrected note stays inspectable lineage but is never current evidence."""
+
+    def _correct(self, client: TestClient, ada: dict[str, str]) -> str:
+        response = client.post(
+            f"/memory/notes/{ADA_NOTE}/correction",
+            json={"content": "I can group both terms on my own now."},
+            headers=ada,
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["replacement_id"]
+
+    def _turn_citing(
+        self,
+        client: TestClient,
+        ada: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+        cited: str,
+    ) -> dict[str, Any]:
+        mock = MockTutorProvider()
+
+        class Citing:
+            def label(self) -> ProviderLabel:
+                return ProviderLabel(name="test-double", is_mock=False, label="Test double")
+
+            def draft(self, inputs):
+                draft = mock.draft(inputs)
+                return draft.model_copy(update={"evidence_ids": [*draft.evidence_ids, cited]})
+
+        session_id = start_session(client, ada)
+        check_in(client, ada, session_id)
+        monkeypatch.setattr("app.tutor.coordinator.get_provider", lambda settings: Citing())
+        response = post_turn(
+            client,
+            ada,
+            session_id,
+            "work",
+            {"expected_revision": 1, "text": "2x + 3 = 14"},
+            key("cite"),
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    def test_context_keeps_the_replacement_citable_but_not_the_corrected_original(
+        self, client: TestClient, database: Database, ada: dict[str, str]
+    ) -> None:
+        replacement = self._correct(client, ada)
+        with database.transaction() as db:
+            context = build_tutor_context(scoped(db, DEMO_LEARNER_ADA), DISTRIBUTION, utc_now())
+            original = db.get(MemoryEntryRow, ADA_NOTE)
+            assert original is not None and original.status == "corrected"
+        assert replacement in context.citable_ids
+        assert ADA_NOTE not in context.citable_ids
+        # The lineage itself is still inspectable.
+        items = {i["id"]: i for i in client.get("/memory/inspect", headers=ada).json()["items"]}
+        assert items[replacement]["supersedes_id"] == ADA_NOTE
+
+    def test_provider_cannot_cite_a_corrected_original_as_current_evidence(
+        self,
+        client: TestClient,
+        database: Database,
+        ada: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        self._correct(client, ada)
+        result = self._turn_citing(client, ada, monkeypatch, ADA_NOTE)
+        assert result["status"] == "rejected"
+        assert "uncitable_evidence" in {r["code"] for r in result["rejections"]}
+
+    def test_provider_can_cite_the_active_replacement(
+        self,
+        client: TestClient,
+        database: Database,
+        ada: dict[str, str],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        replacement = self._correct(client, ada)
+        result = self._turn_citing(client, ada, monkeypatch, replacement)
+        assert result["status"] == "committed", result
+        assert replacement in result["evidence_ids"]
+        assert ADA_NOTE not in result["context_source_ids"]
+
+
 class TestInspectionAndSources:
     def test_inspection_explains_sources_uncertainty_and_actions(
         self, client: TestClient, ada: dict[str, str]

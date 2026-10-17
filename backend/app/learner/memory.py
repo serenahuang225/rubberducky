@@ -42,6 +42,22 @@ def _is_live(row: MemoryEntryRow, now: datetime) -> bool:
     return row.status == "active" and (row.expires_at is None or row.expires_at > now)
 
 
+def non_current_memory_ids(repo: ScopedRepository) -> frozenset[str]:
+    """IDs of the learner's memory entries that are corrected, flagged, expired or retracted.
+
+    Replacement notes keep their original's ID as lineage in ``source_ids``; that lineage is
+    for inspection, not permission to cite the excluded wording as current evidence.
+    """
+    return frozenset(
+        repo.db.execute(
+            select(MemoryEntryRow.id).where(
+                MemoryEntryRow.learner_id == repo.learner_id,
+                MemoryEntryRow.status != "active",
+            )
+        ).scalars()
+    )
+
+
 def active_session_context(
     repo: ScopedRepository, session_id: str | None, now: datetime
 ) -> list[MemoryEntry]:
