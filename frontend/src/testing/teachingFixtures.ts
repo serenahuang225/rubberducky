@@ -1,0 +1,102 @@
+/**
+ * Wire-shaped fixtures for adaptive teaching tests, mirroring real backend payloads
+ * (tutor-turn-result.v1, wait-state.v1, wait-preference.v1). Test-only; never bundled.
+ */
+
+export const METHOD_SLIP_TURN = {
+  schema_version: 'tutor-turn-result.v1',
+  turn_id: 'turn-1',
+  session_id: 's1',
+  kind: 'work',
+  status: 'committed',
+  base_revision: 1,
+  session_revision: 2,
+  provider: { name: 'mock', is_mock: true, label: 'Deterministic mock tutor (not a language model)' },
+  student_input: {
+    input_mode: 'typed',
+    text: 'x = 4 because I multiplied 2 by x but left 3 unchanged',
+    classification: 'solution_with_questionable_reasoning',
+    step_id: 'step-1',
+    observation_ids: ['obs-1'],
+    assessment_id: 'assess-1',
+    assessment_kind: 'practice_check',
+    assessment_independent: false,
+    verification: {
+      schema_version: 'verification-result.v1',
+      check: 'solution',
+      status: 'valid',
+      reason: 'solution_matches',
+      judgment_scope: 'mathematical',
+      bounds_version: 'verification-bounds.v1',
+    },
+    reasoning_assessment: {
+      judgment_scope: 'pedagogical',
+      evidence_kind: 'inference',
+      status: 'questionable',
+      pattern: 'second_term_unchanged',
+      confidence: 0.5,
+      explanation_text: 'I multiplied 2 by x but left 3 unchanged',
+    },
+    explanation_judgment: null,
+    eligibility: [
+      {
+        observation_id: 'obs-1',
+        evidence_kind: 'verified_assessment',
+        source_type: 'assessment',
+        assisted: false,
+        eligible: false,
+        reason: 'independent_reasoning_missing',
+        update_status: 'ineligible',
+      },
+    ],
+  },
+  current_problem: null,
+  pace: 'standard',
+  action_type: 'reasoning_check',
+  utterance: "x = 4 does work, so the value isn't the question. What does the 2 do to each term?",
+  expected_student_action: 'Say what the outside factor does to each term.',
+  hypothesis: {
+    id: 'hyp-1',
+    label: 'May be distributing to only the first term',
+    confidence: 0.4,
+    alternatives: ['A copying slip rather than a method gap'],
+    status: 'tentative',
+    evidence_kind: 'inference',
+    source_ids: ['obs-1'],
+    contradicting_source_ids: ['obs-0'],
+    substantive_counterevidence: false,
+  },
+  hint_level: 1,
+  answer_revealed: false,
+  representation: 'outside_factor',
+  support_change: 'none',
+  drawings: [{ object_id: 'obj-1', tool: 'highlight', semantic_role: 'emphasis' }],
+  decision_justification: 'Verified value, but the stated method skips a term.',
+  replayed: false,
+};
+
+export const WAIT_STATE = {
+  schema_version: 'wait-state.v1',
+  session_id: 's1',
+  now: '2026-10-17T16:39:23.474192Z',
+  wait_seconds: 45,
+  wait_source: 'default',
+  last_activity_at: '2026-10-17T16:39:23.410053Z',
+  still_thinking_at: null,
+  still_thinking_count: 0,
+  quiet_hint_at: '2026-10-17T16:40:08.410053Z',
+  quiet_hint_available: false,
+  next_hint_level: 1,
+  proactive_prompt: 'none',
+  silence_interpretation: 'missing_evidence',
+};
+
+export const WAIT_PREFERENCE = {
+  schema_version: 'wait-preference.v1',
+  wait_seconds: 45,
+  source: 'default',
+  default_seconds: 45,
+  min_seconds: 5,
+  max_seconds: 300,
+  updated_at: null,
+};

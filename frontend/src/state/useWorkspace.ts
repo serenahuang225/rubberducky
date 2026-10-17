@@ -16,6 +16,9 @@
  * - History edits (erase/undo/redo/tutor-move undo) depend on current server state, so
  *   they are never queued: without a connection they are refused honestly instead.
  * - A server rejection surfaces the server's own message; nothing is retried blindly.
+ * - Help me is one logical command with one stable idempotency key and body. An uncertain
+ *   transport failure keeps that command so the next press retries it unchanged; a definite
+ *   revision conflict resyncs first and never carries a stale intent onto a new problem.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -48,6 +51,8 @@ export type WorkspaceController = {
   /** Latest committed tutor utterance for the prompt bar. */
   lastUtterance: string | null;
   lastExpectedAction: string | null;
+  /** The latest committed turn, for concise representation/disclosure/diagnostic context. */
+  lastTurn: TutorTurnResult | null;
   /** The tutor provider's own label, e.g. the honest mock label; null until known. */
   providerLabel: string | null;
   providerIsMock: boolean;
@@ -66,6 +71,8 @@ export type WorkspaceController = {
   retryPending: () => Promise<void>;
   checkIn: (energy: 'ready' | 'a_bit_tired' | 'tired') => Promise<void>;
   submitWork: (text: string) => Promise<void>;
+  /** Help me: asks /help for a hint right now, without waiting for any timer. */
+  requestHelp: () => Promise<void>;
   commitStroke: (points: readonly LogicalPoint[]) => Promise<void>;
   eraseObject: (objectId: string) => Promise<void>;
   undo: () => Promise<void>;
@@ -80,6 +87,14 @@ function isNetworkFailure(error: unknown): boolean {
   }
   return error instanceof Error && (error.name === 'AbortError' || error instanceof TypeError);
 }
+
+/** One logical Help me command: the key and body stay fixed until a definite outcome. */
+type PendingHelp = { key: string; expectedRevision: number; attemptId: string | null };
+
+const HELP_UNCERTAIN_MESSAGE =
+  'The tutor may not have received that. Press Help me again; it will not be counted twice.';
+const HELP_STALE_MESSAGE =
+  'The problem changed while that was sending, so Help me was not applied. Press Help me again if you still want a hint.';
 
 const MEMORY_ONLY_MESSAGE =
   'Your last stroke is not saved to the tutor and could not be kept on this device. It stays on the board only in memory while this screen is open. Tap Retry now once the tutor is reachable.';
@@ -110,8 +125,10 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
   const [scene, setScene] = useState<SceneSnapshot | null>(null);
   const [pendingOps, setPendingOpsState] = useState<readonly PendingSceneOperation[]>([]);
   const [memoryOps, setMemoryOpsState] = useState<readonly PendingSceneOperation[]>([]);
-  const [lastUtterance, setLastUtterance] = useState<string | null>(null);
-  const [lastExpectedAction, setLastExpectedAction] = useState<string | null>(null);
+  // Tagged with its session so a session change shows nothing from the previous one.
+  const [committed, setCommitted] = useState<{ sessionId: string; turn: TutorTurnResult } | null>(
+    null,
+  );
   const [providerLabel, setProviderLabel] = useState<string | null>(null);
   const [providerIsMock, setProviderIsMock] = useState(false);
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
@@ -122,6 +139,8 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
   const flushingRef = useRef(false);
   const pendingOpsRef = useRef<readonly PendingSceneOperation[]>([]);
   const memoryOpsRef = useRef<readonly PendingSceneOperation[]>([]);
+  const epochRef = useRef(0);
+  const pendingHelpRef = useRef<PendingHelp | null>(null);
 
   const setPendingOps = useCallback((next: readonly PendingSceneOperation[]) => {
     pendingOpsRef.current = next;
@@ -138,15 +157,28 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
     sceneRef.current = scene;
   }, [scene]);
 
-  const refresh = useCallback(async () => {
+  // A new session invalidates the pending help command and any in-flight help response.
+  useEffect(() => {
+    epochRef.current += 1;
+    pendingHelpRef.current = null;
+    return () => {
+      epochRef.current += 1;
+    };
+  }, [client, sessionId]);
+
+  const refresh = useCallback(async (): Promise<SessionState> => {
+    const epoch = epochRef.current;
     const [nextState, nextScene] = await Promise.all([
       client.sessionState(sessionId),
       client.sceneSnapshot(sessionId),
     ]);
-    setState(nextState);
-    setScene(nextScene);
-    // Mirror the committed server truth; never cache optimistic local guesses.
-    await saveCachedScene(nextScene).catch(() => undefined);
+    if (epoch === epochRef.current) {
+      setState(nextState);
+      setScene(nextScene);
+      // Mirror the committed server truth; never cache optimistic local guesses.
+      await saveCachedScene(nextScene).catch(() => undefined);
+    }
+    return nextState;
   }, [client, sessionId]);
 
   const guardBusy = useCallback((label: string): boolean => {
@@ -283,33 +315,35 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
 
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
+  /** Shows a turn's provider and, when committed, its tutor words and teaching context. */
+  const applyTurnResult = useCallback(
+    (result: TutorTurnResult) => {
+    setProviderLabel(result.provider.label);
+    setProviderIsMock(result.provider.is_mock);
+    if (result.status === 'committed') {
+      setCommitted({ sessionId, turn: result });
+    } else if (result.status === 'rejected') {
+      setErrorMessage('The tutor could not use that turn; your work is unchanged.');
+    } else {
+      setErrorMessage('The tutor turn did not complete; your work is unchanged.');
+    }
+    },
+    [sessionId],
+  );
+
   const runTurn = useCallback(
     async (label: string, action: () => Promise<TutorTurnResult>) => {
       if (!guardBusy(label)) return;
       try {
         const result = await action();
-        setProviderLabel(result.provider.label);
-        setProviderIsMock(result.provider.is_mock);
-        if (result.status === 'committed') {
-          setLastUtterance(result.utterance);
-          setLastExpectedAction(result.expected_student_action);
-        } else if (result.status === 'rejected') {
-          setErrorMessage('The tutor could not use that turn; your work is unchanged.');
-        } else {
-          setErrorMessage('The tutor turn did not complete; your work is unchanged.');
-        }
+        applyTurnResult(result);
         await refresh();
         await flushPending();
       } catch (error) {
         if (error instanceof ApiClientError && error.code === 'revision_conflict') {
           try {
             const result = await action();
-            setProviderLabel(result.provider.label);
-            setProviderIsMock(result.provider.is_mock);
-            if (result.status === 'committed') {
-              setLastUtterance(result.utterance);
-              setLastExpectedAction(result.expected_student_action);
-            }
+            applyTurnResult(result);
             await refresh();
           } catch (second) {
             setErrorMessage(
@@ -333,7 +367,7 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
         releaseBusy();
       }
     },
-    [flushPending, guardBusy, refresh, releaseBusy],
+    [applyTurnResult, flushPending, guardBusy, refresh, releaseBusy],
   );
 
   const checkIn = useCallback(
@@ -359,6 +393,64 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
     },
     [client, runTurn, sessionId, state],
   );
+
+  const requestHelp = useCallback(async () => {
+    const current = state;
+    if (current === null || current.current_problem === null) return;
+    if (!guardBusy('Thinking…')) return;
+    const epoch = epochRef.current;
+    const attemptId = current.current_problem.attempt_id;
+    let command = pendingHelpRef.current;
+    if (command === null || command.attemptId !== attemptId) {
+      command = { key: newId(), expectedRevision: current.session.revision, attemptId };
+      pendingHelpRef.current = command;
+    }
+    try {
+      let result: TutorTurnResult;
+      try {
+        result = await client.requestHelp(sessionId, command.key, command.expectedRevision, 'hint');
+      } catch (error) {
+        if (!(error instanceof ApiClientError && error.code === 'revision_conflict')) {
+          throw error;
+        }
+        // A definite conflict applied nothing. Resync, and only re-ask for the problem the
+        // learner was actually looking at; a new problem never inherits the old intent.
+        pendingHelpRef.current = null;
+        const fresh = await refresh();
+        if (epoch !== epochRef.current) return;
+        if ((fresh.current_problem?.attempt_id ?? null) !== attemptId) {
+          setErrorMessage(HELP_STALE_MESSAGE);
+          return;
+        }
+        command = { key: newId(), expectedRevision: fresh.session.revision, attemptId };
+        pendingHelpRef.current = command;
+        result = await client.requestHelp(sessionId, command.key, command.expectedRevision, 'hint');
+      }
+      if (epoch !== epochRef.current) return;
+      if (result.status !== 'pending') {
+        pendingHelpRef.current = null;
+      }
+      applyTurnResult(result);
+      await refresh();
+      await flushPending();
+    } catch (error) {
+      if (epoch !== epochRef.current) return;
+      if (isNetworkFailure(error)) {
+        // Keep the command: the next press retries the same key and body, never a duplicate.
+        setErrorMessage(
+          memoryOpsRef.current.length > 0
+            ? `${HELP_UNCERTAIN_MESSAGE} Some of your board work is held only in memory, not on this device.`
+            : HELP_UNCERTAIN_MESSAGE,
+        );
+      } else {
+        pendingHelpRef.current = null;
+        setErrorMessage(error instanceof Error ? error.message : 'Help me could not be sent.');
+        await refresh().catch(() => undefined);
+      }
+    } finally {
+      releaseBusy();
+    }
+  }, [applyTurnResult, client, flushPending, guardBusy, refresh, releaseBusy, sessionId, state]);
 
   const commitSceneAction = useCallback(
     async (action: SceneActionRequest, label: string) => {
@@ -443,6 +535,7 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
     [commitSceneAction],
   );
 
+  const lastTurn = committed !== null && committed.sessionId === sessionId ? committed.turn : null;
   const needsCheckIn = state !== null && state.current_problem === null;
   const unsavedOps = useMemo(() => mergeQueues(pendingOps, memoryOps), [pendingOps, memoryOps]);
   const pendingStrokes = useMemo(() => previewsFromQueue(unsavedOps), [unsavedOps]);
@@ -451,8 +544,9 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
     phase,
     state,
     scene,
-    lastUtterance,
-    lastExpectedAction,
+    lastUtterance: lastTurn?.utterance ?? null,
+    lastExpectedAction: lastTurn?.expected_student_action ?? null,
+    lastTurn,
     providerLabel,
     providerIsMock,
     busyLabel,
@@ -467,6 +561,7 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
     retryPending,
     checkIn,
     submitWork,
+    requestHelp,
     commitStroke,
     eraseObject,
     undo,

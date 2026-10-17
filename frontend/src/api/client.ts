@@ -18,6 +18,8 @@ import {
   sessionStateSchema,
   tutorConfigurationSchema,
   tutorTurnResultSchema,
+  waitPreferenceSchema,
+  waitStateSchema,
   type Appearance,
   type ComfortOverride,
   type MeResponse,
@@ -30,6 +32,8 @@ import {
   type SessionState,
   type TutorConfiguration,
   type TutorTurnResult,
+  type WaitPreference,
+  type WaitState,
 } from './contracts';
 import type { LogicalPoint } from '../board/geometry';
 import { modelReadinessSchema, type ModelReadiness } from './health';
@@ -175,6 +179,38 @@ export class ApiClient {
       },
       idempotencyKey,
     });
+  }
+
+  /** Help me: a hint (or, on request, an explanation) now. Same turn contract as /work. */
+  requestHelp(
+    sessionId: string,
+    idempotencyKey: string,
+    expectedRevision: number,
+    mode: 'hint' | 'explain' = 'hint',
+  ): Promise<TutorTurnResult> {
+    return this.request('POST', `/sessions/${sessionId}/help`, tutorTurnResultSchema, {
+      body: { schema_version: 'help-request.v1', expected_revision: expectedRevision, mode },
+      idempotencyKey,
+    });
+  }
+
+  waitPreference(): Promise<WaitPreference> {
+    return this.request('GET', '/me/wait-preference', waitPreferenceSchema);
+  }
+
+  putWaitPreference(waitSeconds: number): Promise<WaitPreference> {
+    return this.request('PUT', '/me/wait-preference', waitPreferenceSchema, {
+      body: { schema_version: 'wait-preference-request.v1', wait_seconds: waitSeconds },
+    });
+  }
+
+  waitState(sessionId: string): Promise<WaitState> {
+    return this.request('GET', `/sessions/${sessionId}/wait`, waitStateSchema);
+  }
+
+  /** Explicit "Still thinking": wait metadata only. Not idempotent, so never auto-replayed. */
+  stillThinking(sessionId: string): Promise<WaitState> {
+    return this.request('POST', `/sessions/${sessionId}/still-thinking`, waitStateSchema);
   }
 
   private async request<T>(

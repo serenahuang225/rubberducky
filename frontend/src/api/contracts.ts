@@ -165,6 +165,43 @@ export const providerLabelSchema = z
   .object({ name: z.string(), is_mock: z.boolean(), label: z.string() })
   .loose();
 
+/** The verifier's judgment: a mathematical claim only, never about reasoning or independence. */
+export const verificationResultSchema = z
+  .object({
+    check: z.enum(['expression_step', 'equation_step', 'solution']),
+    status: z.enum(['valid', 'invalid', 'unknown']),
+    reason: z.string(),
+    judgment_scope: z.literal('mathematical'),
+  })
+  .loose();
+export type VerificationResult = z.infer<typeof verificationResultSchema>;
+
+/** A bounded, tentative reading of the learner's stated method (never a verdict on them). */
+export const reasoningAssessmentSchema = z
+  .object({
+    judgment_scope: z.literal('pedagogical'),
+    evidence_kind: z.literal('inference'),
+    status: z.literal('questionable'),
+    pattern: z.string(),
+    confidence: z.number().min(0).max(1),
+    explanation_text: z.string(),
+  })
+  .loose();
+export type ReasoningAssessment = z.infer<typeof reasoningAssessmentSchema>;
+
+export const eligibilityNoteSchema = z
+  .object({
+    observation_id: z.string(),
+    evidence_kind: z.string(),
+    source_type: z.string(),
+    assisted: z.boolean(),
+    eligible: z.boolean(),
+    reason: z.string().nullable(),
+    update_status: z.string().nullable().optional(),
+  })
+  .loose();
+export type EligibilityNote = z.infer<typeof eligibilityNoteSchema>;
+
 export const studentInputOutcomeSchema = z
   .object({
     input_mode: z.string(),
@@ -175,6 +212,9 @@ export const studentInputOutcomeSchema = z
     assessment_id: z.string().nullable(),
     assessment_kind: z.string().nullable(),
     assessment_independent: z.boolean().nullable(),
+    verification: verificationResultSchema.nullable().default(null),
+    reasoning_assessment: reasoningAssessmentSchema.nullable().default(null),
+    eligibility: z.array(eligibilityNoteSchema).default([]),
   })
   .loose();
 export type StudentInputOutcome = z.infer<typeof studentInputOutcomeSchema>;
@@ -183,11 +223,38 @@ export const committedDrawingSchema = z
   .object({ object_id: z.string(), tool: z.string(), semantic_role: z.string() })
   .loose();
 
+/** A tentative inference with its confidence, alternatives and actual supporting sources. */
+export const hypothesisViewSchema = z
+  .object({
+    id: z.string(),
+    label: z.string(),
+    confidence: z.number().min(0).max(1),
+    alternatives: z.array(z.string()),
+    status: z.string(),
+    source_ids: z.array(z.string()),
+    contradicting_source_ids: z.array(z.string()).default([]),
+    substantive_counterevidence: z.boolean().default(false),
+  })
+  .loose();
+export type HypothesisView = z.infer<typeof hypothesisViewSchema>;
+
+export const REPRESENTATIONS = [
+  'outside_factor',
+  'groups_picture',
+  'number_case',
+  'copy_check',
+  'worked_step',
+  'next_step',
+] as const;
+export const representationSchema = z.enum(REPRESENTATIONS);
+export type Representation = z.infer<typeof representationSchema>;
+
 export const tutorTurnResultSchema = z
   .object({
     schema_version: z.literal('tutor-turn-result.v1'),
     turn_id: z.string(),
     session_id: z.string(),
+    // Help me also returns kind 'work'; the server has no separate 'help' kind.
     kind: z.enum(['check_in', 'work']),
     status: z.enum(['pending', 'committed', 'rejected', 'failed', 'superseded']),
     base_revision: z.number().int().nonnegative(),
@@ -199,13 +266,50 @@ export const tutorTurnResultSchema = z
     action_type: z.string(),
     utterance: z.string().nullable(),
     expected_student_action: z.string().nullable(),
+    hypothesis: hypothesisViewSchema.nullable().default(null),
     hint_level: z.number().int(),
     answer_revealed: z.boolean(),
+    representation: representationSchema.nullable().default(null),
+    support_change: z.enum(['none', 'reduced']).default('none'),
+    decision_justification: z.string().nullable().default(null),
     drawings: z.array(committedDrawingSchema),
     replayed: z.boolean(),
   })
   .loose();
 export type TutorTurnResult = z.infer<typeof tutorTurnResultSchema>;
+
+export const waitPreferenceSchema = z
+  .object({
+    schema_version: z.literal('wait-preference.v1'),
+    wait_seconds: z.number().int(),
+    source: z.enum(['preference', 'default']),
+    default_seconds: z.number().int(),
+    min_seconds: z.number().int(),
+    max_seconds: z.number().int(),
+    updated_at: z.string().nullable(),
+  })
+  .loose();
+export type WaitPreference = z.infer<typeof waitPreferenceSchema>;
+
+/** Thinking-time state. The tutor never speaks on a timer and silence is missing evidence. */
+export const waitStateSchema = z
+  .object({
+    schema_version: z.literal('wait-state.v1'),
+    session_id: z.string(),
+    now: z.string(),
+    wait_seconds: z.number().int(),
+    wait_source: z.enum(['preference', 'default']),
+    last_activity_at: z.string(),
+    still_thinking_at: z.string().nullable(),
+    still_thinking_count: z.number().int().nonnegative(),
+    quiet_hint_at: z.string(),
+    quiet_hint_available: z.boolean(),
+    next_hint_level: z.number().int(),
+    proactive_prompt: z.literal('none'),
+    silence_interpretation: z.literal('missing_evidence'),
+  })
+  .loose();
+export type WaitState = z.infer<typeof waitStateSchema>;
 
 export const errorEnvelopeSchema = z
   .object({

@@ -1,7 +1,9 @@
 /**
  * The primary workspace screen: the shared whiteboard is the main surface, with a small
  * avatar/status chip, a compact prompt bar, the tool rail and a typed-step row. Check-in
- * is a short card, not a chat. All work goes through the real API via useWorkspace.
+ * is a short card, not a chat. All work goes through the real API via useWorkspace; waiting
+ * (Still thinking, the quiet hint and the wait preference) goes through useWaitAgency and
+ * never submits work or speaks on a timer.
  */
 
 import React, { useCallback, useMemo, useState } from 'react';
@@ -23,8 +25,11 @@ import { loadThemeName, saveThemeName } from '../storage/credentials';
 import type { BoardInputMode } from '../components/BoardInputLayer';
 import { AvatarFigure } from '../components/AvatarFigure';
 import { PromptBar } from '../components/PromptBar';
+import { TeachingContext } from '../components/TeachingContext';
 import { ToolRail } from '../components/ToolRail';
+import { WaitControls } from '../components/WaitControls';
 import { WhiteboardCanvas } from '../components/WhiteboardCanvas';
+import { useWaitAgency } from '../state/useWaitAgency';
 import { useWorkspace } from '../state/useWorkspace';
 
 import { APPEARANCE_INFO, PERSONALITY_INFO } from './OnboardingScreen';
@@ -44,12 +49,24 @@ const ENERGY_OPTIONS = [
   { value: 'tired' as const, label: 'Really tired' },
 ];
 
+function stillThinkingStatusText(status: 'idle' | 'sent' | 'failed'): string | null {
+  if (status === 'sent') return 'Take your time — your tutor will wait.';
+  if (status === 'failed') {
+    return 'Could not tell your tutor you are still thinking, but nothing changed. Take your time.';
+  }
+  return null;
+}
+
 export function WorkspaceScreen({ client, sessionId, persona, displayName, onSessionEnded }: WorkspaceScreenProps) {
   const workspace = useWorkspace(client, sessionId);
+  const wait = useWaitAgency(client, sessionId, {
+    enabled: workspace.phase === 'ready' && workspace.state !== null && workspace.state.current_problem !== null,
+    // Real activity (a turn or a stroke) moves these revisions; typing and idling do not.
+    activityKey: `${workspace.state?.session.revision ?? 'none'}:${workspace.scene?.scene_revision ?? 'none'}`,
+  });
   const [themeName, setThemeName] = useState<BoardThemeName>('paper');
   const [mode, setMode] = useState<BoardInputMode>('draw');
   const [draft, setDraft] = useState('');
-  const [stillThinkingNote, setStillThinkingNote] = useState(false);
   const [ending, setEnding] = useState(false);
   const [endError, setEndError] = useState<string | null>(null);
 
@@ -78,19 +95,19 @@ export function WorkspaceScreen({ client, sessionId, persona, displayName, onSes
     const text = draft.trim();
     if (text.length === 0) return;
     setDraft('');
-    setStillThinkingNote(false);
+    wait.clearStillThinkingNote();
     void workspace.submitWork(text);
-  }, [draft, workspace]);
+  }, [draft, wait, workspace]);
 
   const askHelp = useCallback(() => {
-    setStillThinkingNote(false);
-    void workspace.submitWork("I don't know");
-  }, [workspace]);
+    wait.clearStillThinkingNote();
+    void workspace.requestHelp();
+  }, [wait, workspace]);
 
   const markStillThinking = useCallback(() => {
-    // A local, honest acknowledgement; silence creates no evidence server-side.
-    setStillThinkingNote(true);
-  }, []);
+    // Explicit wait metadata only: no work, check-in, help, scene or evidence effect.
+    void wait.stillThinking();
+  }, [wait]);
 
   const finishSession = useCallback(async () => {
     if (ending) return;
@@ -207,11 +224,10 @@ export function WorkspaceScreen({ client, sessionId, persona, displayName, onSes
         problemStatement={workspace.state.current_problem?.statement ?? null}
         tutorMessage={workspace.lastUtterance}
         expectedAction={workspace.lastExpectedAction}
-        status={
-          workspace.busyLabel ??
-          (stillThinkingNote ? 'Take your time — your tutor will wait.' : null)
-        }
+        status={workspace.busyLabel ?? stillThinkingStatusText(wait.stillThinkingStatus)}
       />
+
+      <TeachingContext theme={theme} turn={workspace.lastTurn} />
 
       {workspace.errorMessage !== null ? (
         <Text testID="workspace-error" style={[styles.errorText, { color: theme.danger }]}>
@@ -315,7 +331,7 @@ export function WorkspaceScreen({ client, sessionId, persona, displayName, onSes
           value={draft}
           onChangeText={(text) => {
             setDraft(text);
-            setStillThinkingNote(false);
+            wait.clearStillThinkingNote();
           }}
           onSubmitEditing={submitDraft}
           editable={!workspace.needsCheckIn && workspace.busyLabel === null}
@@ -343,6 +359,7 @@ export function WorkspaceScreen({ client, sessionId, persona, displayName, onSes
           testID="help-me"
           accessibilityRole="button"
           accessibilityLabel="Help me"
+          accessibilityHint={wait.hintAvailable ? 'A hint is ready when you want it' : 'Asks for a hint right now'}
           disabled={workspace.needsCheckIn || workspace.busyLabel !== null}
           onPress={askHelp}
           style={[styles.actionButton, { backgroundColor: theme.surface, borderColor: theme.surfaceEdge, borderWidth: 1 }]}
@@ -360,6 +377,14 @@ export function WorkspaceScreen({ client, sessionId, persona, displayName, onSes
           <Text style={[styles.actionText, { color: theme.labelText }]}>Still thinking</Text>
         </Pressable>
       </View>
+
+      <WaitControls
+        theme={theme}
+        hintAvailable={wait.hintAvailable}
+        preference={wait.preference}
+        preferenceError={wait.preferenceError}
+        onChangeSeconds={(seconds) => void wait.setWaitSeconds(seconds)}
+      />
     </KeyboardAvoidingView>
   );
 }
