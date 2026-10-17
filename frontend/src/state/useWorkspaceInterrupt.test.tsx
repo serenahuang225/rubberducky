@@ -138,13 +138,13 @@ beforeEach(async () => {
 });
 
 async function startHeldTurn(hook: Awaited<ReturnType<typeof renderWorkspace>>) {
-  let pending: Promise<void> | undefined;
+  let pending: Promise<unknown> | undefined;
   await act(async () => {
     pending = hook.result.current.submitWork('2x + 3 = 14');
     await Promise.resolve();
   });
   await waitFor(() => expect(hook.result.current.canInterrupt).toBe(true));
-  return { done: pending as Promise<void> };
+  return { done: pending as Promise<unknown> };
 }
 
 describe('useWorkspace interrupt', () => {

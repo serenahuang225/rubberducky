@@ -19,12 +19,14 @@
  * - Stop reply withdraws the tutor reply being prepared on the server (a retry-safe interrupt)
  *   and invalidates this client's turn generation, so a late response, speech or drawing
  *   callback of the stopped turn is ignored instead of painting over the current board.
- * - Help me is one logical command with one stable idempotency key and body. An uncertain
- *   transport failure keeps that command so the next press retries it unchanged; a definite
- *   revision conflict resyncs first and never carries a stale intent onto a new problem.
+ * - Help me and typed work are each one logical command with one stable idempotency key and
+ *   body. An uncertain transport failure keeps that command so the next send retries it
+ *   unchanged; a definite revision conflict resyncs first and never carries a stale intent
+ *   onto a new problem or session. submitWork reports whether the server gave an
+ *   authoritative outcome, so the screen clears the learner's text only then.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 
 import type { LogicalPoint } from '../board/geometry';
 import { ApiClient, ApiClientError, type SceneActionRequest } from '../api/client';
@@ -42,6 +44,8 @@ import { loadCachedScene, saveCachedScene } from '../storage/sceneCache';
 import { noticeForTurn } from './turnNotices';
 
 export type WorkspacePhase = 'loading' | 'ready' | 'failed';
+
+export type WorkSubmitOutcome = 'resolved' | 'retained' | 'stale' | 'ignored';
 
 /** A stroke that is drawn but not yet durably saved. */
 export type PendingStrokePreview = {
@@ -79,7 +83,13 @@ export type WorkspaceController = {
   /** Retry saving queued changes now (also happens automatically after any success). */
   retryPending: () => Promise<void>;
   checkIn: (energy: 'ready' | 'a_bit_tired' | 'tired') => Promise<void>;
-  submitWork: (text: string) => Promise<void>;
+  /**
+   * Send typed work. 'resolved': the server recorded it (committed or not), so the caller may
+   * clear exactly that text. 'retained': nothing authoritative came back; keep the text.
+   * 'stale': the problem or session changed, nothing was sent for the old one. 'ignored':
+   * another command was running.
+   */
+  submitWork: (text: string) => Promise<WorkSubmitOutcome>;
   /** Help me: asks /help for a hint right now, without waiting for any timer. */
   requestHelp: () => Promise<void>;
   commitStroke: (points: readonly LogicalPoint[]) => Promise<void>;
@@ -97,8 +107,34 @@ function isNetworkFailure(error: unknown): boolean {
   return error instanceof Error && (error.name === 'AbortError' || error instanceof TypeError);
 }
 
-/** One logical Help me command: the key and body stay fixed until a definite outcome. */
-type PendingHelp = { key: string; expectedRevision: number; attemptId: string | null };
+/**
+ * One logical command (Help me or typed work): the key and body stay fixed until a definite
+ * outcome. The fingerprint identifies the learner's content, so edited text never reuses
+ * the key of an earlier body.
+ */
+type LogicalCommand = {
+  key: string;
+  expectedRevision: number;
+  attemptId: string | null;
+  fingerprint: string;
+};
+
+type LogicalSpec = {
+  label: string;
+  command: MutableRefObject<LogicalCommand | null>;
+  fingerprint: string;
+  /** Typed work belongs to the problem it was written for; Help is re-asked for the current one. */
+  fenceProblem: boolean;
+  send: (key: string, expectedRevision: number) => Promise<TutorTurnResult>;
+  uncertainMessage: string;
+  staleMessage: string;
+  failureMessage: string;
+};
+
+const WORK_UNCERTAIN_MESSAGE =
+  'The tutor may not have received that. Your step is kept; press Submit again and it will not be counted twice.';
+const WORK_STALE_MESSAGE =
+  'The problem changed while that was sending, so your step was not sent. Check it and press Submit again if you still want to send it.';
 
 const HELP_UNCERTAIN_MESSAGE =
   'The tutor may not have received that. Press Help me again; it will not be counted twice.';
@@ -152,7 +188,16 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
   // Advances when the learner stops a reply; anything started earlier is stale and ignored.
   const turnGenRef = useRef(0);
   const [turnInFlight, setTurnInFlight] = useState(false);
-  const pendingHelpRef = useRef<PendingHelp | null>(null);
+  // The command lock belongs to one session: when the session changes, release it in render
+  // (React's sanctioned reset-on-prop-change) so the old session's request cannot strand it.
+  const [lockSession, setLockSession] = useState(sessionId);
+  if (lockSession !== sessionId) {
+    setLockSession(sessionId);
+    setBusyLabel(null);
+    setTurnInFlight(false);
+  }
+  const pendingHelpRef = useRef<LogicalCommand | null>(null);
+  const pendingWorkRef = useRef<LogicalCommand | null>(null);
 
   const setPendingOps = useCallback((next: readonly PendingSceneOperation[]) => {
     pendingOpsRef.current = next;
@@ -170,11 +215,14 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
   }, [scene]);
 
 
-  // A new session invalidates the pending help command and any in-flight help response.
+  // A new session invalidates pending commands and any in-flight response; the lock they held
+  // belongs to the old session and must not strand the new one.
   useEffect(() => {
     epochRef.current += 1;
     turnGenRef.current += 1;
     pendingHelpRef.current = null;
+    pendingWorkRef.current = null;
+    busyRef.current = false;
     return () => {
       epochRef.current += 1;
     };
@@ -404,82 +452,130 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
     [client, runTurn, sessionId, state],
   );
 
-  const submitWork = useCallback(
-    async (text: string) => {
+  const sendLogical = useCallback(
+    async (spec: LogicalSpec): Promise<WorkSubmitOutcome> => {
       const current = state;
-      if (current === null) return;
-      const trimmed = text.trim();
-      if (trimmed.length === 0) return;
-      await runTurn('Thinking…', () =>
-        client.submitWork(sessionId, newId(), current.session.revision, trimmed, 'typed'),
-      );
+      if (current === null || current.current_problem === null) return 'ignored';
+      if (!guardBusy(spec.label)) return 'ignored';
+      const epoch = epochRef.current;
+      const generation = turnGenRef.current;
+      const isStale = () => epoch !== epochRef.current || generation !== turnGenRef.current;
+      // A session change drops the response; a Stop means the server already withdrew only
+      // the reply, so the learner's recorded work still counts as answered.
+      const staleOutcome = (): WorkSubmitOutcome =>
+        epoch !== epochRef.current ? 'stale' : 'resolved';
+      const attemptId = current.current_problem.attempt_id;
+      let command = spec.command.current;
+      if (spec.fenceProblem && command !== null && command.attemptId !== attemptId) {
+        spec.command.current = null;
+        releaseBusy();
+        setErrorMessage(spec.staleMessage);
+        return 'stale';
+      }
+      setTurnInFlight(true);
+      if (
+        command === null ||
+        command.attemptId !== attemptId ||
+        command.fingerprint !== spec.fingerprint
+      ) {
+        command = {
+          key: newId(),
+          expectedRevision: current.session.revision,
+          attemptId,
+          fingerprint: spec.fingerprint,
+        };
+        spec.command.current = command;
+      }
+      let result: TutorTurnResult;
+      try {
+        try {
+          result = await spec.send(command.key, command.expectedRevision);
+        } catch (error) {
+          if (!(error instanceof ApiClientError && error.code === 'revision_conflict')) {
+            throw error;
+          }
+          // A definite conflict applied nothing. Resync, and only re-ask for the problem the
+          // learner was actually looking at; a new problem never inherits the old intent.
+          spec.command.current = null;
+          const fresh = await refresh();
+          if (isStale()) return staleOutcome();
+          if ((fresh.current_problem?.attempt_id ?? null) !== attemptId) {
+            setErrorMessage(spec.staleMessage);
+            return 'stale';
+          }
+          command = {
+            key: newId(),
+            expectedRevision: fresh.session.revision,
+            attemptId,
+            fingerprint: spec.fingerprint,
+          };
+          spec.command.current = command;
+          result = await spec.send(command.key, command.expectedRevision);
+        }
+        if (isStale()) return staleOutcome();
+        if (result.status !== 'pending') {
+          spec.command.current = null;
+        }
+        applyTurnResult(result);
+        // The server already answered; a failed re-read must not turn that into "uncertain".
+        await refresh().catch(() => undefined);
+        await flushPending().catch(() => false);
+        return result.status === 'pending' ? 'retained' : 'resolved';
+      } catch (error) {
+        if (isStale()) return staleOutcome();
+        if (isNetworkFailure(error)) {
+          // Keep the command: the next send retries the same key and body, never a duplicate.
+          setErrorMessage(
+            memoryOpsRef.current.length > 0
+              ? `${spec.uncertainMessage} Some of your board work is held only in memory, not on this device.`
+              : spec.uncertainMessage,
+          );
+        } else {
+          spec.command.current = null;
+          setErrorMessage(error instanceof Error ? error.message : spec.failureMessage);
+          await refresh().catch(() => undefined);
+        }
+        return 'retained';
+      } finally {
+        if (generation === turnGenRef.current) {
+          setTurnInFlight(false);
+          releaseBusy();
+        }
+      }
     },
-    [client, runTurn, sessionId, state],
+    [applyTurnResult, flushPending, guardBusy, refresh, releaseBusy, state],
+  );
+
+  const submitWork = useCallback(
+    async (text: string): Promise<WorkSubmitOutcome> => {
+      const trimmed = text.trim();
+      if (trimmed.length === 0) return 'ignored';
+      return sendLogical({
+        label: 'Thinking…',
+        command: pendingWorkRef,
+        fingerprint: trimmed,
+        fenceProblem: true,
+        send: (key, revision) => client.submitWork(sessionId, key, revision, trimmed, 'typed'),
+        uncertainMessage: WORK_UNCERTAIN_MESSAGE,
+        staleMessage: WORK_STALE_MESSAGE,
+        failureMessage: 'The tutor turn failed to send.',
+      });
+    },
+    [client, sendLogical, sessionId],
   );
 
   const requestHelp = useCallback(async () => {
-    const current = state;
-    if (current === null || current.current_problem === null) return;
-    if (!guardBusy('Thinking…')) return;
-    const epoch = epochRef.current;
-    const generation = turnGenRef.current;
-    const isStale = () => epoch !== epochRef.current || generation !== turnGenRef.current;
-    setTurnInFlight(true);
-    const attemptId = current.current_problem.attempt_id;
-    let command = pendingHelpRef.current;
-    if (command === null || command.attemptId !== attemptId) {
-      command = { key: newId(), expectedRevision: current.session.revision, attemptId };
-      pendingHelpRef.current = command;
-    }
-    try {
-      let result: TutorTurnResult;
-      try {
-        result = await client.requestHelp(sessionId, command.key, command.expectedRevision, 'hint');
-      } catch (error) {
-        if (!(error instanceof ApiClientError && error.code === 'revision_conflict')) {
-          throw error;
-        }
-        // A definite conflict applied nothing. Resync, and only re-ask for the problem the
-        // learner was actually looking at; a new problem never inherits the old intent.
-        pendingHelpRef.current = null;
-        const fresh = await refresh();
-        if (isStale()) return;
-        if ((fresh.current_problem?.attempt_id ?? null) !== attemptId) {
-          setErrorMessage(HELP_STALE_MESSAGE);
-          return;
-        }
-        command = { key: newId(), expectedRevision: fresh.session.revision, attemptId };
-        pendingHelpRef.current = command;
-        result = await client.requestHelp(sessionId, command.key, command.expectedRevision, 'hint');
-      }
-      if (isStale()) return;
-      if (result.status !== 'pending') {
-        pendingHelpRef.current = null;
-      }
-      applyTurnResult(result);
-      await refresh();
-      await flushPending();
-    } catch (error) {
-      if (isStale()) return;
-      if (isNetworkFailure(error)) {
-        // Keep the command: the next press retries the same key and body, never a duplicate.
-        setErrorMessage(
-          memoryOpsRef.current.length > 0
-            ? `${HELP_UNCERTAIN_MESSAGE} Some of your board work is held only in memory, not on this device.`
-            : HELP_UNCERTAIN_MESSAGE,
-        );
-      } else {
-        pendingHelpRef.current = null;
-        setErrorMessage(error instanceof Error ? error.message : 'Help me could not be sent.');
-        await refresh().catch(() => undefined);
-      }
-    } finally {
-      if (generation === turnGenRef.current) {
-        setTurnInFlight(false);
-        releaseBusy();
-      }
-    }
-  }, [applyTurnResult, client, flushPending, guardBusy, refresh, releaseBusy, sessionId, state]);
+    await sendLogical({
+      label: 'Thinking…',
+      command: pendingHelpRef,
+      fingerprint: 'help:hint',
+      fenceProblem: false,
+      send: (key, revision) => client.requestHelp(sessionId, key, revision, 'hint'),
+      uncertainMessage: HELP_UNCERTAIN_MESSAGE,
+      staleMessage: HELP_STALE_MESSAGE,
+      failureMessage: 'Help me could not be sent.',
+    });
+  }, [client, sendLogical, sessionId]);
 
   const interrupt = useCallback(async () => {
     if (!turnInFlight) return;
@@ -504,6 +600,7 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
     // The server has withdrawn the reply: ignore whatever the stopped request returns.
     turnGenRef.current += 1;
     pendingHelpRef.current = null;
+    pendingWorkRef.current = null;
     setTurnInFlight(false);
     releaseBusy();
     setErrorMessage('Stopped. Your work is saved and the unfinished reply was dropped.');

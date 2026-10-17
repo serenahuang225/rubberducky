@@ -94,9 +94,14 @@ export function WorkspaceScreen({ client, sessionId, persona, displayName, onSes
   const submitDraft = useCallback(() => {
     const text = draft.trim();
     if (text.length === 0) return;
-    setDraft('');
     wait.clearStillThinkingNote();
-    void workspace.submitWork(text);
+    void workspace.submitWork(text).then((outcome) => {
+      // Only an authoritative answer for exactly this text removes it; a failed or uncertain
+      // send keeps it for retry, and anything the learner typed since stays untouched.
+      if (outcome === 'resolved') {
+        setDraft((current) => (current.trim() === text ? '' : current));
+      }
+    });
   }, [draft, wait, workspace]);
 
   const askHelp = useCallback(() => {
