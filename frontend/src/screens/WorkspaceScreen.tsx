@@ -34,6 +34,8 @@ export type WorkspaceScreenProps = {
   sessionId: string;
   persona: TutorConfiguration;
   displayName: string;
+  /** Called after the current session was durably ended, so the app can start fresh. */
+  onSessionEnded: () => void;
 };
 
 const ENERGY_OPTIONS = [
@@ -42,12 +44,14 @@ const ENERGY_OPTIONS = [
   { value: 'tired' as const, label: 'Really tired' },
 ];
 
-export function WorkspaceScreen({ client, sessionId, persona, displayName }: WorkspaceScreenProps) {
+export function WorkspaceScreen({ client, sessionId, persona, displayName, onSessionEnded }: WorkspaceScreenProps) {
   const workspace = useWorkspace(client, sessionId);
   const [themeName, setThemeName] = useState<BoardThemeName>('paper');
   const [mode, setMode] = useState<BoardInputMode>('draw');
   const [draft, setDraft] = useState('');
   const [stillThinkingNote, setStillThinkingNote] = useState(false);
+  const [ending, setEnding] = useState(false);
+  const [endError, setEndError] = useState<string | null>(null);
 
   React.useEffect(() => {
     let active = true;
@@ -87,6 +91,24 @@ export function WorkspaceScreen({ client, sessionId, persona, displayName }: Wor
     // A local, honest acknowledgement; silence creates no evidence server-side.
     setStillThinkingNote(true);
   }, []);
+
+  const finishSession = useCallback(async () => {
+    if (ending) return;
+    setEnding(true);
+    setEndError(null);
+    try {
+      await client.endSession(sessionId);
+      onSessionEnded();
+    } catch (error) {
+      setEndError(
+        error instanceof Error
+          ? `The session could not be ended: ${error.message}`
+          : 'The session could not be ended. Your work is saved; try again.',
+      );
+    } finally {
+      setEnding(false);
+    }
+  }, [client, ending, onSessionEnded, sessionId]);
 
   if (workspace.phase === 'loading') {
     return (
@@ -139,8 +161,46 @@ export function WorkspaceScreen({ client, sessionId, persona, displayName }: Wor
           <Text style={[styles.headerSub, { color: theme.labelMuted }]}>
             {workspace.state.pace === 'lighter' ? 'Taking it gently today' : 'Working with'} {displayName}
           </Text>
+          {workspace.providerLabel !== null ? (
+            <Text
+              testID="provider-label"
+              accessibilityLabel={
+                workspace.providerIsMock
+                  ? `Demo mode: ${workspace.providerLabel}`
+                  : `Tutor provider: ${workspace.providerLabel}`
+              }
+              style={[styles.providerLabel, { color: theme.labelMuted }]}
+            >
+              {workspace.providerIsMock
+                ? `Demo mode: ${workspace.providerLabel}`
+                : workspace.providerLabel}
+            </Text>
+          ) : null}
         </View>
+        <Pressable
+          testID="finish-session"
+          accessibilityRole="button"
+          accessibilityLabel="Finish for today"
+          accessibilityHint="Ends this session; a fresh session starts next time"
+          accessibilityState={{ disabled: ending || workspace.busyLabel !== null }}
+          disabled={ending || workspace.busyLabel !== null}
+          onPress={() => void finishSession()}
+          style={[
+            styles.finishButton,
+            { backgroundColor: theme.surface, borderColor: theme.surfaceEdge },
+          ]}
+        >
+          <Text style={[styles.finishText, { color: theme.labelText }]}>
+            {ending ? 'Ending…' : 'Finish for today'}
+          </Text>
+        </Pressable>
       </View>
+
+      {endError !== null ? (
+        <Text testID="finish-error" style={[styles.errorText, { color: theme.danger }]}>
+          {endError}
+        </Text>
+      ) : null}
 
       <PromptBar
         theme={theme}
@@ -338,6 +398,16 @@ const styles = StyleSheet.create({
   headerText: { flex: 1 },
   tutorName: { fontSize: 16, fontWeight: '700' },
   headerSub: { fontSize: 13 },
+  providerLabel: { fontSize: 12, fontStyle: 'italic', marginTop: 2 },
+  finishButton: {
+    minHeight: 44,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  finishText: { fontSize: 14, fontWeight: '600' },
   checkInCard: { padding: 16, borderRadius: 14, borderWidth: 1, gap: 8 },
   checkInTitle: { fontSize: 18, fontWeight: '700' },
   checkInSub: { fontSize: 14 },

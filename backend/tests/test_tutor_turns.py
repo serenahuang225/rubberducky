@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from app.clock import utc_now
+from app.config import Settings
 from app.db.database import Database
 from app.db.models import (
     AssessmentRow,
@@ -30,6 +31,7 @@ from app.db.models import (
 from app.db.seed import DEMO_LEARNER_ADA
 from app.inference.providers import MockTutorProvider, ProviderLabel
 from app.learner.pairing import LearnerScope, issue_pairing_code
+from app.main import create_app
 from app.schemas.tutor import CheckInRequest
 from app.tutor import coordinator
 from tests.conftest import bootstrap
@@ -976,3 +978,71 @@ class TestScopeAndState:
             "/memory/layers", headers=headers, params={"session_id": session_id}
         ).json()
         assert layers["episodic_notes"]
+
+
+class TestReturningSessionAdaptation:
+    """A returning session's instruction follows the learner's OWN submitted evidence.
+
+    Unlike the seeded-Ada case (fictional illustrative history), this journey records
+    real submitted work first, then restarts the process over the same file and compares
+    the returning learner's next instruction with a matched cold start (VAL-MEM-003,
+    VAL-CROSS-001, VAL-TEACH-011).
+    """
+
+    def test_returning_instruction_uses_submitted_evidence_after_restart(
+        self, seeded_db_url: str
+    ) -> None:
+        def make_client() -> TestClient:
+            return TestClient(create_app(Settings(database_url=seeded_db_url)))
+
+        with make_client() as client:
+            _, headers = bootstrap(client, "Returning learner")
+            first = start_session(client, headers)
+            cold_like_first = check_in(client, headers, first)
+            assert "Last time" not in cold_like_first["utterance"]
+            hinted = work(client, headers, first, "2x + 3 = 14", 1)
+            assert hinted["action_type"] == "diagnostic_hint"
+            assert hinted["hint_id"] is not None
+            work(client, headers, first, "2x + 6 = 14", 2)
+            solved = work(client, headers, first, "x = 4", 3)
+            # Assisted success: truthful praise, never independent mastery.
+            assert solved["student_input"]["assessment_independent"] is False
+            (note_id,) = solved["memory"]["applied_ids"]
+            layers = client.get(
+                "/memory/layers", headers=headers, params={"session_id": first}
+            ).json()
+            (note,) = [n for n in layers["episodic_notes"] if n["entry"]["id"] == note_id]
+            # The saved note is grounded in the actual hint and step evidence.
+            assert hinted["hint_id"] in note["entry"]["source_ids"]
+            assert note["entry"]["provenance"] == "submitted"
+            ended = client.post(f"/sessions/{first}/end", headers=headers)
+            assert ended.status_code == 200
+            assert ended.json()["status"] == "ended"
+
+        # A simulated process restart over the same file: the same bearer credential and
+        # the saved evidence still drive the next session's instruction.
+        with make_client() as restarted:
+            second = start_session(restarted, headers)
+            assert second != first
+            returning = check_in(restarted, headers, second)
+            assert (
+                "Last time, grouping both terms helped after a hint."
+                in returning["utterance"]
+            )
+            # The concise justification cites the actual stored note as its source.
+            assert note_id in returning["evidence_ids"]
+            assert returning["decision_justification"] == (
+                "Returning: earlier grouping help was assisted, "
+                "so start with an unaided variant."
+            )
+            assert returning["current_problem"]["statement"] == "2(x + 3) = 14"
+
+            # A matched cold start on the same restarted server lacks that branch.
+            _, cold_headers = bootstrap(restarted, "Cold learner")
+            cold_session = start_session(restarted, cold_headers)
+            cold = check_in(restarted, cold_headers, cold_session)
+            assert "Last time" not in cold["utterance"]
+            assert note_id not in cold["evidence_ids"]
+            assert cold["decision_justification"] == (
+                "New session: pose the unit's first problem and leave the work to the learner."
+            )

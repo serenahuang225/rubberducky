@@ -5,10 +5,16 @@ handing over answers. The client is an Expo (SDK 57) React Native app that runs 
 iPad and as a web build of the same components. The backend is a Python 3.12 FastAPI service that
 runs on your Mac.
 
-This is an early prototype. Right now the project contains the runnable skeleton: typed backend
-configuration, health and model-readiness endpoints, and a minimal status screen. The default tutor
-is a deterministic mock, labeled as such everywhere. No language model is downloaded or contacted,
-and every external integration is disabled until you activate it explicitly.
+This is an early prototype. The shared client runs the first unit's full learning loop: first-run
+onboarding (appearance and teaching style are independent choices), a short check-in and goal, one
+concise teaching move at a time on a nearly white shared whiteboard, typed/confirmed work
+submissions with bounded verification, partial hints with visible tutor marks, grounded feedback,
+assistance-aware fresh transfer problems and a short concept explanation. A "Finish for today"
+control ends the session; the next session's instruction adapts to the earlier saved evidence.
+"Still thinking" is a local acknowledgement only, and "Help me" stays reachable beside the typed
+input. The default tutor is a deterministic mock, labeled as such everywhere ("Demo mode" in the
+client, `is_mock` in the API). No language model is downloaded or contacted, and every external
+integration is disabled until you activate it explicitly.
 
 ## Repository layout
 

@@ -45,6 +45,9 @@ export type WorkspaceController = {
   /** Latest committed tutor utterance for the prompt bar. */
   lastUtterance: string | null;
   lastExpectedAction: string | null;
+  /** The tutor provider's own label, e.g. the honest mock label; null until known. */
+  providerLabel: string | null;
+  providerIsMock: boolean;
   /** Truthful short status for the prompt bar. */
   busyLabel: string | null;
   errorMessage: string | null;
@@ -90,6 +93,8 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
   const [pendingOps, setPendingOps] = useState<readonly PendingSceneOperation[]>([]);
   const [lastUtterance, setLastUtterance] = useState<string | null>(null);
   const [lastExpectedAction, setLastExpectedAction] = useState<string | null>(null);
+  const [providerLabel, setProviderLabel] = useState<string | null>(null);
+  const [providerIsMock, setProviderIsMock] = useState(false);
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -205,6 +210,17 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
         if (active) {
           setPhase('ready');
         }
+        // The provider's own identity label (e.g. the honest mock label) rides along so
+        // the workspace can show it from the start, before any turn has run.
+        await client
+          .modelReadiness()
+          .then((readiness) => {
+            if (active) {
+              setProviderLabel(readiness.label);
+              setProviderIsMock(readiness.is_mock);
+            }
+          })
+          .catch(() => undefined);
         // Reconnected (or never disconnected): finish anything the outbox still holds.
         const drained = await flushPending();
         if (active && drained) {
@@ -223,7 +239,7 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
     return () => {
       active = false;
     };
-  }, [refresh, attempt, sessionId, flushPending]);
+  }, [refresh, attempt, sessionId, flushPending, client]);
 
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
@@ -232,6 +248,8 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
       if (!guardBusy(label)) return;
       try {
         const result = await action();
+        setProviderLabel(result.provider.label);
+        setProviderIsMock(result.provider.is_mock);
         if (result.status === 'committed') {
           setLastUtterance(result.utterance);
           setLastExpectedAction(result.expected_student_action);
@@ -246,6 +264,8 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
         if (error instanceof ApiClientError && error.code === 'revision_conflict') {
           try {
             const result = await action();
+            setProviderLabel(result.provider.label);
+            setProviderIsMock(result.provider.is_mock);
             if (result.status === 'committed') {
               setLastUtterance(result.utterance);
               setLastExpectedAction(result.expected_student_action);
@@ -385,6 +405,8 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
     scene,
     lastUtterance,
     lastExpectedAction,
+    providerLabel,
+    providerIsMock,
     busyLabel,
     errorMessage,
     pendingStrokes,

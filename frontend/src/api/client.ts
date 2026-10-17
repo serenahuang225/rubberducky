@@ -32,6 +32,7 @@ import {
   type TutorTurnResult,
 } from './contracts';
 import type { LogicalPoint } from '../board/geometry';
+import { modelReadinessSchema, type ModelReadiness } from './health';
 
 export class ApiClientError extends Error {
   constructor(
@@ -114,6 +115,15 @@ export class ApiClient {
 
   sceneSnapshot(sessionId: string): Promise<SceneSnapshot> {
     return this.request('GET', `/sessions/${sessionId}/scene`, sceneSnapshotSchema);
+  }
+
+  endSession(sessionId: string): Promise<Session> {
+    return this.request('POST', `/sessions/${sessionId}/end`, sessionSchema);
+  }
+
+  /** Honest provider identity/readiness, so the UI can label a mock as a mock. */
+  modelReadiness(): Promise<ModelReadiness> {
+    return this.request('GET', '/health/model', modelReadinessSchema);
   }
 
   commitSceneOperation(

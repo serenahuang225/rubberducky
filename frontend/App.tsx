@@ -174,6 +174,7 @@ export default function App() {
           sessionId={boot.session.id}
           persona={boot.persona}
           displayName={boot.credentials.displayName}
+          onSessionEnded={() => setAttempt((n) => n + 1)}
         />
       ) : null}
     </SafeAreaView>
