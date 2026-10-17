@@ -299,6 +299,22 @@ honestly while offline rather than queued. The last committed server snapshot is
 re-entry paints real work immediately, and the board ignores input until its first real layout
 measurement so an early stroke can never be squashed into a corner. The board always says when
 work is unsaved; quiet means saved.
+### Persona rule, comfort override and accessibility preferences
+
+- `GET|PUT /me/tutor-configuration`: the first selection records server UTC time. A *different*
+  appearance or personality is accepted only at or after `last_changed_at + 604800 s`
+  (equality counts); earlier it is `409 persona_change_locked` with `Retry-After` and the exact
+  next UTC instant, and nothing (including a bundled comfort value) is written. Re-sending the
+  current pair is a no-op that never starts or resets the wait, before or after eligibility.
+  Competing requests use an atomic compare-and-swap, so only one can consume an eligibility.
+  Responses carry `outcome`, `persona_locked`, `server_now` and `next_change_available_at`.
+  Client clocks, headers and time zones are ignored.
+- `PUT /me/comfort-override` (`none | neutral_supportive | reduced_sass`): immediate, applies to
+  the next tutor turn, never locked, and writes only `comfort_override`/`comfort_updated_at`.
+- `GET|PATCH /me/accessibility-preferences` (`animation`, `sound_enabled`, `haptics_enabled`,
+  `text_only`, `captions_enabled`): partial, never locked, stored as learner preferences
+  (`a11y_*`) and independent of the persona row.
+
 ### iPad over trusted Wi-Fi (Expo Go)
 
 Only do this on a private network you trust. There is no public tunnel.

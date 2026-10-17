@@ -269,13 +269,14 @@ class PersonaOptions(ContractModel):
 class TutorConfigurationRequest(_Request):
     """Persona choice. Appearance and personality are independent axes; neither implies ability.
 
-    The comfort override takes effect immediately and never touches the other axes.
+    The comfort override takes effect immediately and never touches the other axes; leaving it
+    out keeps the current override (``none`` on the first selection).
     """
 
     schema_version: Literal["tutor-configuration-request.v1"] = "tutor-configuration-request.v1"
     appearance: Appearance
     personality: Personality
-    comfort_override: ComfortOverride = "none"
+    comfort_override: ComfortOverride | None = None
 
 
 class SessionState(ContractModel):

@@ -80,8 +80,12 @@ class TutorConfiguration(ContractModel):
     personality: Personality
     comfort_override: ComfortOverride = "none"
     provenance: Provenance
+    # Initial selection time. ``last_changed_at`` is the last effective appearance/personality
+    # change (or the initial selection) and is the only timestamp the cooldown reads.
     chosen_at: UtcDatetime
     last_changed_at: UtcDatetime
+    # Comfort is a separate immediate override; editing it never touches the two above.
+    comfort_updated_at: UtcDatetime | None = None
 
 
 class MemoryEntry(ContractModel):

@@ -489,6 +489,7 @@ class TutorConfigurationRow(Base):
     provenance: Mapped[str] = mapped_column(String(32))
     chosen_at: Mapped[datetime]
     last_changed_at: Mapped[datetime]
+    comfort_updated_at: Mapped[datetime | None]
 
 
 class MemoryEntryRow(Base):

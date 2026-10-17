@@ -4,17 +4,15 @@ from datetime import datetime
 
 from sqlalchemy import select
 
-from app.db.models import TutorConfigurationRow, TutorTurnRow
+from app.db.models import TutorTurnRow
 from app.db.repositories import NotInScopeError, ScopedRepository
 from app.learner.memory import active_session_context, stale_session_context_count
-from app.learner.pairing import new_id
 from app.pedagogy.persona import APPEARANCES, COMFORT_OVERRIDES, PERSONALITIES
 from app.pedagogy.problems import UnknownProblemError, problem_spec
-from app.schemas import Session, TutorConfiguration
+from app.schemas import Session
 from app.schemas.tutor import (
     PersonaOptions,
     SessionState,
-    TutorConfigurationRequest,
     TutorTurnResult,
 )
 from app.tutor.evidence import open_attempt, problem_view, statement_object_id
@@ -29,43 +27,6 @@ def persona_options() -> PersonaOptions:
         personalities=list(PERSONALITIES),
         comfort_overrides=list(COMFORT_OVERRIDES),
     )
-
-
-def configure_persona(
-    repo: ScopedRepository, body: TutorConfigurationRequest, now: datetime
-) -> TutorConfiguration:
-    """Create the first-run persona configuration or replace it.
-
-    Baseline behavior: both axes are always editable here, and a comfort override applies
-    immediately. A durable-change cooldown is a separate concern layered on later.
-    """
-    row = repo.db.execute(
-        select(TutorConfigurationRow).where(
-            TutorConfigurationRow.learner_id == repo.learner_id
-        )
-    ).scalar_one_or_none()
-    if row is None:
-        config = TutorConfiguration(
-            id=new_id(),
-            learner_id=repo.learner_id,
-            appearance=body.appearance,
-            personality=body.personality,
-            comfort_override=body.comfort_override,
-            provenance="submitted",
-            chosen_at=now,
-            last_changed_at=now,
-        )
-        repo.db.add(TutorConfigurationRow(**config.model_dump()))
-    else:
-        row.appearance = body.appearance
-        row.personality = body.personality
-        row.comfort_override = body.comfort_override
-        row.provenance = "submitted"
-        row.last_changed_at = now
-        repo.db.flush()
-        config = TutorConfiguration.model_validate(row)
-    repo.db.flush()
-    return config
 
 
 def session_state(repo: ScopedRepository, session_id: str, now: datetime) -> SessionState:

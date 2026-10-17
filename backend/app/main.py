@@ -10,6 +10,7 @@ from app.api.graph import router as graph_router
 from app.api.health import router as health_router
 from app.api.memory import router as memory_router
 from app.api.pairing import router as pairing_router
+from app.api.persona import router as persona_router
 from app.api.scene import router as scene_router
 from app.api.sessions import router as sessions_router
 from app.api.tracing import router as tracing_router
@@ -48,6 +49,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(tracing_router)
     application.include_router(memory_router)
     application.include_router(tutor_router)
+    application.include_router(persona_router)
     application.include_router(wait_router)
     return application
 

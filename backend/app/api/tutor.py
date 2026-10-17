@@ -18,13 +18,11 @@ from app.config import Settings
 from app.db.database import Database
 from app.inference.providers import ProviderUnavailableError
 from app.learner.pairing import LearnerScope
-from app.schemas import TutorConfiguration
 from app.schemas.tutor import (
     CheckInRequest,
     HelpRequest,
     PersonaOptions,
     SessionState,
-    TutorConfigurationRequest,
     TutorTurnResult,
     WorkRequest,
 )
@@ -73,20 +71,6 @@ def _run_turn(
 )
 def get_persona_options(_repo: ScopedRepo) -> PersonaOptions:
     return tutor_state.persona_options()
-
-
-@router.put(
-    "/me/tutor-configuration",
-    response_model=TutorConfiguration,
-    responses=_ERRORS,
-    summary="Choose or change the persona; appearance and personality are independent",
-)
-def put_tutor_configuration(
-    body: TutorConfigurationRequest, repo: ScopedRepo
-) -> TutorConfiguration:
-    config = tutor_state.configure_persona(repo, body, utc_now())
-    repo.db.commit()
-    return config
 
 
 @router.get(
