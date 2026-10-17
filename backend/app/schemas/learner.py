@@ -50,6 +50,7 @@ class Session(ContractModel):
     status: SessionStatus
     goal: ShortText | None = None
     revision: Annotated[int, Field(ge=0)] = 0
+    cancellation_epoch: Annotated[int, Field(ge=0)] = 0
     provenance: Provenance
     started_at: UtcDatetime
     ended_at: UtcDatetime | None = None

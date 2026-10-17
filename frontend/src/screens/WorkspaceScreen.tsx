@@ -227,6 +227,22 @@ export function WorkspaceScreen({ client, sessionId, persona, displayName, onSes
         status={workspace.busyLabel ?? stillThinkingStatusText(wait.stillThinkingStatus)}
       />
 
+      {workspace.canInterrupt ? (
+        <Pressable
+          testID="stop-reply"
+          accessibilityRole="button"
+          accessibilityLabel="Stop reply"
+          accessibilityHint="Stops the tutor's reply; your work stays saved"
+          onPress={() => void workspace.interrupt()}
+          style={[
+            styles.stopButton,
+            { backgroundColor: theme.surface, borderColor: theme.surfaceEdge },
+          ]}
+        >
+          <Text style={[styles.actionText, { color: theme.labelText }]}>Stop reply</Text>
+        </Pressable>
+      ) : null}
+
       <TeachingContext theme={theme} turn={workspace.lastTurn} />
 
       {workspace.errorMessage !== null ? (
@@ -295,6 +311,7 @@ export function WorkspaceScreen({ client, sessionId, persona, displayName, onSes
         <WhiteboardCanvas
           testID="whiteboard"
           objects={scene.objects}
+          currentStatementId={workspace.state.current_problem?.statement_object_id ?? null}
           pendingStrokes={workspace.pendingStrokes}
           theme={theme}
           mode={mode}
@@ -458,6 +475,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     fontSize: 16,
     fontFamily: 'monospace',
+  },
+  stopButton: {
+    alignSelf: 'flex-start',
+    minHeight: 44,
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
   },
   actionButton: {
     minHeight: 48,

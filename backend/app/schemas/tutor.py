@@ -114,6 +114,31 @@ class HelpRequest(_Request):
     mode: HelpMode = "hint"
 
 
+InterruptReason = Literal["student_interrupt", "speech_barge_in"]
+
+
+class InterruptRequest(_Request):
+    """Stop whatever tutor reply is still being prepared for this session.
+
+    ``observed_epoch`` is the cancellation epoch the client last saw (from session state or a
+    turn result). The epoch advances at most once per observed value, so a retried request
+    whose acknowledgment was lost reports ``replayed`` instead of cancelling twice.
+    """
+
+    schema_version: Literal["interrupt-request.v1"] = "interrupt-request.v1"
+    observed_epoch: Annotated[int, Field(ge=0)]
+    reason: InterruptReason = "student_interrupt"
+
+
+class InterruptResult(ContractModel):
+    schema_version: Literal["interrupt-result.v1"] = "interrupt-result.v1"
+    session_id: EntityId
+    cancellation_epoch: Annotated[int, Field(ge=0)]
+    session_revision: Annotated[int, Field(ge=0)]
+    interrupted_turn_ids: list[EntityId] = Field(default_factory=list)
+    replayed: bool = False
+
+
 class TutorDraft(ContractModel):
     """What a provider proposes for one turn. Every field is validated before commit."""
 
@@ -234,6 +259,8 @@ class TutorTurnResult(ContractModel):
     status: TurnStatus
     base_revision: Annotated[int, Field(ge=0)]
     session_revision: Annotated[int, Field(ge=0)]
+    # The cancellation epoch this turn was reserved under; output is valid only under it.
+    cancellation_epoch: Annotated[int, Field(ge=0)] = 0
     provider: ProviderLabel
     student_input: StudentInputOutcome | None = None
     current_problem: ProblemView | None = None

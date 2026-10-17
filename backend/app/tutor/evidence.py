@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.db.models import (
     AssessmentRow,
@@ -107,6 +107,12 @@ def ensure_statement_object(
     """The problem statement as a tutor-authored board object (created at most once)."""
     object_id = statement_object_id(session_id, spec.problem_id)
     if repo.db.get(SceneObjectRow, object_id) is None:
+        # Lets a client set earlier problems' student ink apart from the current problem's.
+        problem_number = repo.db.execute(
+            select(func.count())
+            .select_from(AttemptRow)
+            .where(AttemptRow.learner_id == repo.learner_id, AttemptRow.session_id == session_id)
+        ).scalar_one()
         repo.db.add(
             SceneObjectRow(
                 id=object_id,
@@ -121,6 +127,7 @@ def ensure_statement_object(
                     "x": STATEMENT_X,
                     "y": STATEMENT_Y,
                     "color_role": "tutor",
+                    "problem_number": max(1, int(problem_number)),
                 },
                 teaching_step_id=None,
                 provenance="submitted",

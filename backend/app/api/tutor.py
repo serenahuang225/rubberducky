@@ -21,13 +21,17 @@ from app.learner.pairing import LearnerScope
 from app.schemas.tutor import (
     CheckInRequest,
     HelpRequest,
+    InterruptRequest,
+    InterruptResult,
     PersonaOptions,
     SessionState,
     TutorTurnResult,
     WorkRequest,
 )
 from app.tutor import state as tutor_state
+from app.tutor.cancellation import INFLIGHT
 from app.tutor.coordinator import TurnCommandError, execute_turn
+from app.tutor.interrupt import interrupt_session
 
 router = APIRouter(tags=["tutor"])
 
@@ -132,6 +136,24 @@ def ask_for_help(
     settings: SettingsDep,
 ) -> TutorTurnResult:
     return _run_turn(database, scope, settings, session_id, "help", body, idempotency_key)
+
+
+@router.post(
+    "/sessions/{session_id}/interrupt",
+    response_model=InterruptResult,
+    responses=_ERRORS,
+    summary="Stop the tutor reply being prepared; late output is dropped, work is kept",
+)
+def interrupt(
+    session_id: SessionIdPath, body: InterruptRequest, repo: ScopedRepo
+) -> InterruptResult:
+    try:
+        result = interrupt_session(repo, session_id, body, utc_now())
+    except TurnCommandError as error:
+        raise ApiError(error.status_code, error.code, error.message) from error
+    repo.db.commit()
+    INFLIGHT.cancel(result.interrupted_turn_ids, body.reason)
+    return result
 
 
 @router.get(

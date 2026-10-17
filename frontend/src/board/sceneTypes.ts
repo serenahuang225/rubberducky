@@ -17,6 +17,8 @@ export type SceneObjectRecord = {
   semantic_role: string;
   kind: string;
   payload: Record<string, unknown>;
+  /** Server-assigned UTC creation time; absent in older caches and test doubles. */
+  created_at?: string;
 };
 
 export function payloadPoints(payload: Record<string, unknown>): LogicalPoint[] {

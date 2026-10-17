@@ -1,8 +1,10 @@
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.exc import SQLAlchemyError
 
 from app import __version__
 from app.api.errors import install_error_handlers
@@ -16,8 +18,12 @@ from app.api.sessions import router as sessions_router
 from app.api.tracing import router as tracing_router
 from app.api.tutor import router as tutor_router
 from app.api.wait import router as wait_router
+from app.clock import utc_now
 from app.config import Settings, get_settings
 from app.db.database import Database
+from app.tutor.cancellation import recover_pending_turns
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -27,6 +33,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        try:
+            # Replies a previous process left pending can never arrive: say so honestly.
+            recover_pending_turns(database, utc_now())
+        except SQLAlchemyError:
+            # An un-migrated database is reported by the routes (503), not by startup.
+            logger.warning("Pending-turn recovery skipped: the database is not ready.")
         yield
         database.dispose()
 

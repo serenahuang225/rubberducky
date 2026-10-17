@@ -28,6 +28,7 @@ from app.schemas.agency import DerivedEffects
 from app.schemas.tutor import StudentInputOutcome, TurnRejection, TutorTurnResult
 from app.tracing.contracts import DEFAULT_PARAMETERS
 from app.tracing.replay import replay_learner
+from app.tutor.cancellation import INFLIGHT, bump_epoch
 
 SOURCE_CHANGED = TurnRejection(
     code="source_changed",
@@ -210,6 +211,7 @@ def settle_turns(repo: ScopedRepository, removed: set[str], now: datetime, tally
             .order_by(TutorTurnRow.created_at, TutorTurnRow.id)
         ).scalars()
     )
+    invalidated_sessions: set[str] = set()
     for row in rows:
         content = {k: v for k, v in row.result.items() if k != _CONTEXT_KEY}
         references = bool(removed & (_string_leaves(content) | _string_leaves(row.plan)))
@@ -229,6 +231,7 @@ def settle_turns(repo: ScopedRepository, removed: set[str], now: datetime, tally
             row.completed_at = now
             row.result = result.model_dump(mode="json")
             tally.pending_turns_invalidated.append(row.id)
+            invalidated_sessions.add(row.session_id)
         elif references:
             tally.turns_deleted.append(row.id)
             repo.db.delete(row)
@@ -236,6 +239,9 @@ def settle_turns(repo: ScopedRepository, removed: set[str], now: datetime, tally
             row.result = row.result | {
                 _CONTEXT_KEY: [i for i in row.result[_CONTEXT_KEY] if i not in removed]
             }
+    for session_id in sorted(invalidated_sessions):
+        bump_epoch(repo, session_id)
+    INFLIGHT.cancel(tally.pending_turns_invalidated, "source_changed")
     repo.db.flush()
 
 

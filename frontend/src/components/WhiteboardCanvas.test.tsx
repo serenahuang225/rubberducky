@@ -6,7 +6,7 @@ import type { SceneObjectRecord } from '../board/sceneTypes';
 
 import { BoardInputLayer } from './BoardInputLayer';
 import { describeObject, objectBounds, orderedObjects } from './SceneObjectView';
-import { WhiteboardCanvas } from './WhiteboardCanvas';
+import { earlierWorkIds, WhiteboardCanvas } from './WhiteboardCanvas';
 
 const theme = getTheme('paper');
 
@@ -270,5 +270,56 @@ describe('WhiteboardCanvas', () => {
       />,
     );
     expect(screen.getByTestId('whiteboard')).toBeTruthy();
+  });
+});
+
+describe('earlierWorkIds (current problem stays legible)', () => {
+  const statement = (n: number, createdAt: string) =>
+    object({
+      id: 'statement-2',
+      author_role: 'tutor',
+      semantic_role: 'problem_statement',
+      kind: 'text',
+      payload: { text: '3(x - 2) = 12', x: 80, y: 120, problem_number: n },
+      created_at: createdAt,
+    });
+  const ink = (id: string, createdAt: string) =>
+    object({ id, payload: { points: [{ x: 1, y: 1 }] }, created_at: createdAt });
+
+  it('softens only student marks written before a later problem was posed', () => {
+    const objects = [
+      ink('old', '2026-10-17T10:00:00.000Z'),
+      statement(2, '2026-10-17T10:05:00.000Z'),
+      ink('new', '2026-10-17T10:06:00.000Z'),
+    ];
+    expect([...earlierWorkIds(objects, 'statement-2')]).toEqual(['old']);
+  });
+
+  it('never softens anything on the first problem or without a known statement', () => {
+    const objects = [ink('old', '2026-10-17T10:00:00.000Z'), statement(1, '2026-10-17T10:05:00.000Z')];
+    expect(earlierWorkIds(objects, 'statement-2').size).toBe(0);
+    expect(earlierWorkIds(objects, null).size).toBe(0);
+    expect(earlierWorkIds([ink('x', '2026-10-17T10:00:00.000Z')], 'missing').size).toBe(0);
+  });
+
+  it('keeps every object in the accessible board contents and renders the softened one', () => {
+    const objects = [
+      ink('old', '2026-10-17T10:00:00.000Z'),
+      statement(2, '2026-10-17T10:05:00.000Z'),
+    ];
+    const view = render(
+      <WhiteboardCanvas
+        testID="board"
+        objects={objects}
+        currentStatementId="statement-2"
+        theme={theme}
+        mode="draw"
+        onStroke={() => undefined}
+        onEraseAt={() => undefined}
+      />,
+    );
+    expect(view.getByLabelText('Whiteboard: 1 of your marks, 1 tutor marks')).toBeTruthy();
+    expect(view.getByText('Your dot')).toBeTruthy();
+    expect(view.getByText('Tutor posed the problem: "3(x - 2) = 12"')).toBeTruthy();
   });
 });

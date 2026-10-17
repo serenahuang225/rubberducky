@@ -187,6 +187,9 @@ class SessionRow(Base):
     # Monotonic scene counter, separate from the tutor-turn revision: board edits and
     # tutor turns are independent command streams with their own optimistic-concurrency CAS.
     scene_revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # Bumped whenever pending tutor output is invalidated (interrupt, superseding work, source
+    # change, new problem); a turn may only commit under the epoch it was reserved in.
+    cancellation_epoch: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     provenance: Mapped[str] = mapped_column(String(32))
     started_at: Mapped[datetime]
     ended_at: Mapped[datetime | None]
@@ -623,6 +626,7 @@ class TutorTurnRow(Base):
     idempotency_key: Mapped[str] = mapped_column(String(128))
     request_hash: Mapped[str] = mapped_column(String(64))
     base_revision: Mapped[int] = mapped_column(Integer)
+    base_epoch: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     committed_revision: Mapped[int | None] = mapped_column(Integer)
     provider: Mapped[str] = mapped_column(String(40))
     is_mock: Mapped[bool] = mapped_column(Boolean)

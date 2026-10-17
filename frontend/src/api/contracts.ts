@@ -81,6 +81,8 @@ export const sessionSchema = z
     status: z.enum(['active', 'ended', 'expired']),
     goal: z.string().nullable(),
     revision: z.number().int().nonnegative(),
+    // Advances whenever pending tutor output is withdrawn (interrupt, new work, restart).
+    cancellation_epoch: z.number().int().nonnegative().default(0),
     started_at: z.string(),
     ended_at: z.string().nullable(),
   })
@@ -259,6 +261,7 @@ export const tutorTurnResultSchema = z
     status: z.enum(['pending', 'committed', 'rejected', 'failed', 'superseded']),
     base_revision: z.number().int().nonnegative(),
     session_revision: z.number().int().nonnegative(),
+    cancellation_epoch: z.number().int().nonnegative().default(0),
     provider: providerLabelSchema,
     student_input: studentInputOutcomeSchema.nullable(),
     current_problem: problemViewSchema.nullable(),
@@ -273,10 +276,23 @@ export const tutorTurnResultSchema = z
     support_change: z.enum(['none', 'reduced']).default('none'),
     decision_justification: z.string().nullable().default(null),
     drawings: z.array(committedDrawingSchema),
+    rejections: z.array(z.object({ code: z.string(), message: z.string() }).loose()).default([]),
     replayed: z.boolean(),
   })
   .loose();
 export type TutorTurnResult = z.infer<typeof tutorTurnResultSchema>;
+
+export const interruptResultSchema = z
+  .object({
+    schema_version: z.literal('interrupt-result.v1'),
+    session_id: z.string(),
+    cancellation_epoch: z.number().int().nonnegative(),
+    session_revision: z.number().int().nonnegative(),
+    interrupted_turn_ids: z.array(z.string()),
+    replayed: z.boolean(),
+  })
+  .loose();
+export type InterruptResult = z.infer<typeof interruptResultSchema>;
 
 export const waitPreferenceSchema = z
   .object({

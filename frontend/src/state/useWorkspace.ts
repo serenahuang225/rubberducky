@@ -16,6 +16,9 @@
  * - History edits (erase/undo/redo/tutor-move undo) depend on current server state, so
  *   they are never queued: without a connection they are refused honestly instead.
  * - A server rejection surfaces the server's own message; nothing is retried blindly.
+ * - Stop reply withdraws the tutor reply being prepared on the server (a retry-safe interrupt)
+ *   and invalidates this client's turn generation, so a late response, speech or drawing
+ *   callback of the stopped turn is ignored instead of painting over the current board.
  * - Help me is one logical command with one stable idempotency key and body. An uncertain
  *   transport failure keeps that command so the next press retries it unchanged; a definite
  *   revision conflict resyncs first and never carries a stale intent onto a new problem.
@@ -35,6 +38,8 @@ import {
   type PendingSceneOperation,
 } from '../storage/outbox';
 import { loadCachedScene, saveCachedScene } from '../storage/sceneCache';
+
+import { noticeForTurn } from './turnNotices';
 
 export type WorkspacePhase = 'loading' | 'ready' | 'failed';
 
@@ -66,6 +71,10 @@ export type WorkspaceController = {
   /** Subset of pendingCount held only in memory because device storage failed. */
   memoryOnlyCount: number;
   needsCheckIn: boolean;
+  /** A tutor reply is being prepared and can be stopped. */
+  canInterrupt: boolean;
+  /** Stop the reply being prepared; the learner's own work is untouched. */
+  interrupt: () => Promise<void>;
   retry: () => void;
   /** Retry saving queued changes now (also happens automatically after any success). */
   retryPending: () => Promise<void>;
@@ -140,6 +149,9 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
   const pendingOpsRef = useRef<readonly PendingSceneOperation[]>([]);
   const memoryOpsRef = useRef<readonly PendingSceneOperation[]>([]);
   const epochRef = useRef(0);
+  // Advances when the learner stops a reply; anything started earlier is stale and ignored.
+  const turnGenRef = useRef(0);
+  const [turnInFlight, setTurnInFlight] = useState(false);
   const pendingHelpRef = useRef<PendingHelp | null>(null);
 
   const setPendingOps = useCallback((next: readonly PendingSceneOperation[]) => {
@@ -157,9 +169,11 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
     sceneRef.current = scene;
   }, [scene]);
 
+
   // A new session invalidates the pending help command and any in-flight help response.
   useEffect(() => {
     epochRef.current += 1;
+    turnGenRef.current += 1;
     pendingHelpRef.current = null;
     return () => {
       epochRef.current += 1;
@@ -322,10 +336,8 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
     setProviderIsMock(result.provider.is_mock);
     if (result.status === 'committed') {
       setCommitted({ sessionId, turn: result });
-    } else if (result.status === 'rejected') {
-      setErrorMessage('The tutor could not use that turn; your work is unchanged.');
     } else {
-      setErrorMessage('The tutor turn did not complete; your work is unchanged.');
+      setErrorMessage(noticeForTurn(result));
     }
     },
     [sessionId],
@@ -334,18 +346,25 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
   const runTurn = useCallback(
     async (label: string, action: () => Promise<TutorTurnResult>) => {
       if (!guardBusy(label)) return;
+      const generation = turnGenRef.current;
+      const isStale = () => generation !== turnGenRef.current;
+      setTurnInFlight(true);
       try {
         const result = await action();
+        if (isStale()) return;
         applyTurnResult(result);
         await refresh();
         await flushPending();
       } catch (error) {
+        if (isStale()) return;
         if (error instanceof ApiClientError && error.code === 'revision_conflict') {
           try {
             const result = await action();
+            if (isStale()) return;
             applyTurnResult(result);
             await refresh();
           } catch (second) {
+            if (isStale()) return;
             setErrorMessage(
               second instanceof Error ? second.message : 'The tutor turn failed to send.',
             );
@@ -364,7 +383,11 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
           await refresh().catch(() => undefined);
         }
       } finally {
-        releaseBusy();
+        // A stopped turn already released the lock; it must not release a newer command's.
+        if (!isStale()) {
+          setTurnInFlight(false);
+          releaseBusy();
+        }
       }
     },
     [applyTurnResult, flushPending, guardBusy, refresh, releaseBusy],
@@ -399,6 +422,9 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
     if (current === null || current.current_problem === null) return;
     if (!guardBusy('Thinking…')) return;
     const epoch = epochRef.current;
+    const generation = turnGenRef.current;
+    const isStale = () => epoch !== epochRef.current || generation !== turnGenRef.current;
+    setTurnInFlight(true);
     const attemptId = current.current_problem.attempt_id;
     let command = pendingHelpRef.current;
     if (command === null || command.attemptId !== attemptId) {
@@ -417,7 +443,7 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
         // learner was actually looking at; a new problem never inherits the old intent.
         pendingHelpRef.current = null;
         const fresh = await refresh();
-        if (epoch !== epochRef.current) return;
+        if (isStale()) return;
         if ((fresh.current_problem?.attempt_id ?? null) !== attemptId) {
           setErrorMessage(HELP_STALE_MESSAGE);
           return;
@@ -426,7 +452,7 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
         pendingHelpRef.current = command;
         result = await client.requestHelp(sessionId, command.key, command.expectedRevision, 'hint');
       }
-      if (epoch !== epochRef.current) return;
+      if (isStale()) return;
       if (result.status !== 'pending') {
         pendingHelpRef.current = null;
       }
@@ -434,7 +460,7 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
       await refresh();
       await flushPending();
     } catch (error) {
-      if (epoch !== epochRef.current) return;
+      if (isStale()) return;
       if (isNetworkFailure(error)) {
         // Keep the command: the next press retries the same key and body, never a duplicate.
         setErrorMessage(
@@ -448,9 +474,41 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
         await refresh().catch(() => undefined);
       }
     } finally {
-      releaseBusy();
+      if (generation === turnGenRef.current) {
+        setTurnInFlight(false);
+        releaseBusy();
+      }
     }
   }, [applyTurnResult, client, flushPending, guardBusy, refresh, releaseBusy, sessionId, state]);
+
+  const interrupt = useCallback(async () => {
+    if (!turnInFlight) return;
+    const generation = turnGenRef.current;
+    try {
+      // Read the server's own epoch and pending turn: only an actually reserved turn is
+      // stoppable, and the retry-safe interrupt must name the epoch it observed.
+      const fresh = await client.sessionState(sessionId);
+      if (generation !== turnGenRef.current || fresh.pending_turn_id === null) return;
+      await client.interruptSession(sessionId, fresh.session.cancellation_epoch);
+    } catch (error) {
+      setErrorMessage(
+        isNetworkFailure(error)
+          ? 'Could not reach the tutor to stop the reply. It may still arrive.'
+          : error instanceof Error
+            ? error.message
+            : 'The reply could not be stopped.',
+      );
+      return;
+    }
+    if (generation !== turnGenRef.current) return;
+    // The server has withdrawn the reply: ignore whatever the stopped request returns.
+    turnGenRef.current += 1;
+    pendingHelpRef.current = null;
+    setTurnInFlight(false);
+    releaseBusy();
+    setErrorMessage('Stopped. Your work is saved and the unfinished reply was dropped.');
+    await refresh().catch(() => undefined);
+  }, [client, refresh, releaseBusy, sessionId, turnInFlight]);
 
   const commitSceneAction = useCallback(
     async (action: SceneActionRequest, label: string) => {
@@ -557,6 +615,8 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
       (op) => !pendingOps.some((durable) => durable.operationId === op.operationId),
     ).length,
     needsCheckIn,
+    canInterrupt: turnInFlight,
+    interrupt,
     retry,
     retryPending,
     checkIn,

@@ -8,6 +8,7 @@
 
 import {
   errorEnvelopeSchema,
+  interruptResultSchema,
   meResponseSchema,
   pairingResultSchema,
   personaOptionsSchema,
@@ -22,6 +23,7 @@ import {
   waitStateSchema,
   type Appearance,
   type ComfortOverride,
+  type InterruptResult,
   type MeResponse,
   type PairingResult,
   type PersonaOptions,
@@ -191,6 +193,21 @@ export class ApiClient {
     return this.request('POST', `/sessions/${sessionId}/help`, tutorTurnResultSchema, {
       body: { schema_version: 'help-request.v1', expected_revision: expectedRevision, mode },
       idempotencyKey,
+    });
+  }
+
+  /** Stop the reply being prepared. Safe to retry: the epoch advances once per observed value. */
+  interruptSession(
+    sessionId: string,
+    observedEpoch: number,
+    reason: 'student_interrupt' | 'speech_barge_in' = 'student_interrupt',
+  ): Promise<InterruptResult> {
+    return this.request('POST', `/sessions/${sessionId}/interrupt`, interruptResultSchema, {
+      body: {
+        schema_version: 'interrupt-request.v1',
+        observed_epoch: observedEpoch,
+        reason,
+      },
     });
   }
 

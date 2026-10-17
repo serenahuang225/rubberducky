@@ -25,6 +25,7 @@ from app.db.database import Database
 from app.db.models import AttemptRow, HintRow, SessionRow, TutorTurnRow
 from app.db.repositories import ScopedRepository
 from app.db.seed import EXPLANATION_PROBLEM_ID, FIXTURE_PROBLEM_ID
+from app.inference.cancel import CancelToken
 from app.inference.providers import DraftInputs, TutorProvider, get_provider
 from app.inference.request import (
     InsufficientContextError,
@@ -58,6 +59,16 @@ from app.schemas.tutor import (
     WorkRequest,
 )
 from app.tracing.replay import replay_learner
+from app.tutor.cancellation import (
+    EPOCH_CHANGED,
+    INFLIGHT,
+    RESTART_INTERRUPTED,
+    REVISION_CHANGED,
+    SUPERSEDED_BY_WORK,
+    bump_epoch,
+    current_epoch,
+    settle_pending_turns,
+)
 from app.tutor.evidence import (
     ensure_attempt,
     ensure_statement_object,
@@ -69,6 +80,7 @@ from app.tutor.evidence import (
     statement_object_id,
 )
 from app.tutor.validation import citable_for_turn, validate_draft
+from app.whiteboard.scene import retire_tutor_objects, visible_tutor_object_ids
 from app.whiteboard.tools import apply_tool_actions
 
 SYSTEM_TEXT = (
@@ -96,6 +108,7 @@ class TurnCommandError(Exception):
 class _Reserved:
     turn_id: str
     base_revision: int
+    base_epoch: int
     plan: TurnPlan
     student_input: StudentInputOutcome
 
@@ -301,6 +314,56 @@ def _reserve(
     label: ProviderLabel,
     now: datetime,
 ) -> _Reserved | TutorTurnResult:
+    withdrawn: list[str] = []
+    try:
+        outcome = _reserve_in_transaction(
+            database, scope, session_id, kind, body, idempotency_key, label, now, withdrawn
+        )
+    except TurnCommandError as error:
+        if error.code != "revision_conflict":
+            raise
+        # A simultaneous identical retry may have just reserved this very key; look again so
+        # it replays that turn instead of reporting a conflict with itself.
+        outcome = _reserve_in_transaction(
+            database, scope, session_id, kind, body, idempotency_key, label, now, withdrawn
+        )
+    # Cooperative provider cancel only after the withdrawal is durable.
+    INFLIGHT.cancel(withdrawn, "superseded")
+    return outcome
+
+
+def _resume_after_restart(row: TutorTurnRow, session: SessionRow) -> TutorTurnResult | None:
+    """The stored pending form of a restart-failed turn that may still be finished, else None."""
+    stored = TutorTurnResult.model_validate(row.result)
+    interrupted = any(r.code == RESTART_INTERRUPTED.code for r in stored.rejections)
+    if (
+        row.status != "failed"
+        or not interrupted
+        or session.revision != row.base_revision + 1
+        or session.status != "active"
+    ):
+        return None
+    return stored.model_copy(
+        update={
+            "status": "pending",
+            "rejections": [],
+            "completed_at": None,
+            "cancellation_epoch": session.cancellation_epoch,
+        }
+    )
+
+
+def _reserve_in_transaction(
+    database: Database,
+    scope: LearnerScope,
+    session_id: str,
+    kind: str,
+    body: CheckInRequest | WorkRequest | HelpRequest,
+    idempotency_key: str,
+    label: ProviderLabel,
+    now: datetime,
+    withdrawn: list[str],
+) -> _Reserved | TutorTurnResult:
     request_hash = _request_hash(kind, body)
     # A Help press is stored as a work turn: it records learner input for the open problem.
     row_kind = "work" if kind == "help" else kind
@@ -322,12 +385,23 @@ def _reserve(
                     "This idempotency key was already used with different content.",
                 )
             stored = TutorTurnResult.model_validate(existing.result)
-            if existing.status != "pending":
+            resumed = _resume_after_restart(existing, session)
+            if resumed is not None:
+                # The process died mid-turn and the client never saw an answer: finish the
+                # same reserved turn (same plan, same recorded evidence) exactly once.
+                existing.status = "pending"
+                existing.completed_at = None
+                existing.base_epoch = session.cancellation_epoch
+                existing.result = resumed.model_dump(mode="json")
+                repo.db.flush()
+                stored = resumed
+            elif existing.status != "pending":
                 return stored.model_copy(update={"replayed": True})
             # A previous request crashed after reserving: finish the same plan now.
             return _Reserved(
                 turn_id=existing.id,
                 base_revision=existing.base_revision,
+                base_epoch=existing.base_epoch,
                 plan=TurnPlan.model_validate(existing.plan),
                 student_input=stored.student_input,  # type: ignore[arg-type]
             )
@@ -357,6 +431,17 @@ def _reserve(
                 "The session changed while this command was being reserved; retry.",
             )
         session.revision = body.expected_revision + 1
+        # Newer work replaces any reply still being prepared; withdraw it before the new turn
+        # records its own evidence so only one reply can ever land for the current state.
+        withdrawn += settle_pending_turns(
+            repo,
+            session_id,
+            status="superseded",
+            rejection=SUPERSEDED_BY_WORK,
+            now=now,
+            replay=False,
+        )
+        base_epoch = current_epoch(repo, session_id)
         turn_id = new_id()
         if kind == "check_in":
             assert isinstance(body, CheckInRequest)  # noqa: S101 - narrowed by caller
@@ -373,6 +458,7 @@ def _reserve(
             status="pending",
             base_revision=base_revision,
             session_revision=base_revision + 1,
+            cancellation_epoch=base_epoch,
             provider=label,
             student_input=student_input,
             current_problem=plan.current_problem,
@@ -393,6 +479,7 @@ def _reserve(
                 idempotency_key=idempotency_key,
                 request_hash=request_hash,
                 base_revision=base_revision,
+                base_epoch=base_epoch,
                 committed_revision=None,
                 provider=label.name,
                 is_mock=label.is_mock,
@@ -406,6 +493,7 @@ def _reserve(
         return _Reserved(
             turn_id=turn_id,
             base_revision=base_revision,
+            base_epoch=base_epoch,
             plan=plan,
             student_input=student_input,
         )
@@ -427,6 +515,7 @@ def _infer(
     body: CheckInRequest | WorkRequest | HelpRequest,
     provider: TutorProvider,
     now: datetime,
+    cancel: CancelToken,
 ) -> tuple[TutorDraft, list[str]]:
     """Build the bounded context and ask the provider. Holds no transaction open."""
     db = database.new_session()
@@ -452,6 +541,7 @@ def _infer(
             session_revision=reserved.base_revision + 1,
             learner_text=_learner_text(body),
             now=now,
+            cancel=cancel,
         )
     )
     return draft, list(context.citable_ids)
@@ -490,6 +580,19 @@ def _commit(
 ) -> TutorTurnResult:
     with database.transaction() as db:
         repo = ScopedRepository(db, scope)
+        # Take the write lock before reading anything the commit decides on: scope, revision,
+        # epoch and turn status are then rechecked against state no other writer can change
+        # until this transaction ends, so two completions of one turn cannot both apply.
+        db.execute(
+            update(TutorTurnRow)
+            .where(
+                TutorTurnRow.id == reserved.turn_id,
+                TutorTurnRow.learner_id == scope.learner_id,
+                TutorTurnRow.status == "pending",
+            )
+            .values(completed_at=TutorTurnRow.completed_at)
+            .execution_options(synchronize_session=False)
+        )
         row = repo.db.execute(
             select(TutorTurnRow).where(
                 TutorTurnRow.id == reserved.turn_id,
@@ -512,14 +615,12 @@ def _commit(
         memory: MemoryUpdateResult | None = None
         committed = False
 
-        if session.revision != row.base_revision + 1:
+        if session.revision != row.base_revision + 1 or session.status != "active":
             status = "superseded"
-            rejections = [
-                TurnRejection(
-                    code="revision_changed",
-                    message="The session changed while this turn was being prepared.",
-                )
-            ]
+            rejections = [REVISION_CHANGED]
+        elif session.cancellation_epoch != row.base_epoch:
+            status = "superseded"
+            rejections = [EPOCH_CHANGED]
         elif draft_error is not None:
             status = "failed"
             rejections = [draft_error]
@@ -572,6 +673,13 @@ def _commit(
                             given_at=now,
                         )
                     )
+                transition = (
+                    plan.worked_attempt_id is not None
+                    and plan.current_problem is not None
+                    and plan.current_problem.attempt_id != plan.worked_attempt_id
+                )
+                # Captured before this turn adds anything, so only earlier tutor marks retire.
+                superseded_marks = visible_tutor_object_ids(repo, session_id) if transition else []
                 applied = apply_tool_actions(repo, session_id, row.id, actions, now)
                 drawings = [
                     CommittedDrawing(
@@ -598,7 +706,16 @@ def _commit(
                             now,
                             attempt_id=plan.current_problem.attempt_id,
                         )
-                    ensure_statement_object(repo, session_id, next_spec, now)
+                    new_statement_id = ensure_statement_object(repo, session_id, next_spec, now)
+                    # Both statements are posed at the same board position, so the earlier
+                    # problem's tutor marks leave the view (logged, never student work).
+                    retire_tutor_objects(
+                        repo,
+                        session_id,
+                        [i for i in superseded_marks if i != new_statement_id],
+                        now,
+                    )
+                    bump_epoch(repo, session_id)
                 repo.db.flush()
 
         # Derived BKT state follows the raw evidence recorded at reserve, whatever the
@@ -614,6 +731,7 @@ def _commit(
             status=status,  # type: ignore[arg-type]
             base_revision=row.base_revision,
             session_revision=row.base_revision + 1,
+            cancellation_epoch=current_epoch(repo, session_id),
             provider=_label(row, provider),
             student_input=student_input,
             current_problem=plan.current_problem,
@@ -669,8 +787,11 @@ def execute_turn(
     draft: TutorDraft | None = None
     draft_error: TurnRejection | None = None
     citable_ids: list[str] = []
+    token = INFLIGHT.register(reserved.turn_id)
     try:
-        draft, citable_ids = _infer(database, scope, session_id, reserved, body, provider, now)
+        draft, citable_ids = _infer(
+            database, scope, session_id, reserved, body, provider, now, token
+        )
     except (InsufficientContextError, ProviderBudgetError) as error:
         draft_error = TurnRejection(
             code="context_does_not_fit",
@@ -681,6 +802,8 @@ def execute_turn(
             code="provider_error",
             message=f"The provider failed to produce a usable draft ({type(error).__name__}).",
         )
+    finally:
+        INFLIGHT.release(reserved.turn_id)
     return _commit(
         database,
         scope,

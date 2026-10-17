@@ -242,9 +242,7 @@ def _tutor_move_target(repo: ScopedRepository, session_id: str) -> str | None:
         if op.move_id is not None and op.kind in _EDIT_KINDS
     ]
     undone_moves = {
-        op.move_id
-        for op in _own_ops(repo, session_id, "student")
-        if op.kind == "undo_tutor_move"
+        op.move_id for op in _own_ops(repo, session_id, "student") if op.kind == "undo_tutor_move"
     }
     candidates = [op for op in tutor_ops if op.move_id not in undone_moves]
     if not candidates:
@@ -324,6 +322,68 @@ def log_statement_add(
         request_hash=_content_hash(f"statement|{object_id}"),
         now=now,
     )
+
+
+def retire_op_id(session_id: str, object_id: str) -> str:
+    """Deterministic op id for retiring one tutor object (retiring twice is a no-op)."""
+    return str(uuid.uuid5(_NAMESPACE, f"retire|{session_id}|{object_id}"))
+
+
+# A session poses a handful of problems with at most a few tutor moves each.
+MAX_RETIRED_PER_TRANSITION = 60
+
+
+def visible_tutor_object_ids(repo: ScopedRepository, session_id: str) -> list[str]:
+    """Tutor-authored objects currently on the board, oldest first (bounded)."""
+    return list(
+        repo.db.execute(
+            select(SceneObjectRow.id)
+            .where(
+                SceneObjectRow.learner_id == repo.learner_id,
+                SceneObjectRow.session_id == session_id,
+                SceneObjectRow.author_role == "tutor",
+                SceneObjectRow.deleted_at.is_(None),
+            )
+            .order_by(SceneObjectRow.created_at, SceneObjectRow.id)
+            .limit(MAX_RETIRED_PER_TRANSITION)
+        ).scalars()
+    )
+
+
+def retire_tutor_objects(
+    repo: ScopedRepository, session_id: str, object_ids: list[str], now: datetime
+) -> None:
+    """Hide superseded tutor marks with logged tutor erase ops outside any teaching move.
+
+    Retirement is deliberately not a move group: a later "undo tutor marks" must never
+    resurrect an earlier problem's marks on top of the current one. Only tutor-authored
+    rows are touched; student objects and student history are never read or changed.
+    """
+    for object_id in object_ids:
+        row = repo.db.get(SceneObjectRow, object_id)
+        if (
+            row is None
+            or row.learner_id != repo.learner_id
+            or row.author_role != "tutor"
+            or row.deleted_at is not None
+        ):
+            continue
+        row.deleted_at = now
+        _append(
+            repo,
+            session_id,
+            seq=_claim_seq(repo, session_id, None),
+            operation_id=retire_op_id(session_id, object_id),
+            author_role="tutor",
+            kind="erase_object",
+            object_id=object_id,
+            move_id=None,
+            reverses_op_id=None,
+            consumes_op_id=None,
+            affected=[object_id],
+            request_hash=_content_hash(f"retire|{object_id}"),
+            now=now,
+        )
 
 
 def commit_operation(

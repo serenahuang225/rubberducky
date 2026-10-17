@@ -10,7 +10,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
-import Svg from 'react-native-svg';
+import Svg, { G } from 'react-native-svg';
 
 import {
   BOARD_HEIGHT,
@@ -40,6 +40,12 @@ export type PendingStroke = {
 
 export type WhiteboardCanvasProps = {
   objects: readonly SceneObjectRecord[];
+  /**
+   * The current problem's statement object. On a later problem, the learner's ink written
+   * before it is shown softened (never removed or altered) so the current equation and its
+   * tutor marks stay legible; it remains on the board, erasable and in history.
+   */
+  currentStatementId?: string | null;
   /** Finished strokes held in the durable outbox, painted faded and honestly labeled. */
   pendingStrokes?: readonly PendingStroke[];
   theme: BoardTheme;
@@ -53,8 +59,33 @@ export type WhiteboardCanvasProps = {
   testID?: string;
 };
 
+export const EARLIER_WORK_OPACITY = 0.4;
+
+/** Ids of the learner's marks written before the current (second or later) problem. */
+export function earlierWorkIds(
+  objects: readonly SceneObjectRecord[],
+  currentStatementId: string | null,
+): ReadonlySet<string> {
+  const statement =
+    currentStatementId === null ? undefined : objects.find((o) => o.id === currentStatementId);
+  const problemNumber = statement?.payload.problem_number;
+  if (statement === undefined || typeof problemNumber !== 'number' || problemNumber < 2) {
+    return new Set();
+  }
+  const posedAt = Date.parse(statement.created_at ?? '');
+  if (Number.isNaN(posedAt)) {
+    return new Set();
+  }
+  return new Set(
+    objects
+      .filter((o) => o.author_role === 'student' && Date.parse(o.created_at ?? '') < posedAt)
+      .map((o) => o.id),
+  );
+}
+
 export function WhiteboardCanvas({
   objects,
+  currentStatementId = null,
   pendingStrokes = [],
   theme,
   mode,
@@ -131,6 +162,10 @@ export function WhiteboardCanvas({
   );
 
   const ordered = useMemo(() => orderedObjects(objects), [objects]);
+  const earlier = useMemo(
+    () => earlierWorkIds(objects, currentStatementId),
+    [objects, currentStatementId],
+  );
   const byId = useMemo(() => {
     const map = new Map<string, SceneObjectRecord>();
     for (const object of objects) {
@@ -175,12 +210,12 @@ export function WhiteboardCanvas({
           viewBox={`${-transform.offsetX / transform.scale} ${-transform.offsetY / transform.scale} ${transform.viewWidth / transform.scale} ${transform.viewHeight / transform.scale}`}
         >
           {ordered.map((object) => (
-            <SceneObjectView
+            <G
               key={object.id}
-              object={object}
-              theme={theme}
-              resolveTarget={resolveTarget}
-            />
+              opacity={earlier.has(object.id) ? EARLIER_WORK_OPACITY : 1}
+            >
+              <SceneObjectView object={object} theme={theme} resolveTarget={resolveTarget} />
+            </G>
           ))}
           {/* Queued-but-unsaved strokes stay visible, faded, never mistaken for saved. */}
           {pendingStrokes.map((stroke) => (
