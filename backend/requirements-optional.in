@@ -1,0 +1,2 @@
+# Optional PostgreSQL driver for a documented, untested-by-default DATABASE_URL path.
+psycopg[binary]==3.3.6

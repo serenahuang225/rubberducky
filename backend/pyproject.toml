@@ -1,0 +1,70 @@
+# Tutor backend tooling. The repository-root pyproject.toml belongs to the Chalk scaffold;
+# backend checks pass this file explicitly (mypy --config-file backend/pyproject.toml).
+[project]
+name = "rubberducky-tutor-backend"
+version = "0.1.0"
+description = "Rubberducky tutoring API: evidence, tracing, pedagogy and verification layers."
+requires-python = ">=3.12,<3.13"
+# Exact versions and hashes live in requirements.lock (macOS arm64, CPython 3.12).
+dependencies = [
+  "fastapi==0.143.3",
+  "pydantic==2.14.1",
+  "pydantic-settings==2.16.0",
+  "uvicorn==0.54.0",
+  "numpy==2.5.4",
+  "torch==2.14.1",
+  "transformers==5.20.1",
+  "peft==0.21.2",
+  "accelerate==1.15.0",
+  "safetensors==0.8.0",
+  "huggingface-hub==2.2.0",
+  "sqlalchemy==2.1.5",
+  "alembic==1.20.0",
+  "networkx==3.7",
+  "sympy==1.14.0",
+  "httpx==0.28.1",
+  "anthropic==1.15.0",
+  "daytona==0.225.0",
+  "droid-sdk==0.5.0",
+  "chalkcompute[sql]==2.13.7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest==9.1.1",
+  "pytest-asyncio==1.4.0",
+  "ruff==0.17.1",
+  "mypy==2.4.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = ["error::pytest.PytestUnraisableExceptionWarning"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+plugins = ["pydantic.mypy"]
+mypy_path = "$MYPY_CONFIG_FILE_DIR"
+explicit_package_bases = true
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S603"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]

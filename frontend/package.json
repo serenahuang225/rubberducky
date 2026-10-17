@@ -1,0 +1,49 @@
+{
+  "name": "rubberducky-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.ts",
+  "engines": {
+    "node": ">=22 <23"
+  },
+  "scripts": {
+    "start": "expo start --lan --port 8081",
+    "web": "expo start --web --localhost --port 3101",
+    "test": "jest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
+    "build:web": "expo export --platform web --output-dir dist --max-workers 1",
+    "check:expo": "expo install --check"
+  },
+  "dependencies": {
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-web": "~0.21.0",
+    "react-native-svg": "15.15.4",
+    "react-native-gesture-handler": "~2.32.0",
+    "expo-camera": "~57.0.6",
+    "expo-audio": "~57.0.5",
+    "expo-speech": "~57.0.3",
+    "expo-haptics": "~57.0.3",
+    "expo-file-system": "~57.0.7",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "expo": "57.0.30",
+    "zod": "4.6.7",
+    "@expo/metro-runtime": "~57.0.17",
+    "expo-asset": "~57.0.20",
+    "expo-constants": "~57.0.22"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3",
+    "@types/react": "~19.2.4",
+    "@types/jest": "29.5.14",
+    "jest": "~29.7.0",
+    "jest-expo": "~57.0.6",
+    "@testing-library/react-native": "^13.0.0",
+    "react-test-renderer": "19.2.3",
+    "eslint": "9.39.5",
+    "eslint-config-expo": "~57.0.2",
+    "expo-doctor": "1.21.5"
+  }
+}
