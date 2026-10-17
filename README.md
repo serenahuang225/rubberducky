@@ -180,6 +180,43 @@ output. Like `history`, this is a local administrative command.
 Devices use `GET /graph/context?concept_id=...` with the same bounds as query parameters. The
 learner scope comes from the bearer token, so another learner's request returns the same shared
 curriculum and none of the first learner's evidence.
+
+### Knowledge tracing (NumPy BKT) and history replay
+
+`backend/app/tracing/` implements Bayesian Knowledge Tracing as small NumPy functions
+(`bkt.py`): predicted correctness `p(1-s) + (1-p)g`, the correct/incorrect posteriors and the
+learning transition `posterior + (1-posterior)T`. The predictor always predicts before it
+observes. Its response probability (`p_correct`, target `next_independent_response_correct`) is
+reported separately from its latent knowledge estimate (`latent_knowledge`). Guess and slip
+describe uncertainty in a single response; they are not labels for the learner.
+
+Parameters must be finite and in `[0, 1]`, with `p_guess + p_slip < 1`. Parameter sets are
+immutable and versioned. The default `bkt-handset.v1` (`p_init=.2, p_learn=.1, p_guess=.25,
+p_slip=.1`) is hand-chosen and uncalibrated. If a response has zero probability under the
+current state (for example `p=0, g=0` and a correct answer), the predictor records
+`impossible_observation` and does not update. It never produces NaN.
+
+Only independent, verified, non-explanation assessments update BKT. Hinted, answer-revealed,
+step-level, self-report and unknown-outcome evidence is kept and reported with a reason. One
+problem counts at most once per concept. Replay recomputes from raw observations starting at
+`p_init` and replaces the derived rows (`bkt_counted_opportunities`, `mastery_estimates`) for
+that learner and parameter version, so repeated replays never duplicate anything.
+
+```sh
+CLI="env PYTHONPATH=backend backend/.venv/bin/python -m app.cli"
+$CLI tracing fixture                                   # fictional 'bkt-fixture' learner
+$CLI tracing replay --learner bkt-fixture --format text  # two counted opportunities -> 0.82
+$CLI tracing state --learner bkt-fixture               # persisted ledger and estimate
+$CLI tracing parameters add --parameter-version bkt-handset-no-learn.v1 --p-init 0.2 \
+  --p-learn 0 --p-guess 0.25 --p-slip 0.1 --description "No-learning comparison"
+$CLI tracing replay --learner bkt-fixture --parameter-version bkt-handset-no-learn.v1  # 81/106
+$CLI tracing readiness --learner bkt-fixture           # qualitative bands, no probabilities
+```
+
+`--dry-run` computes without persisting, and `--state-out file.json` saves the predictor
+snapshot. Devices use `GET /tracing/readiness`, which returns only qualitative bands
+(`not_enough_evidence`, `emerging`, `developing`, `strong_so_far`) and a separate
+independent-transfer status. It never returns a mastery score.
 ### iPad over trusted Wi-Fi (Expo Go)
 
 Only do this on a private network you trust. There is no public tunnel.

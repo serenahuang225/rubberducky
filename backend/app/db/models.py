@@ -376,6 +376,75 @@ class MasteryEstimateRow(Base):
     computed_at: Mapped[datetime]
 
 
+class BKTParameterSetRow(Base):
+    """An immutable, versioned BKT parameter set. Hand-set rows are never calibrated."""
+
+    __tablename__ = "bkt_parameter_sets"
+    __table_args__ = (
+        _confidence("p_init"),
+        _confidence("p_learn"),
+        _confidence("p_guess"),
+        _confidence("p_slip"),
+        CheckConstraint("p_guess + p_slip < 1", name="identifiable"),
+        _one_of("source", "source", ("hand_set", "fitted")),
+        CheckConstraint("calibrated = 0 OR source = 'fitted'", name="calibrated_needs_fit"),
+    )
+
+    parameter_version: Mapped[str] = mapped_column(String(40), primary_key=True)
+    schema_version: Mapped[str] = mapped_column(String(64))
+    p_init: Mapped[float] = mapped_column(Float)
+    p_learn: Mapped[float] = mapped_column(Float)
+    p_guess: Mapped[float] = mapped_column(Float)
+    p_slip: Mapped[float] = mapped_column(Float)
+    source: Mapped[str] = mapped_column(String(16))
+    calibrated: Mapped[bool] = mapped_column(Boolean)
+    description: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime]
+
+
+class BKTCountedOpportunityRow(Base):
+    """Derived ledger: one row per counted independent opportunity per parameter version.
+
+    Rows are rebuilt from raw observations on every replay. The unique constraints make a
+    duplicated opportunity or observation within one parameter version impossible.
+    """
+
+    __tablename__ = "bkt_counted_opportunities"
+    __table_args__ = (
+        UniqueConstraint("learner_id", "parameter_version", "concept_id", "opportunity_key"),
+        UniqueConstraint("learner_id", "parameter_version", "observation_id"),
+        ForeignKeyConstraint(
+            ["observation_id", "learner_id"],
+            ["observations.id", "observations.learner_id"],
+            ondelete="CASCADE",
+        ),
+        CheckConstraint("sequence >= 1", name="sequence_positive"),
+        _confidence("p_known_before"),
+        _confidence("p_correct_predicted"),
+        _confidence("p_known_posterior"),
+        _confidence("p_known_after"),
+    )
+
+    id: Mapped[str] = mapped_column(ID, primary_key=True)
+    schema_version: Mapped[str] = mapped_column(String(64))
+    learner_id: Mapped[str] = mapped_column(ID, _learner_fk(), index=True)
+    concept_id: Mapped[str] = mapped_column(ID, ForeignKey("concepts.id"))
+    parameter_version: Mapped[str] = mapped_column(
+        String(40), ForeignKey("bkt_parameter_sets.parameter_version")
+    )
+    algorithm_version: Mapped[str] = mapped_column(String(40))
+    eligibility_version: Mapped[str] = mapped_column(String(40))
+    observation_id: Mapped[str] = mapped_column(ID)
+    opportunity_key: Mapped[str] = mapped_column(String(160))
+    sequence: Mapped[int] = mapped_column(Integer)
+    p_known_before: Mapped[float] = mapped_column(Float)
+    p_correct_predicted: Mapped[float] = mapped_column(Float)
+    observed_correct: Mapped[bool] = mapped_column(Boolean)
+    p_known_posterior: Mapped[float] = mapped_column(Float)
+    p_known_after: Mapped[float] = mapped_column(Float)
+    computed_at: Mapped[datetime]
+
+
 class PreferenceRow(Base):
     __tablename__ = "preferences"
     __table_args__ = (UniqueConstraint("learner_id", "key"), _provenance())

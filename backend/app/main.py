@@ -10,6 +10,7 @@ from app.api.graph import router as graph_router
 from app.api.health import router as health_router
 from app.api.pairing import router as pairing_router
 from app.api.sessions import router as sessions_router
+from app.api.tracing import router as tracing_router
 from app.config import Settings, get_settings
 from app.db.database import Database
 
@@ -39,6 +40,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(pairing_router)
     application.include_router(sessions_router)
     application.include_router(graph_router)
+    application.include_router(tracing_router)
     return application
 
 

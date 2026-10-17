@@ -1,4 +1,4 @@
-"""Local administrative CLI: migrate, seed, pair, revoke, inspect history and graph context.
+"""Local administrative CLI: migrate, seed, pair, revoke, history, graph context and tracing.
 
 Trust boundary: this CLI reads and writes the database file directly with no credential
 checks. Anyone able to run it can already read the file, so it is a local operator tool and
@@ -42,6 +42,7 @@ from app.learner.pairing import (
     revoke_all_for_learner,
 )
 from app.schemas.graph import MAX_CONTEXT_HOPS, GraphContextBounds
+from app.tracing.cli import add_tracing_parser
 
 
 def _resolve_learner(database: Database, learner: str) -> str:
@@ -307,6 +308,7 @@ def build_parser() -> argparse.ArgumentParser:
     history.add_argument("--limit", type=int, default=20, choices=range(1, MAX_HISTORY_ITEMS + 1))
     history.set_defaults(handler=cmd_history)
     _add_graph_parser(sub)
+    add_tracing_parser(sub)
     return parser
 
 
