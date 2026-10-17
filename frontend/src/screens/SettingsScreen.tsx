@@ -21,6 +21,7 @@ import {
   type Personality,
 } from "../api/contracts";
 import type { BoardTheme } from "../board/palette";
+import type { MotionMode } from "../feedback/preferences";
 import { RadioCard, ToggleRow } from "../components/ChoiceControls";
 import { ScreenFrame } from "../components/ScreenFrame";
 import { describeAvailability, formatInstant } from "../persona/availability";
@@ -31,6 +32,7 @@ import { APPEARANCE_INFO, PERSONALITY_INFO } from "./OnboardingScreen";
 export type SettingsScreenProps = {
   settings: LearnerSettings;
   theme: BoardTheme;
+  motion?: MotionMode;
   onClose: () => void;
   onOpenMemory: () => void;
   /** Overrides for deterministic tests; the device zone and locale are used otherwise. */
@@ -85,6 +87,7 @@ const ANIMATION_OPTIONS: Record<
 export function SettingsScreen({
   settings,
   theme,
+  motion,
   onClose,
   onOpenMemory,
   timeZone,
@@ -136,6 +139,7 @@ export function SettingsScreen({
   return (
     <ScreenFrame
       theme={theme}
+      motion={motion}
       testID="settings-screen"
       title="Settings"
       closeLabel="Back to board"

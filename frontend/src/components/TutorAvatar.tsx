@@ -1,7 +1,7 @@
 /**
- * The tiny tutor avatar with its real status in words. The figure never animates to imply
- * activity; the state comes from application facts (see deriveAvatarStatus) and is exposed as
- * text and as part of the accessible name, so nothing is conveyed by motion or color alone.
+ * The tiny tutor avatar with its real status in words. The figure never bounces or
+ * implies competence; the state comes from application facts (see deriveAvatarStatus)
+ * and is exposed as text and as part of the accessible name.
  */
 
 import React from "react";
@@ -10,6 +10,7 @@ import { StyleSheet, Text, View } from "react-native";
 import type { Appearance } from "../api/contracts";
 import type { BoardTheme } from "../board/palette";
 import type { AvatarStatus } from "../state/avatarStatus";
+import { type } from "../theme/tokens";
 
 import { AvatarFigure } from "./AvatarFigure";
 
@@ -30,12 +31,13 @@ export function TutorAvatar({
     <View style={styles.row}>
       <AvatarFigure
         appearance={appearance}
-        size={44}
+        size={36}
         label={`${tutorName} avatar: ${status.label}. ${status.description}`}
       />
       <Text
         testID="avatar-status"
         accessibilityLiveRegion="polite"
+        numberOfLines={2}
         style={[styles.status, { color: theme.labelMuted }]}
       >
         {status.label}
@@ -45,6 +47,6 @@ export function TutorAvatar({
 }
 
 const styles = StyleSheet.create({
-  row: { alignItems: "center", gap: 2, minWidth: 64 },
-  status: { fontSize: 12, fontWeight: "600", textAlign: "center" },
+  row: { alignItems: "center", gap: 2, width: 148 },
+  status: { ...type.meta, textAlign: "center" },
 });

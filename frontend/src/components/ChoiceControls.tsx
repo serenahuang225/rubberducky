@@ -19,6 +19,7 @@ import {
 } from "react-native";
 
 import type { BoardTheme } from "../board/palette";
+import { type } from "../theme/tokens";
 
 type KeyEventLike = { key?: string; preventDefault?: () => void };
 
@@ -73,8 +74,9 @@ export function RadioCard({
         styles.card,
         {
           borderColor: selected ? theme.controlBackground : theme.controlEdge,
-          backgroundColor: selected ? theme.boardGrain : theme.surface,
-          opacity: disabled ? 0.8 : 1,
+          backgroundColor: selected ? theme.boardGrain : "transparent",
+          borderLeftWidth: selected ? 3 : 1,
+          opacity: disabled ? 0.55 : 1,
         },
         style,
       ]}
@@ -125,7 +127,11 @@ export function ToggleRow({
       {...spaceActivates(() => onChange(!value), disabled)}
       style={[
         styles.toggle,
-        { backgroundColor: theme.surface, borderColor: theme.controlEdge },
+        {
+          backgroundColor: "transparent",
+          borderColor: theme.controlEdge,
+          opacity: disabled ? 0.55 : 1,
+        },
       ]}
     >
       <View style={styles.toggleText}>
@@ -159,10 +165,9 @@ const styles = StyleSheet.create({
     minHeight: 44,
     padding: 14,
     gap: 8,
-    borderRadius: 14,
-    borderWidth: 2,
+    borderWidth: 1,
   },
-  marker: { fontSize: 13, fontWeight: "600" },
+  marker: type.meta,
   toggle: {
     minHeight: 52,
     paddingHorizontal: 14,
@@ -170,21 +175,18 @@ const styles = StyleSheet.create({
     gap: 12,
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 12,
     borderWidth: 1,
   },
   toggleText: { flex: 1, gap: 2 },
-  toggleLabel: { fontSize: 16, fontWeight: "700" },
-  toggleDescription: { fontSize: 14, lineHeight: 19 },
+  toggleLabel: type.control,
+  toggleDescription: type.small,
   toggleState: {
+    ...type.control,
     minWidth: 52,
     textAlign: "center",
     paddingVertical: 6,
     paddingHorizontal: 10,
-    borderRadius: 10,
-    borderWidth: 2,
-    fontSize: 15,
-    fontWeight: "700",
+    borderWidth: 1,
     overflow: "hidden",
   },
 });

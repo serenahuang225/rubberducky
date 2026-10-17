@@ -10,7 +10,7 @@
 
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
-import Svg, { G } from 'react-native-svg';
+import Svg, { G, Rect } from 'react-native-svg';
 
 import {
   BOARD_HEIGHT,
@@ -22,6 +22,7 @@ import {
 } from '../board/geometry';
 import type { BoardTheme } from '../board/palette';
 import { distanceToStroke, ERASE_TOLERANCE } from '../board/pathData';
+import { DOUBLE_TAP_MS, PenTapSwitch } from '../board/penTap';
 import { payloadPoints, type SceneObjectRecord } from '../board/sceneTypes';
 
 import { BoardInputLayer, type BoardInputHandle, type BoardInputMode } from './BoardInputLayer';
@@ -67,8 +68,15 @@ export type WhiteboardCanvasProps = {
   onStroke: (points: readonly LogicalPoint[]) => void;
   /** Erase mode: the learner tapped near one of their own marks. */
   onEraseAt: (objectId: string) => void;
+  /** Two quick taps in draw mode: undo the last mark, and do not ink the taps. */
+  onDoubleTap?: () => void;
   /** Frozen while a save is in flight so the board cannot go stale underneath. */
   inputDisabled?: boolean;
+  /**
+   * Fade tutor marks that arrive after the board is already showing. Student ink is never
+   * delayed. The first scene paints at full opacity.
+   */
+  animateTutorMarks?: boolean;
   testID?: string;
 };
 
@@ -105,7 +113,9 @@ export function WhiteboardCanvas({
   mode,
   onStroke,
   onEraseAt,
+  onDoubleTap,
   inputDisabled = false,
+  animateTutorMarks = false,
   testID,
 }: WhiteboardCanvasProps) {
   const [transform, setTransform] = useState<ViewTransform>(() => computeFitTransform(1, 1));
@@ -145,12 +155,90 @@ export function WhiteboardCanvas({
     liveRef.current?.setPoints(points);
   }, []);
 
+  const onStrokeRef = useRef(onStroke);
+  const onDoubleTapRef = useRef(onDoubleTap);
+  useEffect(() => {
+    onStrokeRef.current = onStroke;
+    onDoubleTapRef.current = onDoubleTap;
+  });
+  const tapGate = useRef(new PenTapSwitch());
+  const tapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearTapTimer = useCallback(() => {
+    if (tapTimer.current !== null) {
+      clearTimeout(tapTimer.current);
+      tapTimer.current = null;
+    }
+  }, []);
+
+  const flushHeldTap = useCallback(() => {
+    const held = tapGate.current.take();
+    if (held !== null) {
+      onStrokeRef.current(held);
+    }
+  }, []);
+
+  const armTapTimer = useCallback(() => {
+    clearTapTimer();
+    tapTimer.current = setTimeout(() => {
+      tapTimer.current = null;
+      flushHeldTap();
+    }, DOUBLE_TAP_MS);
+  }, [clearTapTimer, flushHeldTap]);
+
+  useEffect(() => {
+    const gate = tapGate.current;
+    return () => {
+      if (tapTimer.current !== null) {
+        clearTimeout(tapTimer.current);
+      }
+      const held = gate.take();
+      if (held !== null) {
+        onStrokeRef.current(held);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (mode === 'draw') {
+      return;
+    }
+    clearTapTimer();
+    flushHeldTap();
+  }, [clearTapTimer, flushHeldTap, mode]);
+
   const handleStroke = useCallback(
     (points: readonly LogicalPoint[]) => {
-      onStroke(points);
       liveRef.current?.setPoints([]);
+      if (mode !== 'draw' || onDoubleTapRef.current === undefined) {
+        clearTapTimer();
+        flushHeldTap();
+        onStrokeRef.current(points);
+        return;
+      }
+      const decision = tapGate.current.note(points, Date.now());
+      if (decision.action === 'commit') {
+        clearTapTimer();
+        onStrokeRef.current(points);
+        return;
+      }
+      if (decision.action === 'commit-held') {
+        clearTapTimer();
+        onStrokeRef.current(decision.held);
+        onStrokeRef.current(points);
+        return;
+      }
+      if (decision.action === 'undo') {
+        clearTapTimer();
+        onDoubleTapRef.current?.();
+        return;
+      }
+      if (decision.action === 'commit-then-hold') {
+        onStrokeRef.current(decision.held);
+      }
+      armTapTimer();
     },
-    [onStroke],
+    [armTapTimer, clearTapTimer, flushHeldTap, mode],
   );
 
   const handleCancel = useCallback(() => {
@@ -179,6 +267,10 @@ export function WhiteboardCanvas({
     [onEraseAt],
   );
 
+  // Ids present on the first paint stay immediate. Later tutor marks fade in; student ink does not.
+  const [initialIds] = useState(
+    () => new Set(objects.map((object) => object.id)),
+  );
   const ordered = useMemo(() => orderedObjects(objects), [objects]);
   const earlier = useMemo(
     () => earlierWorkIds(objects, currentStatementId),
@@ -206,7 +298,7 @@ export function WhiteboardCanvas({
   return (
     <View
       testID={testID}
-      style={[styles.frame, { backgroundColor: theme.board, borderColor: theme.boardEdge }]}
+      style={[styles.frame, { backgroundColor: theme.boardGrain }]}
       onLayout={onLayout}
       accessibilityLabel={summary}
       accessibilityRole="image"
@@ -227,14 +319,32 @@ export function WhiteboardCanvas({
           height={transform.viewHeight}
           viewBox={`${-transform.offsetX / transform.scale} ${-transform.offsetY / transform.scale} ${transform.viewWidth / transform.scale} ${transform.viewHeight / transform.scale}`}
         >
-          {ordered.map((object) => (
-            <G
-              key={object.id}
-              opacity={earlier.has(object.id) ? EARLIER_WORK_OPACITY : 1}
-            >
+          <Rect
+            x={0}
+            y={0}
+            width={BOARD_WIDTH}
+            height={BOARD_HEIGHT}
+            fill={theme.board}
+            stroke={theme.boardEdge}
+            strokeWidth={1 / transform.scale}
+          />
+          {ordered.map((object) => {
+            const arriving =
+              animateTutorMarks &&
+              object.author_role === 'tutor' &&
+              !initialIds.has(object.id);
+            const view = (
               <SceneObjectView object={object} theme={theme} resolveTarget={resolveTarget} />
-            </G>
-          ))}
+            );
+            return (
+              <G
+                key={object.id}
+                opacity={earlier.has(object.id) ? EARLIER_WORK_OPACITY : 1}
+              >
+                {arriving ? <ArrivingInk>{view}</ArrivingInk> : view}
+              </G>
+            );
+          })}
           {/* Queued-but-unsaved strokes stay visible, faded, never mistaken for saved. */}
           {pendingStrokes.map((stroke) => (
             <PendingStrokeView key={stroke.id} points={stroke.points} theme={theme} />
@@ -268,11 +378,29 @@ export function WhiteboardCanvas({
   );
 }
 
+const ARRIVE_MS = 180;
+
+/** Opacity fade for a tutor mark that has just arrived. Starts at 0 on first paint. */
+function ArrivingInk({ children }: { children: React.ReactNode }) {
+  const [opacity, setOpacity] = useState(0);
+  useEffect(() => {
+    const start = performance.now();
+    let frame = 0;
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / ARRIVE_MS);
+      setOpacity(1 - (1 - t) ** 3);
+      if (t < 1) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, []);
+  return <G opacity={opacity}>{children}</G>;
+}
+
 const styles = StyleSheet.create({
   frame: {
     flex: 1,
-    borderWidth: 1,
-    borderRadius: 12,
+    minHeight: 0,
     overflow: 'hidden',
   },
   inputLayer: {

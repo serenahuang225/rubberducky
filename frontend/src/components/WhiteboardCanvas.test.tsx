@@ -1,5 +1,6 @@
-import { fireEvent, render } from '@testing-library/react-native';
+import { act, fireEvent, render } from '@testing-library/react-native';
 import React from 'react';
+import { View } from 'react-native';
 
 import { getTheme } from '../board/palette';
 import type { SceneObjectRecord } from '../board/sceneTypes';
@@ -252,6 +253,80 @@ describe('WhiteboardCanvas', () => {
       nativeEvent: { layout: { width: 800, height: 600 } },
     });
     expect(screen.UNSAFE_getByType(BoardInputLayer).props.disabled).toBe(true);
+  });
+
+  it('reports a double tap for undo and does not ink either tap', () => {
+    jest.useFakeTimers();
+    const onStroke = jest.fn();
+    const onDoubleTap = jest.fn();
+    const screen = render(
+      <WhiteboardCanvas
+        testID="whiteboard"
+        objects={[]}
+        theme={theme}
+        mode="draw"
+        onStroke={onStroke}
+        onEraseAt={noop}
+        onDoubleTap={onDoubleTap}
+      />,
+    );
+    fireEvent(screen.getByTestId('whiteboard'), 'onLayout', {
+      nativeEvent: { layout: { width: 800, height: 600 } },
+    });
+    const host = screen.UNSAFE_getAllByType(View).find((view) => view.props.onTouchStart);
+    expect(host).toBeTruthy();
+    const tap = (x: number, y: number) => {
+      const touch = { identifier: 1, locationX: x, locationY: y };
+      fireEvent(host!, 'touchStart', {
+        nativeEvent: { changedTouches: [touch], touches: [touch] },
+      });
+      fireEvent(host!, 'touchEnd', {
+        nativeEvent: { changedTouches: [touch], touches: [] },
+      });
+    };
+    tap(120, 80);
+    tap(128, 86);
+    expect(onDoubleTap).toHaveBeenCalledTimes(1);
+    expect(onStroke).not.toHaveBeenCalled();
+    act(() => {
+      jest.advanceTimersByTime(400);
+    });
+    expect(onStroke).not.toHaveBeenCalled();
+    jest.useRealTimers();
+  });
+
+  it('still saves a single tap as a dot once the double-tap window closes', () => {
+    jest.useFakeTimers();
+    const onStroke = jest.fn();
+    const screen = render(
+      <WhiteboardCanvas
+        testID="whiteboard"
+        objects={[]}
+        theme={theme}
+        mode="draw"
+        onStroke={onStroke}
+        onEraseAt={noop}
+        onDoubleTap={jest.fn()}
+      />,
+    );
+    fireEvent(screen.getByTestId('whiteboard'), 'onLayout', {
+      nativeEvent: { layout: { width: 800, height: 600 } },
+    });
+    const host = screen.UNSAFE_getAllByType(View).find((view) => view.props.onTouchStart);
+    const touch = { identifier: 1, locationX: 120, locationY: 80 };
+    fireEvent(host!, 'touchStart', {
+      nativeEvent: { changedTouches: [touch], touches: [touch] },
+    });
+    fireEvent(host!, 'touchEnd', {
+      nativeEvent: { changedTouches: [touch], touches: [] },
+    });
+    expect(onStroke).not.toHaveBeenCalled();
+    act(() => {
+      jest.advanceTimersByTime(320);
+    });
+    expect(onStroke).toHaveBeenCalledTimes(1);
+    expect(onStroke.mock.calls[0][0]).toEqual([{ x: 240, y: 160 }]);
+    jest.useRealTimers();
   });
 
   it('ignores a malformed payload instead of crashing the board', () => {

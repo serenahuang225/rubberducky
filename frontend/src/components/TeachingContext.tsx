@@ -11,6 +11,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { TutorTurnResult } from '../api/contracts';
 import type { BoardTheme } from '../board/palette';
 import { describeTurn, type DiagnosticView } from '../state/turnInsight';
+import { font, type } from '../theme/tokens';
 
 export type TeachingContextProps = {
   theme: BoardTheme;
@@ -121,7 +122,7 @@ export function TeachingContext({ theme, turn }: TeachingContextProps) {
   return (
     <View
       testID="teaching-context"
-      style={[styles.box, { backgroundColor: theme.surface, borderColor: theme.surfaceEdge }]}
+      style={[styles.box, { borderTopColor: theme.surfaceEdge }]}
     >
       {hasChips ? (
         <View style={styles.chips}>
@@ -173,7 +174,7 @@ export function TeachingContext({ theme, turn }: TeachingContextProps) {
             accessibilityLabel={open ? 'Hide why this move' : 'Why this move?'}
             accessibilityState={{ expanded: open }}
             onPress={() => setOpenFor(open ? null : turnId)}
-            style={[styles.toggle, { borderColor: theme.surfaceEdge }]}
+            style={[styles.toggle, { borderColor: theme.controlEdge }]}
           >
             <Text style={[styles.toggleText, text]}>{open ? 'Hide details' : 'Why this move?'}</Text>
           </Pressable>
@@ -185,29 +186,20 @@ export function TeachingContext({ theme, turn }: TeachingContextProps) {
 }
 
 const styles = StyleSheet.create({
-  box: { gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 12, borderWidth: 1 },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  chip: {
-    fontSize: 12,
-    fontWeight: '600',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  line: { fontSize: 13, lineHeight: 18 },
+  box: { gap: 6, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chip: { ...type.meta, paddingVertical: 2 },
+  line: type.small,
   toggle: {
     alignSelf: 'flex-start',
     minHeight: 44,
     paddingHorizontal: 12,
-    borderRadius: 10,
     borderWidth: 1,
     justifyContent: 'center',
   },
-  toggleText: { fontSize: 13, fontWeight: '600' },
-  panel: { gap: 4, paddingTop: 6, borderTopWidth: 1 },
-  panelLine: { fontSize: 13, lineHeight: 18 },
-  mono: { fontFamily: 'monospace', fontSize: 12 },
-  footnote: { fontSize: 12, fontStyle: 'italic', marginTop: 2 },
+  toggleText: type.meta,
+  panel: { gap: 4, paddingTop: 6, borderTopWidth: StyleSheet.hairlineWidth },
+  panelLine: type.small,
+  mono: { fontFamily: font.sans, fontSize: 12, lineHeight: 16 },
+  footnote: { ...type.meta, fontWeight: '400', marginTop: 2 },
 });

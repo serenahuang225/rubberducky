@@ -8,6 +8,9 @@ import React, { useEffect, useRef } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import type { BoardTheme } from "../board/palette";
+import type { MotionMode } from "../feedback/preferences";
+import { space, type } from "../theme/tokens";
+import { enterProps } from "../theme/webTheme";
 
 export type ScreenFrameProps = {
   theme: BoardTheme;
@@ -15,6 +18,8 @@ export type ScreenFrameProps = {
   testID: string;
   closeLabel: string;
   onClose: () => void;
+  /** Panel entrance runs only when motion is full. */
+  motion?: MotionMode;
   children: React.ReactNode;
 };
 
@@ -24,6 +29,7 @@ export function ScreenFrame({
   testID,
   closeLabel,
   onClose,
+  motion = "full",
   children,
 }: ScreenFrameProps) {
   const headingRef = useRef<View>(null);
@@ -37,9 +43,10 @@ export function ScreenFrame({
   return (
     <View
       testID={testID}
-      style={[styles.frame, { backgroundColor: theme.boardGrain }]}
+      {...enterProps(motion)}
+      style={[styles.frame, { backgroundColor: theme.board }]}
     >
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: theme.surfaceEdge }]}>
         <View
           ref={headingRef}
           focusable
@@ -58,9 +65,15 @@ export function ScreenFrame({
           accessibilityRole="button"
           accessibilityLabel={closeLabel}
           onPress={onClose}
-          style={[styles.close, { backgroundColor: theme.controlBackground }]}
+          style={[
+            styles.close,
+            {
+              backgroundColor: "transparent",
+              borderColor: theme.controlEdge,
+            },
+          ]}
         >
-          <Text style={[styles.closeText, { color: theme.controlText }]}>
+          <Text style={[styles.closeText, { color: theme.labelText }]}>
             {closeLabel}
           </Text>
         </Pressable>
@@ -76,23 +89,34 @@ export function ScreenFrame({
 }
 
 const styles = StyleSheet.create({
-  frame: { flex: 1, padding: 12, gap: 10 },
-  header: { flexDirection: "row", alignItems: "center", gap: 12 },
+  frame: {
+    flex: 1,
+    paddingHorizontal: space.xl,
+    paddingVertical: space.lg,
+    gap: space.md,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingBottom: space.sm,
+  },
   headingBox: { flex: 1, minHeight: 44, justifyContent: "center" },
-  title: { fontSize: 24, fontWeight: "700" },
+  title: type.title,
   close: {
     minHeight: 44,
-    paddingHorizontal: 18,
-    borderRadius: 10,
+    paddingHorizontal: space.lg,
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-  closeText: { fontSize: 16, fontWeight: "600" },
+  closeText: type.control,
   body: { flex: 1 },
   bodyContent: {
-    gap: 18,
-    paddingBottom: 32,
-    maxWidth: 900,
+    gap: space.xl,
+    paddingBottom: space.xxl,
+    maxWidth: 720,
     width: "100%",
     alignSelf: "center",
   },

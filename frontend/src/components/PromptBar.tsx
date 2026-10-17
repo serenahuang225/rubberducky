@@ -3,10 +3,11 @@
  * The board, not a transcript, stays the primary surface.
  */
 
-import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React from "react";
+import { StyleSheet, Text, View } from "react-native";
 
-import type { BoardTheme } from '../board/palette';
+import type { BoardTheme } from "../board/palette";
+import { type } from "../theme/tokens";
 
 export type PromptBarProps = {
   theme: BoardTheme;
@@ -20,29 +21,47 @@ export type PromptBarProps = {
   status: string | null;
 };
 
-export function PromptBar({ theme, problemStatement, tutorMessage, expectedAction, status }: PromptBarProps) {
+export function PromptBar({
+  theme,
+  problemStatement,
+  tutorMessage,
+  expectedAction,
+  status,
+}: PromptBarProps) {
   return (
-    <View
-      style={[styles.bar, { backgroundColor: theme.surface, borderColor: theme.surfaceEdge }]}
-      accessibilityLiveRegion="polite"
-    >
-      {status !== null ? (
-        <Text testID="prompt-status" style={[styles.status, { color: theme.labelMuted }]}>
-          {status}
-        </Text>
-      ) : null}
+    <View style={styles.bar} accessibilityLiveRegion="polite">
+      <View style={styles.statusSlot}>
+        {status !== null ? (
+          <Text
+            testID="prompt-status"
+            style={[styles.status, { color: theme.labelMuted }]}
+          >
+            {status}
+          </Text>
+        ) : null}
+      </View>
       {problemStatement !== null ? (
-        <Text testID="prompt-problem" style={[styles.problem, { color: theme.labelText }]}>
+        <Text
+          testID="prompt-problem"
+          style={[styles.problem, { color: theme.labelText }]}
+        >
           {problemStatement}
         </Text>
       ) : null}
       {tutorMessage !== null ? (
-        <Text testID="prompt-tutor" style={[styles.message, { color: theme.labelText }]}>
+        <Text
+          testID="prompt-tutor"
+          numberOfLines={3}
+          style={[styles.message, { color: theme.labelText }]}
+        >
           {tutorMessage}
         </Text>
       ) : null}
       {expectedAction !== null ? (
-        <Text testID="prompt-expected" style={[styles.expected, { color: theme.labelMuted }]}>
+        <Text
+          testID="prompt-expected"
+          style={[styles.expected, { color: theme.labelMuted }]}
+        >
           Next: {expectedAction}
         </Text>
       ) : null}
@@ -51,15 +70,11 @@ export function PromptBar({ theme, problemStatement, tutorMessage, expectedActio
 }
 
 const styles = StyleSheet.create({
-  bar: {
-    gap: 4,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  status: { fontSize: 13, fontStyle: 'italic' },
-  problem: { fontSize: 18, fontWeight: '700', fontFamily: 'monospace' },
-  message: { fontSize: 16, lineHeight: 22 },
-  expected: { fontSize: 14 },
+  bar: { gap: 2 },
+  // Always one line, so "Thinking…" and "Redoing…" cannot shrink the board.
+  statusSlot: { minHeight: type.small.lineHeight },
+  status: type.small,
+  problem: type.prompt,
+  message: type.body,
+  expected: type.small,
 });

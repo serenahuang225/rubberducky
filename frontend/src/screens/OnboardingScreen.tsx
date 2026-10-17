@@ -234,7 +234,7 @@ export function OnboardingScreen({
 }
 
 const styles = StyleSheet.create({
-  scroll: { flex: 1, backgroundColor: "#FCFCFA" },
+  scroll: { flex: 1, backgroundColor: theme.board },
   page: {
     padding: 24,
     gap: 20,

@@ -78,7 +78,7 @@ function YoungerAdultFigure() {
       <Path d="M 40 58 Q 48 65 56 58" stroke="#8C5B3F" strokeWidth={2.6} fill="none" strokeLinecap="round" />
       {/* hoodie shoulders */}
       <Path d="M 20 90 Q 48 64 76 90 Z" fill="#3F7E8C" />
-      <Rect x={44} y={74} width={8} height={10} rx={3} fill="#356874" />
+      <Rect x={44} y={74} width={8} height={10} fill="#356874" />
     </>
   );
 }

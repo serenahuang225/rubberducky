@@ -53,7 +53,11 @@ export function computeFitTransform(viewWidth: number, viewHeight: number): View
 
 /** True when two transforms would map the same logical point to different pixels. */
 export function transformChanged(a: ViewTransform, b: ViewTransform): boolean {
-  return a.scale !== b.scale || a.offsetX !== b.offsetX || a.offsetY !== b.offsetY;
+  return (
+    Math.abs(a.scale - b.scale) > 0.0001 ||
+    Math.abs(a.offsetX - b.offsetX) > 0.5 ||
+    Math.abs(a.offsetY - b.offsetY) > 0.5
+  );
 }
 
 /** Screen pixels to logical board coordinates, clamped inside the board. */

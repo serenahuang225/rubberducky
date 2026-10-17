@@ -14,6 +14,7 @@ import { Circle, Ellipse, G, Line, Path, Rect, Text as SvgText } from 'react-nat
 import type { LogicalPoint } from '../board/geometry';
 import { PEN_WIDTH, STUDENT_INK_WIDTH } from '../board/geometry';
 import { colorForRole, type BoardTheme } from '../board/palette';
+import { font } from '../theme/tokens';
 import { DOT_RADIUS, pointsBounds, pointsToPathData, unionBounds, type Bounds } from '../board/pathData';
 import {
   payloadPoint,
@@ -132,7 +133,7 @@ export function SceneObjectView({ object, theme, resolveTarget }: SceneObjectVie
     if (text === null || at === null) return null;
     const fontSize = kind === 'text' ? STATEMENT_FONT_SIZE : MATH_FONT_SIZE;
     return (
-      <SvgText x={at.x} y={at.y} fontSize={fontSize} fill={ink} fontFamily="monospace">
+      <SvgText x={at.x} y={at.y} fontSize={fontSize} fill={ink} fontFamily={font.sans}>
         {text}
       </SvgText>
     );
@@ -149,7 +150,6 @@ export function SceneObjectView({ object, theme, resolveTarget }: SceneObjectVie
         y={bounds.minY - 10}
         width={bounds.maxX - bounds.minX + 20}
         height={bounds.maxY - bounds.minY + 20}
-        rx={14}
         fill={theme.highlightFill}
       />
     );
@@ -165,7 +165,6 @@ export function SceneObjectView({ object, theme, resolveTarget }: SceneObjectVie
         y={Math.min(start.y, end.y)}
         width={Math.abs(end.x - start.x)}
         height={Math.abs(end.y - start.y)}
-        rx={16}
         fill="none"
         stroke={theme.focusOutline}
         strokeWidth={4}

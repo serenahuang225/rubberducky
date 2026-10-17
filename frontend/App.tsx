@@ -21,7 +21,10 @@ import type {
   Session,
   TutorConfiguration,
 } from "./src/api/contracts";
+import { getTheme, type BoardTheme } from "./src/board/palette";
 import { getApiBaseUrl } from "./src/config/apiBaseUrl";
+import { resolveMotion } from "./src/feedback/preferences";
+import { useSystemReducedMotion } from "./src/feedback/useSystemReducedMotion";
 import {
   clearCredentials,
   loadCredentials,
@@ -36,6 +39,7 @@ import { WorkspaceScreen } from "./src/screens/WorkspaceScreen";
 import type { ChangeSummary } from "./src/state/memoryEffects";
 import { useLearnerSettings } from "./src/state/useLearnerSettings";
 import { useStoredTheme } from "./src/state/useStoredTheme";
+import { installWebTheme, useDocumentTheme } from "./src/theme/webTheme";
 
 type BootState =
   | { kind: "loading" }
@@ -79,6 +83,21 @@ export default function App() {
     [baseUrl, accessToken],
   );
   const settings = useLearnerSettings(workspaceClient);
+  const storedTheme = useStoredTheme();
+  const [liveTheme, setLiveTheme] = useState<BoardTheme | null>(null);
+  // The safe-area bands use the same color as the writing surface. Onboarding stays
+  // on the warm canvas; the workspace follows the learner's board, including chalkboard.
+  const shellTheme =
+    boot.kind === "workspace" ? (liveTheme ?? storedTheme) : getTheme("paper");
+  const systemReducedMotion = useSystemReducedMotion();
+  const motion = resolveMotion(
+    settings.accessibility.animation,
+    systemReducedMotion,
+  );
+  useEffect(() => {
+    installWebTheme();
+  }, []);
+  useDocumentTheme(shellTheme, motion);
   const [submitting, setSubmitting] = useState(false);
   const [onboardingError, setOnboardingError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -215,7 +234,7 @@ export default function App() {
   }, []);
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: shellTheme.board }]}>
       {boot.kind === "loading" ? (
         <View style={styles.centered}>
           <ActivityIndicator color="#1D4ED8" />
@@ -279,6 +298,7 @@ export default function App() {
               boardHidden={panel !== "none"}
               onOpenSettings={() => setPanel("settings")}
               onOpenMemory={() => openMemoryFrom("none")}
+              onThemeChange={setLiveTheme}
               onSessionEnded={() => setAttempt((n) => n + 1)}
             />
           </View>
@@ -288,6 +308,7 @@ export default function App() {
                 <SettingsScreen
                   settings={settings}
                   theme={theme}
+                  motion={motion}
                   onClose={() => setPanel("none")}
                   onOpenMemory={() => openMemoryFrom("settings")}
                 />
@@ -315,7 +336,7 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#FCFCFA" },
+  safe: { flex: 1 },
   fill: { flex: 1 },
   hidden: { display: "none" },
   notice: {

@@ -5,10 +5,11 @@
  */
 
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { WaitPreference } from '../api/contracts';
 import type { BoardTheme } from '../board/palette';
+import { type } from '../theme/tokens';
 
 export const WAIT_STEP_SECONDS = 15;
 
@@ -47,60 +48,91 @@ export function WaitControls({
           accessibilityState={{ expanded: open, disabled: preference === null }}
           disabled={preference === null}
           onPress={() => setOpen((value) => !value)}
-          style={[styles.toggle, { borderColor: theme.surfaceEdge }]}
+          style={[styles.toggle, { borderColor: theme.controlEdge }]}
         >
           <Text style={[styles.toggleText, text]}>Waiting time</Text>
         </Pressable>
       </View>
-      {open && preference !== null ? (
-        <View
-          testID="wait-settings"
-          style={[styles.panel, { backgroundColor: theme.surface, borderColor: theme.surfaceEdge }]}
-        >
-          <Text style={[styles.explain, muted]}>
-            How long the board stays quiet before a hint is offered. Help me always works right away.
-          </Text>
-          <View style={styles.stepper}>
+      <Modal
+        visible={open && preference !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setOpen(false)}
+      >
+        {preference !== null ? (
+          <View style={styles.backdrop}>
             <Pressable
-              testID="wait-decrease"
-              accessibilityRole="button"
-              accessibilityLabel={`Wait ${WAIT_STEP_SECONDS} seconds less`}
-              accessibilityState={{ disabled: preference.wait_seconds <= preference.min_seconds }}
-              disabled={preference.wait_seconds <= preference.min_seconds}
-              onPress={() => onChangeSeconds(preference.wait_seconds - WAIT_STEP_SECONDS)}
-              style={stepButton}
+              accessible={false}
+              importantForAccessibility="no"
+              onPress={() => setOpen(false)}
+              style={styles.backdropHit}
+            />
+            <View
+              testID="wait-settings"
+              accessibilityViewIsModal
+              style={[
+                styles.dialog,
+                { backgroundColor: theme.board, borderColor: theme.surfaceEdge },
+              ]}
             >
-              <Text style={[styles.stepText, { color: theme.controlText }]}>−{WAIT_STEP_SECONDS}s</Text>
-            </Pressable>
-            <Text
-              testID="wait-value"
-              accessibilityLabel={`Waiting time ${preference.wait_seconds} seconds`}
-              style={[styles.value, text]}
-            >
-              {`${preference.wait_seconds} seconds${preference.source === 'default' ? ' (default)' : ''}`}
-            </Text>
-            <Pressable
-              testID="wait-increase"
-              accessibilityRole="button"
-              accessibilityLabel={`Wait ${WAIT_STEP_SECONDS} seconds more`}
-              accessibilityState={{ disabled: preference.wait_seconds >= preference.max_seconds }}
-              disabled={preference.wait_seconds >= preference.max_seconds}
-              onPress={() => onChangeSeconds(preference.wait_seconds + WAIT_STEP_SECONDS)}
-              style={stepButton}
-            >
-              <Text style={[styles.stepText, { color: theme.controlText }]}>+{WAIT_STEP_SECONDS}s</Text>
-            </Pressable>
+              <View style={styles.dialogHeader}>
+                <Text style={[styles.dialogTitle, text]}>Waiting time</Text>
+                <Pressable
+                  testID="wait-settings-close"
+                  accessibilityRole="button"
+                  accessibilityLabel="Close waiting time"
+                  onPress={() => setOpen(false)}
+                  style={[styles.close, { borderColor: theme.controlEdge }]}
+                >
+                  <Text style={[styles.closeText, text]}>Close</Text>
+                </Pressable>
+              </View>
+              <Text style={[styles.explain, muted]}>
+                How long the board stays quiet before a hint is offered. Help me always works right away.
+              </Text>
+              <View style={styles.stepper}>
+                <Pressable
+                  testID="wait-decrease"
+                  accessibilityRole="button"
+                  accessibilityLabel={`Wait ${WAIT_STEP_SECONDS} seconds less`}
+                  accessibilityState={{ disabled: preference.wait_seconds <= preference.min_seconds }}
+                  disabled={preference.wait_seconds <= preference.min_seconds}
+                  onPress={() => onChangeSeconds(preference.wait_seconds - WAIT_STEP_SECONDS)}
+                  style={stepButton}
+                >
+                  <Text style={[styles.stepText, { color: theme.controlText }]}>−{WAIT_STEP_SECONDS}s</Text>
+                </Pressable>
+                <Text
+                  testID="wait-value"
+                  accessibilityLabel={`Waiting time ${preference.wait_seconds} seconds`}
+                  style={[styles.value, text]}
+                >
+                  {`${preference.wait_seconds} seconds${preference.source === 'default' ? ' (default)' : ''}`}
+                </Text>
+                <Pressable
+                  testID="wait-increase"
+                  accessibilityRole="button"
+                  accessibilityLabel={`Wait ${WAIT_STEP_SECONDS} seconds more`}
+                  accessibilityState={{ disabled: preference.wait_seconds >= preference.max_seconds }}
+                  disabled={preference.wait_seconds >= preference.max_seconds}
+                  onPress={() => onChangeSeconds(preference.wait_seconds + WAIT_STEP_SECONDS)}
+                  style={stepButton}
+                >
+                  <Text style={[styles.stepText, { color: theme.controlText }]}>+{WAIT_STEP_SECONDS}s</Text>
+                </Pressable>
+              </View>
+              <Text style={[styles.explain, muted]}>
+                {`Allowed range: ${preference.min_seconds}–${preference.max_seconds} seconds.`}
+              </Text>
+              {preferenceError !== null ? (
+                <Text testID="wait-error" style={[styles.explain, { color: theme.danger }]}>
+                  {preferenceError}
+                </Text>
+              ) : null}
+            </View>
           </View>
-          <Text style={[styles.explain, muted]}>
-            {`Allowed range: ${preference.min_seconds}–${preference.max_seconds} seconds.`}
-          </Text>
-          {preferenceError !== null ? (
-            <Text testID="wait-error" style={[styles.explain, { color: theme.danger }]}>
-              {preferenceError}
-            </Text>
-          ) : null}
-        </View>
-      ) : null}
+        ) : null}
+      </Modal>
     </View>
   );
 }
@@ -108,27 +140,55 @@ export function WaitControls({
 const styles = StyleSheet.create({
   wrapper: { gap: 6 },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  hintNote: { flex: 1, fontSize: 13, fontStyle: 'italic' },
+  hintNote: { ...type.small, flex: 1 },
   toggle: {
     minHeight: 44,
     paddingHorizontal: 12,
-    borderRadius: 10,
     borderWidth: 1,
     justifyContent: 'center',
     marginLeft: 'auto',
   },
-  toggleText: { fontSize: 13, fontWeight: '600' },
-  panel: { gap: 8, padding: 12, borderRadius: 12, borderWidth: 1 },
-  explain: { fontSize: 13, lineHeight: 18 },
+  toggleText: type.meta,
+  backdrop: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+    backgroundColor: 'rgba(44, 40, 36, 0.45)',
+  },
+  backdropHit: { ...StyleSheet.absoluteFillObject },
+  dialog: {
+    width: '100%',
+    maxWidth: 420,
+    gap: 12,
+    padding: 20,
+    borderWidth: 1,
+    zIndex: 1,
+  },
+  dialogHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  dialogTitle: type.heading,
+  close: {
+    minHeight: 44,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeText: type.control,
+  explain: type.small,
   stepper: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   stepButton: {
     minHeight: 44,
     minWidth: 64,
     paddingHorizontal: 12,
-    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stepText: { fontSize: 15, fontWeight: '600' },
-  value: { fontSize: 16, fontWeight: '600', minWidth: 130, textAlign: 'center' },
+  stepText: type.control,
+  value: { ...type.control, minWidth: 130, textAlign: 'center' },
 });

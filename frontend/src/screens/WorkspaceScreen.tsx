@@ -24,7 +24,7 @@ import type {
   AccessibilityPreferences,
   TutorConfiguration,
 } from "../api/contracts";
-import { getTheme, type BoardThemeName } from "../board/palette";
+import { getTheme, type BoardTheme, type BoardThemeName } from "../board/palette";
 import { loadThemeName, saveThemeName } from "../storage/credentials";
 import type { BoardInputMode } from "../components/BoardInputLayer";
 import { MediaPanel } from "../components/MediaPanel";
@@ -45,6 +45,8 @@ import { DEFAULT_ACCESSIBILITY } from "../state/useLearnerSettings";
 import { useProgressiveReveal } from "../state/useProgressiveReveal";
 import { useWaitAgency } from "../state/useWaitAgency";
 import { useWorkspace } from "../state/useWorkspace";
+import { type } from "../theme/tokens";
+import { ackProps } from "../theme/webTheme";
 
 import { APPEARANCE_INFO, PERSONALITY_INFO } from "./OnboardingScreen";
 
@@ -61,6 +63,8 @@ export type WorkspaceScreenProps = {
   boardHidden?: boolean;
   onOpenSettings?: () => void;
   onOpenMemory?: () => void;
+  /** Lets the app shell match the canvas color, including the safe area. */
+  onThemeChange?: (theme: BoardTheme) => void;
   /** Platform capture and speech drivers; the real device drivers unless a test supplies fakes. */
   media?: MediaServices;
 };
@@ -91,6 +95,7 @@ export function WorkspaceScreen({
   boardHidden = false,
   onOpenSettings,
   onOpenMemory,
+  onThemeChange,
   media: mediaServices,
 }: WorkspaceScreenProps) {
   const workspace = useWorkspace(client, sessionId);
@@ -160,6 +165,7 @@ export function WorkspaceScreen({
   const [mode, setMode] = useState<BoardInputMode>("draw");
   const [draft, setDraft] = useState("");
   const [showTyping, setShowTyping] = useState(false);
+  const [noted, setNoted] = useState(false);
   const [ending, setEnding] = useState(false);
   const [endError, setEndError] = useState<string | null>(null);
 
@@ -176,6 +182,41 @@ export function WorkspaceScreen({
   }, []);
 
   const theme = useMemo(() => getTheme(themeName), [themeName]);
+  const notedTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  React.useEffect(
+    () => () => {
+      if (notedTimer.current !== null) clearTimeout(notedTimer.current);
+    },
+    [],
+  );
+  React.useEffect(() => {
+    onThemeChange?.(theme);
+  }, [onThemeChange, theme]);
+  React.useEffect(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined" || boardHidden) {
+      return;
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      const target = event.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) {
+        return;
+      }
+      const meta = event.metaKey || event.ctrlKey;
+      if (!meta || event.altKey) return;
+      const key = event.key.toLowerCase();
+      if (key === "z" && !event.shiftKey) {
+        event.preventDefault();
+        void workspace.undo();
+      } else if ((key === "z" && event.shiftKey) || key === "y") {
+        event.preventDefault();
+        void workspace.redo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [boardHidden, workspace]);
   const toggleTheme = useCallback(() => {
     setThemeName((current) => {
       const next = current === "paper" ? "slate" : "paper";
@@ -194,9 +235,15 @@ export function WorkspaceScreen({
       // send keeps it for retry, and anything the learner typed since stays untouched.
       if (outcome === "resolved") {
         setDraft((current) => (current.trim() === text ? "" : current));
+        setNoted(true);
+        if (notedTimer.current !== null) clearTimeout(notedTimer.current);
+        notedTimer.current = setTimeout(
+          () => setNoted(false),
+          motion === "reduced" ? 900 : 1600,
+        );
       }
     });
-  }, [draft, media, wait, workspace]);
+  }, [draft, media, motion, wait, workspace]);
 
   const askHelp = useCallback(() => {
     wait.clearStillThinkingNote();
@@ -298,7 +345,7 @@ export function WorkspaceScreen({
 
   return (
     <KeyboardAvoidingView
-      style={[styles.page, { backgroundColor: theme.boardGrain }]}
+      style={[styles.page, { backgroundColor: theme.board }]}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <View style={styles.header}>
@@ -413,27 +460,6 @@ export function WorkspaceScreen({
         }
       />
 
-      {workspace.canInterrupt ? (
-        <Pressable
-          testID="stop-reply"
-          accessibilityRole="button"
-          accessibilityLabel="Stop reply"
-          accessibilityHint="Stops the tutor's reply; your work stays saved"
-          onPress={() => {
-            media.cancelSpeech("interrupt");
-            void workspace.interrupt();
-          }}
-          style={[
-            styles.stopButton,
-            { backgroundColor: theme.surface, borderColor: theme.surfaceEdge },
-          ]}
-        >
-          <Text style={[styles.actionText, { color: theme.labelText }]}>
-            Stop reply
-          </Text>
-        </Pressable>
-      ) : null}
-
       <TeachingContext theme={theme} turn={workspace.lastTurn} />
 
       {workspace.errorMessage !== null ? (
@@ -520,7 +546,32 @@ export function WorkspaceScreen({
         </View>
       ) : null}
 
+      <View style={styles.stage}>
       <View style={styles.boardArea}>
+        {workspace.canInterrupt ? (
+          <Pressable
+            testID="stop-reply"
+            accessibilityRole="button"
+            accessibilityLabel="Stop reply"
+            accessibilityHint="Stops the tutor's reply; your work stays saved"
+            onPress={() => {
+              media.cancelSpeech("interrupt");
+              void workspace.interrupt();
+            }}
+            style={[
+              styles.stopButton,
+              styles.stopFloat,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.surfaceEdge,
+              },
+            ]}
+          >
+            <Text style={[styles.actionText, { color: theme.labelText }]}>
+              Stop reply
+            </Text>
+          </Pressable>
+        ) : null}
         <WhiteboardCanvas
           testID="whiteboard"
           objects={visibleObjects}
@@ -529,31 +580,38 @@ export function WorkspaceScreen({
           }
           pendingStrokes={workspace.pendingStrokes}
           settlingStrokes={workspace.settlingStrokes}
+          animateTutorMarks={motion === "full" && !boardHidden}
           theme={theme}
           mode={mode}
           inputDisabled={workspace.penLocked}
           onStroke={(points) => void workspace.commitStroke(points)}
+          onDoubleTap={() => {
+            if (scene.student_undo_available) {
+              void workspace.undo();
+            }
+          }}
           onEraseAt={(objectId) => {
             setMode("draw");
             void workspace.eraseObject(objectId);
           }}
         />
       </View>
-
       <ToolRail
         theme={theme}
         themeName={themeName}
         mode={mode}
+        layout="column"
         undoAvailable={scene.student_undo_available}
         redoAvailable={scene.student_redo_available}
         tutorUndoAvailable={scene.tutor_move_undo_available}
-        busy={workspace.busyLabel !== null}
+        busy={false}
         onModeChange={setMode}
         onUndo={() => void workspace.undo()}
         onRedo={() => void workspace.redo()}
         onUndoTutorMove={() => void workspace.undoTutorMove()}
         onToggleTheme={toggleTheme}
       />
+      </View>
 
       <View style={styles.inputRow}>
         <Pressable
@@ -574,49 +632,57 @@ export function WorkspaceScreen({
             {showTyping ? "Hide typing" : "Type a step"}
           </Text>
         </Pressable>
-        <TextInput
-          testID="typed-step-input"
-          accessibilityLabel="Type your next step"
-          accessibilityElementsHidden={!showTyping}
-          importantForAccessibility={showTyping ? "yes" : "no-hide-descendants"}
-          placeholder="Optional, e.g. 2x + 6 = 14"
-          placeholderTextColor={theme.labelMuted}
-          value={draft}
-          onChangeText={(text) => {
-            setDraft(text);
-            wait.clearStillThinkingNote();
-          }}
-          onSubmitEditing={submitDraft}
-          editable={!workspace.needsCheckIn && workspace.busyLabel === null}
-          style={[
-            styles.stepInput,
-            !showTyping && styles.stepInputParked,
-            {
-              backgroundColor: theme.surface,
-              borderColor: theme.controlEdge,
-              color: theme.labelText,
-            },
-          ]}
-        />
-        <Pressable
-          testID="submit-step"
-          accessibilityRole="button"
-          accessibilityLabel="Submit step"
-          accessibilityElementsHidden={!showTyping}
-          importantForAccessibility={showTyping ? "yes" : "no-hide-descendants"}
-          accessibilityState={{ disabled: workspace.busyLabel !== null }}
-          disabled={workspace.needsCheckIn || workspace.busyLabel !== null}
-          onPress={submitDraft}
-          style={[
-            styles.actionButton,
-            !showTyping && styles.stepInputParked,
-            { backgroundColor: theme.controlBackground },
-          ]}
-        >
-          <Text style={[styles.actionText, { color: theme.controlText }]}>
-            Submit
+        {showTyping ? (
+          <TextInput
+            testID="typed-step-input"
+            accessibilityLabel="Type your next step"
+            placeholder="Optional, e.g. 2x + 6 = 14"
+            placeholderTextColor={theme.labelMuted}
+            value={draft}
+            onChangeText={(text) => {
+              setDraft(text);
+              wait.clearStillThinkingNote();
+            }}
+            onSubmitEditing={submitDraft}
+            editable={!workspace.needsCheckIn && workspace.busyLabel === null}
+            style={[
+              styles.stepInput,
+              {
+                backgroundColor: theme.surface,
+                borderColor: theme.controlEdge,
+                color: theme.labelText,
+              },
+            ]}
+          />
+        ) : null}
+        {showTyping ? (
+          <Pressable
+            testID="submit-step"
+            accessibilityRole="button"
+            accessibilityLabel="Submit step"
+            accessibilityState={{ disabled: workspace.busyLabel !== null }}
+            disabled={workspace.needsCheckIn || workspace.busyLabel !== null}
+            onPress={submitDraft}
+            style={[
+              styles.actionButton,
+              { backgroundColor: theme.controlBackground },
+            ]}
+          >
+            <Text style={[styles.actionText, { color: theme.controlText }]}>
+              Submit
+            </Text>
+          </Pressable>
+        ) : null}
+        {noted ? (
+          <Text
+            testID="step-noted"
+            accessibilityLiveRegion="polite"
+            {...ackProps(motion)}
+            style={[styles.noted, { color: theme.labelMuted }]}
+          >
+            Noted
           </Text>
-        </Pressable>
+        ) : null}
         <Pressable
           testID="help-me"
           accessibilityRole="button"
@@ -683,7 +749,13 @@ export function WorkspaceScreen({
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, padding: 12, gap: 10 },
+  page: {
+    flex: 1,
+    width: "100%",
+    height: "100%",
+    minHeight: 0,
+    paddingHorizontal: 20,
+  },
   centered: {
     flex: 1,
     alignItems: "center",
@@ -691,98 +763,111 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 24,
   },
-  loadingText: { fontSize: 16 },
-  errorTitle: { fontSize: 20, fontWeight: "700" },
-  errorText: { fontSize: 14 },
+  loadingText: type.body,
+  errorTitle: type.heading,
+  errorText: type.small,
   saveNotice: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1,
+    marginHorizontal: 16,
+    marginBottom: 6,
+    paddingVertical: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
-  saveNoticeText: { flex: 1, fontSize: 14, lineHeight: 20 },
+  saveNoticeText: { ...type.small, flex: 1 },
   saveRetryButton: {
     minHeight: 44,
     paddingHorizontal: 16,
-    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
-  saveRetryText: { fontSize: 15, fontWeight: "600" },
+  saveRetryText: type.control,
   retryButton: {
     minHeight: 44,
     paddingHorizontal: 20,
-    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
-  retryText: { fontSize: 16, fontWeight: "600" },
-  header: { flexDirection: "row", alignItems: "center", gap: 10 },
-  headerText: { flex: 1 },
-  tutorName: { fontSize: 16, fontWeight: "700" },
-  headerSub: { fontSize: 13 },
-  providerLabel: { fontSize: 12, fontStyle: "italic", marginTop: 2 },
+  retryText: type.control,
+  header: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 8,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  headerText: { flex: 1, minWidth: 160 },
+  tutorName: type.name,
+  headerSub: type.small,
+  providerLabel: { ...type.meta, fontWeight: "400", marginTop: 2 },
   finishButton: {
     minHeight: 44,
-    paddingHorizontal: 14,
-    borderRadius: 10,
+    paddingHorizontal: 12,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-  finishText: { fontSize: 14, fontWeight: "600" },
-  checkInCard: { padding: 16, borderRadius: 14, borderWidth: 1, gap: 8 },
-  checkInTitle: { fontSize: 18, fontWeight: "700" },
-  checkInSub: { fontSize: 14 },
-  checkInRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  finishText: type.meta,
+  checkInCard: {
+    marginHorizontal: 16,
+    marginBottom: 6,
+    paddingVertical: 8,
+    gap: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  checkInTitle: type.heading,
+  checkInSub: type.small,
+  checkInRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   checkInButton: {
     minHeight: 44,
     paddingHorizontal: 16,
-    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
-  checkInButtonText: { fontSize: 15, fontWeight: "600" },
-  boardArea: { flex: 1, minHeight: 240 },
+  checkInButtonText: type.control,
+  stage: {
+    flex: 1,
+    minHeight: 0,
+    flexDirection: "row",
+    alignItems: "stretch",
+  },
+  boardArea: { flex: 1, minHeight: 0, position: "relative" },
   inputRow: {
     flexDirection: "row",
     gap: 8,
     alignItems: "center",
     flexWrap: "wrap",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
   stepInput: {
+    ...type.math,
     flexGrow: 1,
-    minWidth: 220,
-    minHeight: 48,
+    minWidth: 180,
+    minHeight: 44,
     borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    fontSize: 16,
-    fontFamily: "monospace",
-  },
-  stepInputParked: {
-    position: "absolute",
-    width: 1,
-    height: 1,
-    opacity: 0,
+    paddingHorizontal: 12,
   },
   stopButton: {
-    alignSelf: "flex-start",
     minHeight: 44,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     justifyContent: "center",
-    borderRadius: 12,
     borderWidth: 1,
   },
+  stopFloat: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    zIndex: 2,
+  },
   actionButton: {
-    minHeight: 48,
-    paddingHorizontal: 16,
-    borderRadius: 10,
+    minHeight: 44,
+    paddingHorizontal: 14,
     alignItems: "center",
     justifyContent: "center",
   },
-  actionText: { fontSize: 15, fontWeight: "600" },
+  actionText: type.control,
+  noted: type.meta,
 });

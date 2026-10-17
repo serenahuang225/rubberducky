@@ -312,12 +312,16 @@ export function useWorkspace(
     return nextState;
   }, [client, sessionId]);
 
-  const guardBusy = useCallback((label: string, lockPen = true): boolean => {
+  const guardBusy = useCallback((label: string | null, lockPen = true): boolean => {
     if (busyRef.current) {
       return false;
     }
     busyRef.current = true;
-    setBusyLabel(label);
+    // A null label keeps the lock without changing the prompt. Stroke saves use that
+    // so "Saving…" cannot resize the board underneath the pen.
+    if (label !== null) {
+      setBusyLabel(label);
+    }
     setPenLocked(lockPen);
     setErrorMessage(null);
     setCommandFailed(false);
@@ -761,11 +765,11 @@ export function useWorkspace(
     async (
       action: SceneActionRequest,
       label: string,
-      options?: { lockPen?: boolean; operationId?: string },
+      options?: { lockPen?: boolean; operationId?: string; quiet?: boolean },
     ) => {
       const current = sceneRef.current;
       const lockPen = options?.lockPen !== false;
-      if (current === null || !guardBusy(label, lockPen)) return false;
+      if (current === null || !guardBusy(options?.quiet ? null : label, lockPen)) return false;
       const operationId = options?.operationId ?? newId();
       try {
         const outcome = await commitWithResync(
@@ -876,7 +880,7 @@ export function useWorkspace(
             const accepted = await commitSceneAction(
               { op: "add_stroke", points: copy },
               "Saving…",
-              { lockPen: false, operationId },
+              { lockPen: false, quiet: true, operationId },
             );
             if (accepted !== false) {
               break;
@@ -900,18 +904,23 @@ export function useWorkspace(
       await commitSceneAction(
         { op: "erase_object", target_object_id: objectId },
         "Erasing…",
+        { quiet: true },
       );
     },
     [commitSceneAction],
   );
   const undo = useCallback(async () => {
-    await commitSceneAction({ op: "undo" }, "Undoing…");
+    await commitSceneAction({ op: "undo" }, "Undoing…", { quiet: true });
   }, [commitSceneAction]);
   const redo = useCallback(async () => {
-    await commitSceneAction({ op: "redo" }, "Redoing…");
+    await commitSceneAction({ op: "redo" }, "Redoing…", { quiet: true });
   }, [commitSceneAction]);
   const undoTutorMove = useCallback(async () => {
-    await commitSceneAction({ op: "undo_tutor_move" }, "Removing tutor marks…");
+    await commitSceneAction(
+      { op: "undo_tutor_move" },
+      "Removing tutor marks…",
+      { quiet: true },
+    );
   }, [commitSceneAction]);
 
   const lastTurn =
