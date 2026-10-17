@@ -198,6 +198,9 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
   }
   const pendingHelpRef = useRef<LogicalCommand | null>(null);
   const pendingWorkRef = useRef<LogicalCommand | null>(null);
+  // Commands waiting on the server; a successful Stop settles them without waiting for the
+  // withdrawn request, which only returns once the provider finishes.
+  const stopWaitersRef = useRef<Set<() => void>>(new Set());
 
   const setPendingOps = useCallback((next: readonly PendingSceneOperation[]) => {
     pendingOpsRef.current = next;
@@ -473,6 +476,16 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
         return 'stale';
       }
       setTurnInFlight(true);
+      let release: () => void = () => undefined;
+      const stopped = new Promise<'stopped'>((resolve) => {
+        release = () => resolve('stopped');
+      });
+      stopWaitersRef.current.add(release);
+      const sendOrStop = (key: string, revision: number): Promise<TutorTurnResult | 'stopped'> => {
+        const sent = spec.send(key, revision);
+        sent.catch(() => undefined);
+        return Promise.race([sent, stopped]);
+      };
       if (
         command === null ||
         command.attemptId !== attemptId ||
@@ -486,10 +499,10 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
         };
         spec.command.current = command;
       }
-      let result: TutorTurnResult;
+      let result: TutorTurnResult | 'stopped';
       try {
         try {
-          result = await spec.send(command.key, command.expectedRevision);
+          result = await sendOrStop(command.key, command.expectedRevision);
         } catch (error) {
           if (!(error instanceof ApiClientError && error.code === 'revision_conflict')) {
             throw error;
@@ -510,9 +523,9 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
             fingerprint: spec.fingerprint,
           };
           spec.command.current = command;
-          result = await spec.send(command.key, command.expectedRevision);
+          result = await sendOrStop(command.key, command.expectedRevision);
         }
-        if (isStale()) return staleOutcome();
+        if (result === 'stopped' || isStale()) return staleOutcome();
         if (result.status !== 'pending') {
           spec.command.current = null;
         }
@@ -537,6 +550,7 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
         }
         return 'retained';
       } finally {
+        stopWaitersRef.current.delete(release);
         if (generation === turnGenRef.current) {
           setTurnInFlight(false);
           releaseBusy();
@@ -601,6 +615,7 @@ export function useWorkspace(client: ApiClient, sessionId: string): WorkspaceCon
     turnGenRef.current += 1;
     pendingHelpRef.current = null;
     pendingWorkRef.current = null;
+    for (const settle of stopWaitersRef.current) settle();
     setTurnInFlight(false);
     releaseBusy();
     setErrorMessage('Stopped. Your work is saved and the unfinished reply was dropped.');

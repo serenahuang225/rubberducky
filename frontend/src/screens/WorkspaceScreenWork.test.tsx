@@ -213,41 +213,49 @@ describe('WorkspaceScreen typed step draft', () => {
     expect(screen.getByTestId('typed-step-input').props.value).toBe('???');
   });
 
-  it('after Stop, clears the submitted draft if untouched but never a newer edit', async () => {
+  it('Stop settles the submitted draft at once, without waiting for the withdrawn reply', async () => {
     const { api, fetchImpl } = makeApi();
     const screen = renderScreen(fetchImpl);
     await waitFor(() => expect(screen.getByTestId('prompt-problem')).toBeTruthy());
 
-    // First turn: Stop, then release the late response without editing the draft.
     api.mode = 'hold';
     fireEvent.changeText(screen.getByTestId('typed-step-input'), '2x + 6 = 14');
     fireEvent.press(screen.getByTestId('submit-step'));
     await waitFor(() => expect(screen.getByTestId('stop-reply')).toBeTruthy());
+    expect(screen.getByTestId('typed-step-input').props.value).toBe('2x + 6 = 14');
+
     await act(async () => {
       fireEvent.press(screen.getByTestId('stop-reply'));
-    });
-    await waitFor(() => expect(screen.queryByTestId('stop-reply')).toBeNull());
-    await act(async () => {
-      api.held?.();
     });
     await waitFor(() => expect(screen.getByTestId('typed-step-input').props.value).toBe(''));
-    expect(screen.queryByTestId('teaching-context')).toBeNull();
 
-    // Second turn: the learner types something new after Stop; it must survive.
-    api.mode = 'hold';
-    fireEvent.changeText(screen.getByTestId('typed-step-input'), 'x = 4');
-    fireEvent.press(screen.getByTestId('submit-step'));
-    await waitFor(() => expect(screen.getByTestId('stop-reply')).toBeTruthy());
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('stop-reply'));
-    });
-    await waitFor(() => expect(screen.queryByTestId('stop-reply')).toBeNull());
-    fireEvent.changeText(screen.getByTestId('typed-step-input'), 'x = 4 and then check');
+    // The late provider reply of the stopped turn paints nothing.
     await act(async () => {
       api.held?.();
     });
     await flush();
-    expect(screen.getByTestId('typed-step-input').props.value).toBe('x = 4 and then check');
     expect(screen.queryByTestId('teaching-context')).toBeNull();
+    expect(screen.queryByTestId('prompt-tutor')).toBeNull();
+  });
+
+  it('never clears a newer edit when the answer for the earlier text arrives', async () => {
+    const { api, fetchImpl } = makeApi();
+    const screen = renderScreen(fetchImpl);
+    await waitFor(() => expect(screen.getByTestId('prompt-problem')).toBeTruthy());
+
+    api.mode = 'hold';
+    fireEvent.changeText(screen.getByTestId('typed-step-input'), '2x + 6 = 14');
+    fireEvent.press(screen.getByTestId('submit-step'));
+    await waitFor(() => expect(api.held).not.toBeNull());
+    // The box is locked while sending in this UI, so deliver the newer edit through the
+    // input's own handler, as a buffered native keystroke would.
+    await act(async () => {
+      screen.getByTestId('typed-step-input').props.onChangeText('x = 4 and then check');
+    });
+    await act(async () => {
+      api.held?.();
+    });
+    await waitFor(() => expect(screen.getByTestId('teaching-context')).toBeTruthy());
+    expect(screen.getByTestId('typed-step-input').props.value).toBe('x = 4 and then check');
   });
 });

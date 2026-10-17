@@ -396,12 +396,17 @@ describe('useWorkspace submitWork', () => {
     });
     expect(backend.interruptCalls).toBe(1);
 
+    // The withdrawn request only returns once the provider finishes, but Stop already told
+    // the caller the work was recorded, so the draft need not wait for it.
     let outcome: string | undefined;
     await act(async () => {
-      backend.held?.();
       outcome = await pending;
     });
     expect(outcome).toBe('resolved');
+    await act(async () => {
+      backend.held?.();
+      await Promise.resolve();
+    });
     expect(hook.result.current.lastUtterance).toBeNull();
 
     await act(async () => {
