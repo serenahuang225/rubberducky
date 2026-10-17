@@ -21,7 +21,9 @@ integration is disabled until you activate it explicitly.
 | Path | Contents |
 | --- | --- |
 | `backend/app/` | FastAPI application (`app.main:app`), typed settings in `app/config.py` |
+| `backend/experiments/` | Offline GRU, shared-example preparation and tiny LoRA commands |
 | `backend/tests/` | Backend tests (pytest) |
+| `docs/experiments.md` | Commands and measured smoke results for those experiments |
 | `backend/pyproject.toml` | Tutor backend dependencies and pytest/mypy/Ruff configuration |
 | `backend/requirements.lock` | Hash-pinned Python lock (macOS arm64, CPython 3.12) |
 | `frontend/` | Expo app, `package-lock.json`, Jest/ESLint/TypeScript configuration |
@@ -350,6 +352,38 @@ $CLI tracing readiness --learner bkt-fixture           # qualitative bands, no p
 snapshot. Devices use `GET /tracing/readiness`, which returns only qualitative bands
 (`not_enough_evidence`, `emerging`, `developing`, `strong_so_far`) and a separate
 independent-transfer status. It never returns a mastery score.
+
+### Offline GRU, shared examples and tiny LoRA
+
+Training is not part of the API. The commands below use `backend/.venv`, at most two numerical
+threads, and synthetic or reviewed fictional text. They do not download weights or call a paid
+model. Model cards for the smoke runs recorded in this workspace are in
+[docs/experiments.md](docs/experiments.md). A lower loss than BKT, or a small adapter change on a
+random Transformer, is a pipeline check. It is not calibrated mastery and not evidence that a
+learner or a tutor improved.
+
+```sh
+EXP="env PYTHONPATH=backend OMP_NUM_THREADS=2 backend/.venv/bin/python"
+$EXP -m experiments.tracing train --synthetic --seed 17 --epochs 2 --output artifacts/gru-smoke
+$EXP -m experiments.tracing evaluate --checkpoint artifacts/gru-smoke \
+  --output artifacts/gru-smoke/eval.json
+$EXP -m experiments.tutor_data validate \
+  --input backend/experiments/tutor_data/fixtures/reviewed_shared.jsonl
+$EXP -m experiments.tutor_data prepare \
+  --input backend/experiments/tutor_data/fixtures/reviewed_shared.jsonl \
+  --output artifacts/tutor-data --seed 17
+$EXP -m experiments.tutor_data dry-run \
+  --input backend/experiments/tutor_data/fixtures/reviewed_shared.jsonl \
+  --output artifacts/tutor-data-dry --seed 17
+$EXP -m experiments.lora train --smoke --seed 17 --steps 2 \
+  --data artifacts/tutor-data --output artifacts/lora-smoke
+$EXP -m experiments.lora reload --checkpoint artifacts/lora-smoke
+$EXP -m experiments.lora evaluate --checkpoint artifacts/lora-smoke --data artifacts/tutor-data
+```
+
+`artifacts/` is git-ignored. Re-run the commands to reproduce checkpoints. Teacher generation stays
+off unless you pass `--activate`, a provider and a positive `--max-cost-usd`; generated rows are
+unreviewed and are not training data.
 ### Whiteboard scene operations and author-safe history
 
 The board is a durable logical-coordinate scene (`1600x1200`, one fixed 3-unit student pen).
