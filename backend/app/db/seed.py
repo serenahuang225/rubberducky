@@ -30,6 +30,7 @@ from app.db.models import (
     StepRow,
     TutorConfigurationRow,
 )
+from app.learner.tombstones import removed_ids
 from app.schemas import (
     Assessment,
     Attempt,
@@ -386,7 +387,8 @@ def ada_history_records() -> list[ContractModel]:
             created_at=_at(9),
             learner_id=DEMO_LEARNER_ADA,
             provenance=SEED,
-        ),        Assessment(
+        ),
+        Assessment(
             id=seed_uuid("assessment:ada:1"),
             session_id=session_id,
             attempt_id=attempt_id,
@@ -439,13 +441,23 @@ def all_seed_records() -> list[ContractModel]:
     return [*curriculum_records(), *learner_records(), *ada_history_records()]
 
 
+# A seeded record is skipped when it, or the learner/session/observation/hypothesis it
+# belongs to, was deleted: reseeding must never resurrect removed history.
+_OWNER_FIELDS = ("id", "learner_id", "session_id", "observation_id", "hypothesis_id")
+
+
+def _was_removed(record: ContractModel, removed: set[str]) -> bool:
+    return any(getattr(record, field, None) in removed for field in _OWNER_FIELDS)
+
+
 def insert_missing(db: DbSession, records: Sequence[ContractModel]) -> dict[str, int]:
-    """Insert records whose IDs are absent; existing rows are left untouched."""
+    """Insert records whose IDs are absent and not tombstoned; existing rows are untouched."""
     inserted: dict[str, int] = {}
+    removed = removed_ids(db)
     for record in records:
         row_type = _ROW_FOR[type(record)]
         record_id = getattr(record, "id")  # noqa: B009 - every seeded contract has an id
-        if db.get(row_type, record_id) is not None:
+        if db.get(row_type, record_id) is not None or _was_removed(record, removed):
             continue
         db.add(row_type(**record.model_dump()))
         # Flush in dependency order so foreign keys are checked as each record lands.

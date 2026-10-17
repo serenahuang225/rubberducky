@@ -650,3 +650,59 @@ class SessionWaitSignalRow(Base):
     still_thinking_at: Mapped[datetime | None]
     still_thinking_count: Mapped[int] = mapped_column(Integer, default=0)
     updated_at: Mapped[datetime]
+
+
+class EvidenceCorrectionRow(Base):
+    """A learner's correction of one observation's correctness, with the original preserved.
+
+    The observation (and its assessment) carries the *current* value so every reader sees
+    one truth; this row keeps what the system originally recorded and when the learner
+    changed it, so the correction stays distinguishable from measured evidence.
+    """
+
+    __tablename__ = "evidence_corrections"
+    __table_args__ = (
+        UniqueConstraint("learner_id", "observation_id"),
+        ForeignKeyConstraint(
+            ["observation_id", "learner_id"],
+            ["observations.id", "observations.learner_id"],
+            ondelete="CASCADE",
+        ),
+        _provenance(),
+    )
+
+    id: Mapped[str] = mapped_column(ID, primary_key=True)
+    schema_version: Mapped[str] = mapped_column(String(64))
+    learner_id: Mapped[str] = mapped_column(ID, _learner_fk(), index=True)
+    observation_id: Mapped[str] = mapped_column(ID)
+    original_correct: Mapped[bool] = mapped_column(Boolean)
+    corrected_correct: Mapped[bool] = mapped_column(Boolean)
+    original_assessment_outcome: Mapped[str | None] = mapped_column(String(16))
+    provenance: Mapped[str] = mapped_column(String(32))
+    corrected_at: Mapped[datetime]
+
+
+class DeletionTombstoneRow(Base):
+    """Marks a removed record ID so reseeding or replay cannot resurrect it.
+
+    Deliberately holds no content and has no foreign key to the learner, so it survives
+    profile deletion. It never stores text from the deleted record.
+    """
+
+    __tablename__ = "deletion_tombstones"
+    __table_args__ = (
+        UniqueConstraint("learner_id", "record_id"),
+        _one_of(
+            "reason",
+            "reason",
+            ("learner_deleted", "source_deleted", "session_deleted", "profile_deleted"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(ID, primary_key=True)
+    schema_version: Mapped[str] = mapped_column(String(64))
+    learner_id: Mapped[str] = mapped_column(ID, index=True)
+    record_kind: Mapped[str] = mapped_column(String(32))
+    record_id: Mapped[str] = mapped_column(ID, index=True)
+    reason: Mapped[str] = mapped_column(String(24))
+    deleted_at: Mapped[datetime]

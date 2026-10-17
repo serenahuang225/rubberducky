@@ -29,7 +29,7 @@ from app.main import create_app
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 NOW = datetime(2026, 10, 2, 9, 30, tzinfo=UTC)
 ADA_SESSION = seed_uuid("session:ada:1")
-HEAD = "0007_session_wait_signals"
+HEAD = "0008_memory_agency"
 
 
 def run_cli(url: str, *args: str) -> Any:

@@ -8,7 +8,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.api.deps import ScopedRepo
 from app.api.errors import ErrorEnvelope
 from app.clock import utc_now
+from app.learner.removal import delete_session as remove_session
 from app.schemas import Session
+from app.schemas.agency import RemovalReceipt
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -56,3 +58,15 @@ def end_session(session_id: SessionIdPath, repo: ScopedRepo) -> Session:
     session = repo.end_session(session_id, utc_now())
     repo.db.commit()
     return session
+
+
+@router.delete(
+    "/{session_id}",
+    response_model=RemovalReceipt,
+    responses=_ERRORS,
+    summary="Delete an own session and everything recorded in it; dependents recompute",
+)
+def delete_session(session_id: SessionIdPath, repo: ScopedRepo) -> RemovalReceipt:
+    receipt = remove_session(repo, session_id, utc_now())
+    repo.db.commit()
+    return receipt

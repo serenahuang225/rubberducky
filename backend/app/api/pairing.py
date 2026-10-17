@@ -17,7 +17,9 @@ from app.learner.pairing import (
     redeem_pairing_code,
     revoke_credential,
 )
+from app.learner.removal import delete_profile
 from app.schemas import Learner, TutorConfiguration
+from app.schemas.agency import RemovalReceipt
 
 router = APIRouter(tags=["pairing"])
 
@@ -121,3 +123,18 @@ def my_history(
 ) -> HistorySnapshot:
     return repo.history(limit)
 
+
+@router.delete(
+    "/me",
+    response_model=RemovalReceipt,
+    responses=_ERRORS,
+    summary="Delete this learner profile and all of its records; every credential is revoked",
+)
+def delete_my_profile(
+    repo: ScopedRepo,
+    confirm: Annotated[Literal["delete-my-profile"], Query()],
+) -> RemovalReceipt:
+    """Requires ``?confirm=delete-my-profile``. Active local-store deletion only."""
+    receipt = delete_profile(repo, utc_now())
+    repo.db.commit()
+    return receipt

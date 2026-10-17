@@ -495,7 +495,10 @@ def _commit(
                 TutorTurnRow.id == reserved.turn_id,
                 TutorTurnRow.learner_id == scope.learner_id,
             )
-        ).scalar_one()
+        ).scalar_one_or_none()
+        if row is None:
+            # The session or profile was deleted while the provider was drafting.
+            raise TurnCommandError("turn_removed", "This turn's records were deleted.")
         if row.status != "pending":
             # A concurrent completion of the same turn already committed; replay it.
             return TutorTurnResult.model_validate(row.result).model_copy(update={"replayed": True})

@@ -121,6 +121,9 @@ class ScopedRepository:
     def require_observation(self, observation_id: str) -> ObservationRow:
         return self._owned(ObservationRow, observation_id)
 
+    def require_memory_entry(self, memory_id: str) -> MemoryEntryRow:
+        return self._owned(MemoryEntryRow, memory_id)
+
     def get_session(self, session_id: str) -> Session:
         return Session.model_validate(self.require_session(session_id))
 
