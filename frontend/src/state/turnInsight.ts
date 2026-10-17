@@ -12,7 +12,7 @@ import type {
   Representation,
   StudentInputOutcome,
   TutorTurnResult,
-} from '../api/contracts';
+} from "../api/contracts";
 
 export type DiagnosticView = {
   hypothesisLabel: string | null;
@@ -38,38 +38,38 @@ export type TurnInsight = {
 };
 
 const REPRESENTATION_LABELS: Record<Representation, string> = {
-  outside_factor: 'Outside factor',
-  groups_picture: 'Groups picture',
-  number_case: 'Number case',
-  copy_check: 'Copy check',
-  worked_step: 'Worked step',
-  next_step: 'Next step',
+  outside_factor: "Outside factor",
+  groups_picture: "Groups picture",
+  number_case: "Number case",
+  copy_check: "Copy check",
+  worked_step: "Worked step",
+  next_step: "Next step",
 };
 
 /** Input kinds that carry no judgment about the learner's math. */
 const NON_WORK_CLASSIFICATIONS = new Set([
-  'check_in',
-  'not_sure',
-  'explain_request',
-  'unconfirmed_ink',
-  'unsupported',
+  "check_in",
+  "not_sure",
+  "explain_request",
+  "unconfirmed_ink",
+  "unsupported",
 ]);
 
 function mathJudgment(student: StudentInputOutcome): string | null {
   const verification = student.verification;
   if (verification === null) return null;
-  const isSolution = verification.check === 'solution';
+  const isSolution = verification.check === "solution";
   switch (verification.status) {
-    case 'valid':
+    case "valid":
       return isSolution
-        ? 'Math check: this value solves the equation.'
-        : 'Math check: this step is equivalent to the problem.';
-    case 'invalid':
+        ? "Math check: this value solves the equation."
+        : "Math check: this step is equivalent to the problem.";
+    case "invalid":
       return isSolution
-        ? 'Math check: this value does not solve the equation.'
-        : 'Math check: this step is not equivalent to the problem.';
+        ? "Math check: this value does not solve the equation."
+        : "Math check: this step is not equivalent to the problem.";
     default:
-      return 'Math check: I could not check this input.';
+      return "Math check: I could not check this input.";
   }
 }
 
@@ -80,68 +80,103 @@ function reasoningJudgment(student: StudentInputOutcome): string | null {
 }
 
 function humanize(reason: string): string {
-  return reason.replace(/_/g, ' ');
+  return reason.replace(/_/g, " ");
 }
 
-function eligibilityNote(note: EligibilityNote): string {
+/**
+ * `independent_reasoning_missing` means checked independent reasoning is absent. A bare value
+ * (`solution_without_reasoning`) really had none; typed reasoning the tutor is still
+ * questioning is present but not verified, which must not be described as absent.
+ */
+function reasoningUnverifiedKind(
+  student: StudentInputOutcome,
+): "absent" | "unverified" {
+  return student.classification === "solution_without_reasoning"
+    ? "absent"
+    : "unverified";
+}
+
+function eligibilityNote(
+  note: EligibilityNote,
+  student: StudentInputOutcome,
+): string {
   if (note.assisted) {
-    return 'This work was assisted, so it is not counted as independent.';
+    return "This work was assisted, so it is not counted as independent.";
   }
-  if (note.reason === 'independent_reasoning_missing') {
-    return 'No reasoning was shown yet, so this is not counted as independent.';
+  if (note.reason === "independent_reasoning_missing") {
+    return reasoningUnverifiedKind(student) === "absent"
+      ? "No reasoning was shown yet, so this is not counted as independent."
+      : "The reasoning you gave is not verified yet, so this is not counted as independent.";
   }
   if (note.eligible) {
-    return 'This observation can count as independent evidence.';
+    return "This observation can count as independent evidence.";
   }
   return note.reason === null
-    ? 'This observation is not counted as independent evidence.'
+    ? "This observation is not counted as independent evidence."
     : `Not counted as independent evidence (${humanize(note.reason)}).`;
 }
 
 function independence(student: StudentInputOutcome): string | null {
   if (student.assessment_independent === null) return null;
   if (student.assessment_independent) {
-    return 'Counted as independent work.';
+    return "Counted as independent work.";
   }
-  const note = student.eligibility.find((entry) => entry.assisted) ?? student.eligibility[0];
+  const note =
+    student.eligibility.find((entry) => entry.assisted) ??
+    student.eligibility[0];
   if (note?.assisted) {
-    return 'Counted as assisted work, not independent success.';
+    return "Counted as assisted work, not independent success.";
   }
-  if (note?.reason === 'independent_reasoning_missing') {
-    return 'Not counted as independent success yet: no reasoning was shown.';
+  if (note?.reason === "independent_reasoning_missing") {
+    return reasoningUnverifiedKind(student) === "absent"
+      ? "Not counted as independent success yet: no reasoning was shown."
+      : "Not counted as independent success yet: the reasoning you gave is not verified yet.";
   }
-  return 'Not counted as independent success.';
+  return "Not counted as independent success.";
 }
 
 export function describeTurn(turn: TutorTurnResult): TurnInsight {
   const student = turn.student_input;
-  const judgesWork = student !== null && !NON_WORK_CLASSIFICATIONS.has(student.classification);
+  const judgesWork =
+    student !== null && !NON_WORK_CLASSIFICATIONS.has(student.classification);
 
   const diagnostic: DiagnosticView | null =
     turn.hypothesis !== null || turn.decision_justification !== null
       ? {
           hypothesisLabel: turn.hypothesis?.label ?? null,
           confidencePercent:
-            turn.hypothesis === null ? null : Math.round(turn.hypothesis.confidence * 100),
+            turn.hypothesis === null
+              ? null
+              : Math.round(turn.hypothesis.confidence * 100),
           status: turn.hypothesis?.status ?? null,
           alternatives: turn.hypothesis?.alternatives ?? [],
           supportingSourceIds: turn.hypothesis?.source_ids ?? [],
-          contradictingSourceIds: turn.hypothesis?.contradicting_source_ids ?? [],
-          substantiveCounterevidence: turn.hypothesis?.substantive_counterevidence ?? false,
+          contradictingSourceIds:
+            turn.hypothesis?.contradicting_source_ids ?? [],
+          substantiveCounterevidence:
+            turn.hypothesis?.substantive_counterevidence ?? false,
           justification: turn.decision_justification,
-          eligibilityNotes: (student?.eligibility ?? [])
-            .filter((note) => note.evidence_kind !== 'self_report')
-            .map(eligibilityNote),
+          eligibilityNotes:
+            student === null
+              ? []
+              : student.eligibility
+                  .filter((note) => note.evidence_kind !== "self_report")
+                  .map((note) => eligibilityNote(note, student)),
         }
       : null;
 
   return {
-    representation: turn.representation === null ? null : REPRESENTATION_LABELS[turn.representation],
+    representation:
+      turn.representation === null
+        ? null
+        : REPRESENTATION_LABELS[turn.representation],
     disclosure: turn.answer_revealed
-      ? 'The tutor showed the step in this explanation, so success on it will count as assisted.'
+      ? "The tutor showed the step in this explanation, so success on it will count as assisted."
       : null,
     supportChange:
-      turn.support_change === 'reduced' ? 'Support reduced: this one starts with less help.' : null,
+      turn.support_change === "reduced"
+        ? "Support reduced: this one starts with less help."
+        : null,
     hintLevel: turn.hint_level > 0 ? `Hint level ${turn.hint_level}` : null,
     mathJudgment: judgesWork ? mathJudgment(student) : null,
     reasoningJudgment: judgesWork ? reasoningJudgment(student) : null,

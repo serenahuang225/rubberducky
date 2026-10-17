@@ -7,38 +7,49 @@
  */
 
 import {
+  accessibilityPreferencesSchema,
+  correctionReceiptSchema,
+  deletionReceiptSchema,
   errorEnvelopeSchema,
   interruptResultSchema,
+  memoryInspectionSchema,
   meResponseSchema,
   pairingResultSchema,
   personaOptionsSchema,
+  personaStateSchema,
+  removalReceiptSchema,
   sceneOperationResultSchema,
   sceneSnapshotSchema,
   sessionListSchema,
   sessionSchema,
   sessionStateSchema,
-  tutorConfigurationSchema,
   tutorTurnResultSchema,
   waitPreferenceSchema,
   waitStateSchema,
+  type AccessibilityPatch,
+  type AccessibilityPreferences,
   type Appearance,
   type ComfortOverride,
+  type CorrectionReceipt,
+  type DeletionReceipt,
   type InterruptResult,
+  type MemoryInspection,
   type MeResponse,
   type PairingResult,
   type PersonaOptions,
+  type PersonaState,
   type Personality,
+  type RemovalReceipt,
   type SceneOperationResult,
   type SceneSnapshot,
   type Session,
   type SessionState,
-  type TutorConfiguration,
   type TutorTurnResult,
   type WaitPreference,
   type WaitState,
-} from './contracts';
-import type { LogicalPoint } from '../board/geometry';
-import { modelReadinessSchema, type ModelReadiness } from './health';
+} from "./contracts";
+import type { LogicalPoint } from "../board/geometry";
+import { modelReadinessSchema, type ModelReadiness } from "./health";
 
 export class ApiClientError extends Error {
   constructor(
@@ -47,16 +58,16 @@ export class ApiClientError extends Error {
     message: string,
   ) {
     super(message);
-    this.name = 'ApiClientError';
+    this.name = "ApiClientError";
   }
 }
 
 export type SceneActionRequest =
-  | { op: 'add_stroke'; points: LogicalPoint[] }
-  | { op: 'erase_object'; target_object_id: string }
-  | { op: 'undo' }
-  | { op: 'redo' }
-  | { op: 'undo_tutor_move' };
+  | { op: "add_stroke"; points: LogicalPoint[] }
+  | { op: "erase_object"; target_object_id: string }
+  | { op: "undo" }
+  | { op: "redo" }
+  | { op: "undo_tutor_move" };
 
 const REQUEST_TIMEOUT_MS = 15000;
 
@@ -78,58 +89,189 @@ export class ApiClient {
   }
 
   bootstrapDemoLearner(displayName: string): Promise<PairingResult> {
-    return this.request('POST', '/demo/bootstrap', pairingResultSchema, {
+    return this.request("POST", "/demo/bootstrap", pairingResultSchema, {
       body: { display_name: displayName },
       authenticated: false,
     });
   }
 
   me(): Promise<MeResponse> {
-    return this.request('GET', '/me', meResponseSchema);
+    return this.request("GET", "/me", meResponseSchema);
   }
 
   personaOptions(): Promise<PersonaOptions> {
-    return this.request('GET', '/persona/options', personaOptionsSchema);
+    return this.request("GET", "/persona/options", personaOptionsSchema);
   }
 
+  /** The stored pair, comfort override and the server's seven-day lock state (all UTC). */
+  getTutorConfiguration(): Promise<PersonaState> {
+    return this.request("GET", "/me/tutor-configuration", personaStateSchema);
+  }
+
+  /**
+   * Choose or change the durable appearance/personality pair. Comfort is deliberately not
+   * sent: omitting it keeps the current override, and comfort has its own immediate route.
+   * A locked change rejects with ApiClientError code `persona_change_locked`.
+   */
   putTutorConfiguration(
     appearance: Appearance,
     personality: Personality,
-    comfortOverride: ComfortOverride = 'none',
-  ): Promise<TutorConfiguration> {
-    return this.request('PUT', '/me/tutor-configuration', tutorConfigurationSchema, {
+  ): Promise<PersonaState> {
+    return this.request("PUT", "/me/tutor-configuration", personaStateSchema, {
       body: {
-        schema_version: 'tutor-configuration-request.v1',
+        schema_version: "tutor-configuration-request.v1",
         appearance,
         personality,
+      },
+    });
+  }
+
+  /** Immediate neutral/supportive or reduced-sass delivery; never cooldown-locked. */
+  putComfortOverride(comfortOverride: ComfortOverride): Promise<PersonaState> {
+    return this.request("PUT", "/me/comfort-override", personaStateSchema, {
+      body: {
+        schema_version: "comfort-override-request.v1",
         comfort_override: comfortOverride,
       },
     });
   }
 
+  getAccessibilityPreferences(): Promise<AccessibilityPreferences> {
+    return this.request(
+      "GET",
+      "/me/accessibility-preferences",
+      accessibilityPreferencesSchema,
+    );
+  }
+
+  /** Only the supplied fields change; never locked and never touching the persona pair. */
+  patchAccessibilityPreferences(
+    patch: AccessibilityPatch,
+  ): Promise<AccessibilityPreferences> {
+    return this.request(
+      "PATCH",
+      "/me/accessibility-preferences",
+      accessibilityPreferencesSchema,
+      {
+        body: {
+          schema_version: "accessibility-preferences-request.v1",
+          ...patch,
+        },
+      },
+    );
+  }
+
+  /** The private memory view. `limit` bounds each of the five buckets, not the total. */
+  inspectMemory(
+    options: { limit?: number; sessionId?: string } = {},
+  ): Promise<MemoryInspection> {
+    const query = new URLSearchParams();
+    if (options.limit !== undefined) query.set("limit", String(options.limit));
+    if (options.sessionId !== undefined)
+      query.set("session_id", options.sessionId);
+    const suffix = query.size > 0 ? `?${query.toString()}` : "";
+    return this.request(
+      "GET",
+      `/memory/inspect${suffix}`,
+      memoryInspectionSchema,
+    );
+  }
+
+  correctEvidence(
+    observationId: string,
+    correct: boolean,
+  ): Promise<CorrectionReceipt> {
+    return this.request(
+      "POST",
+      `/memory/evidence/${encodeURIComponent(observationId)}/correction`,
+      correctionReceiptSchema,
+      { body: { correct } },
+    );
+  }
+
+  correctNote(memoryId: string, content: string): Promise<CorrectionReceipt> {
+    return this.request(
+      "POST",
+      `/memory/notes/${encodeURIComponent(memoryId)}/correction`,
+      correctionReceiptSchema,
+      { body: { content } },
+    );
+  }
+
+  deleteEvidence(observationId: string): Promise<DeletionReceipt> {
+    return this.request(
+      "DELETE",
+      `/memory/evidence/${encodeURIComponent(observationId)}`,
+      deletionReceiptSchema,
+    );
+  }
+
+  deleteNote(memoryId: string): Promise<DeletionReceipt> {
+    return this.request(
+      "DELETE",
+      `/memory/notes/${encodeURIComponent(memoryId)}`,
+      deletionReceiptSchema,
+    );
+  }
+
+  deleteHypothesis(hypothesisId: string): Promise<DeletionReceipt> {
+    return this.request(
+      "DELETE",
+      `/memory/hypotheses/${encodeURIComponent(hypothesisId)}`,
+      deletionReceiptSchema,
+    );
+  }
+
+  deleteSession(sessionId: string): Promise<RemovalReceipt> {
+    return this.request(
+      "DELETE",
+      `/sessions/${encodeURIComponent(sessionId)}`,
+      removalReceiptSchema,
+    );
+  }
+
+  /** Removes the whole profile and revokes every credential; the confirm token is required. */
+  deleteProfile(): Promise<RemovalReceipt> {
+    return this.request(
+      "DELETE",
+      "/me?confirm=delete-my-profile",
+      removalReceiptSchema,
+    );
+  }
+
   startSession(goal?: string): Promise<Session> {
-    return this.request('POST', '/sessions', sessionSchema, { body: { goal: goal ?? null } });
+    return this.request("POST", "/sessions", sessionSchema, {
+      body: { goal: goal ?? null },
+    });
   }
 
   listSessions(): Promise<Session[]> {
-    return this.request('GET', '/sessions', sessionListSchema);
+    return this.request("GET", "/sessions", sessionListSchema);
   }
 
   sessionState(sessionId: string): Promise<SessionState> {
-    return this.request('GET', `/sessions/${sessionId}/state`, sessionStateSchema);
+    return this.request(
+      "GET",
+      `/sessions/${sessionId}/state`,
+      sessionStateSchema,
+    );
   }
 
   sceneSnapshot(sessionId: string): Promise<SceneSnapshot> {
-    return this.request('GET', `/sessions/${sessionId}/scene`, sceneSnapshotSchema);
+    return this.request(
+      "GET",
+      `/sessions/${sessionId}/scene`,
+      sceneSnapshotSchema,
+    );
   }
 
   endSession(sessionId: string): Promise<Session> {
-    return this.request('POST', `/sessions/${sessionId}/end`, sessionSchema);
+    return this.request("POST", `/sessions/${sessionId}/end`, sessionSchema);
   }
 
   /** Honest provider identity/readiness, so the UI can label a mock as a mock. */
   modelReadiness(): Promise<ModelReadiness> {
-    return this.request('GET', '/health/model', modelReadinessSchema);
+    return this.request("GET", "/health/model", modelReadinessSchema);
   }
 
   commitSceneOperation(
@@ -138,31 +280,41 @@ export class ApiClient {
     expectedSceneRevision: number,
     action: SceneActionRequest,
   ): Promise<SceneOperationResult> {
-    return this.request('POST', `/sessions/${sessionId}/scene/operations`, sceneOperationResultSchema, {
-      body: {
-        schema_version: 'scene-operation-request.v1',
-        operation_id: operationId,
-        expected_scene_revision: expectedSceneRevision,
-        action,
+    return this.request(
+      "POST",
+      `/sessions/${sessionId}/scene/operations`,
+      sceneOperationResultSchema,
+      {
+        body: {
+          schema_version: "scene-operation-request.v1",
+          operation_id: operationId,
+          expected_scene_revision: expectedSceneRevision,
+          action,
+        },
       },
-    });
+    );
   }
 
   checkIn(
     sessionId: string,
     idempotencyKey: string,
     expectedRevision: number,
-    energy: 'ready' | 'a_bit_tired' | 'tired' | null,
+    energy: "ready" | "a_bit_tired" | "tired" | null,
   ): Promise<TutorTurnResult> {
-    return this.request('POST', `/sessions/${sessionId}/check-in`, tutorTurnResultSchema, {
-      body: {
-        schema_version: 'check-in-request.v1',
-        expected_revision: expectedRevision,
-        goal: 'solve_equations_with_parentheses',
-        energy,
+    return this.request(
+      "POST",
+      `/sessions/${sessionId}/check-in`,
+      tutorTurnResultSchema,
+      {
+        body: {
+          schema_version: "check-in-request.v1",
+          expected_revision: expectedRevision,
+          goal: "solve_equations_with_parentheses",
+          energy,
+        },
+        idempotencyKey,
       },
-      idempotencyKey,
-    });
+    );
   }
 
   submitWork(
@@ -170,17 +322,22 @@ export class ApiClient {
     idempotencyKey: string,
     expectedRevision: number,
     text: string,
-    inputMode: 'typed' | 'confirmed_ink' | 'unconfirmed_ink' = 'typed',
+    inputMode: "typed" | "confirmed_ink" | "unconfirmed_ink" = "typed",
   ): Promise<TutorTurnResult> {
-    return this.request('POST', `/sessions/${sessionId}/work`, tutorTurnResultSchema, {
-      body: {
-        schema_version: 'work-request.v1',
-        expected_revision: expectedRevision,
-        text,
-        input_mode: inputMode,
+    return this.request(
+      "POST",
+      `/sessions/${sessionId}/work`,
+      tutorTurnResultSchema,
+      {
+        body: {
+          schema_version: "work-request.v1",
+          expected_revision: expectedRevision,
+          text,
+          input_mode: inputMode,
+        },
+        idempotencyKey,
       },
-      idempotencyKey,
-    });
+    );
   }
 
   /** Help me: a hint (or, on request, an explanation) now. Same turn contract as /work. */
@@ -188,63 +345,88 @@ export class ApiClient {
     sessionId: string,
     idempotencyKey: string,
     expectedRevision: number,
-    mode: 'hint' | 'explain' = 'hint',
+    mode: "hint" | "explain" = "hint",
   ): Promise<TutorTurnResult> {
-    return this.request('POST', `/sessions/${sessionId}/help`, tutorTurnResultSchema, {
-      body: { schema_version: 'help-request.v1', expected_revision: expectedRevision, mode },
-      idempotencyKey,
-    });
+    return this.request(
+      "POST",
+      `/sessions/${sessionId}/help`,
+      tutorTurnResultSchema,
+      {
+        body: {
+          schema_version: "help-request.v1",
+          expected_revision: expectedRevision,
+          mode,
+        },
+        idempotencyKey,
+      },
+    );
   }
 
   /** Stop the reply being prepared. Safe to retry: the epoch advances once per observed value. */
   interruptSession(
     sessionId: string,
     observedEpoch: number,
-    reason: 'student_interrupt' | 'speech_barge_in' = 'student_interrupt',
+    reason: "student_interrupt" | "speech_barge_in" = "student_interrupt",
   ): Promise<InterruptResult> {
-    return this.request('POST', `/sessions/${sessionId}/interrupt`, interruptResultSchema, {
+    return this.request(
+      "POST",
+      `/sessions/${sessionId}/interrupt`,
+      interruptResultSchema,
+      {
+        body: {
+          schema_version: "interrupt-request.v1",
+          observed_epoch: observedEpoch,
+          reason,
+        },
+      },
+    );
+  }
+
+  waitPreference(): Promise<WaitPreference> {
+    return this.request("GET", "/me/wait-preference", waitPreferenceSchema);
+  }
+
+  putWaitPreference(waitSeconds: number): Promise<WaitPreference> {
+    return this.request("PUT", "/me/wait-preference", waitPreferenceSchema, {
       body: {
-        schema_version: 'interrupt-request.v1',
-        observed_epoch: observedEpoch,
-        reason,
+        schema_version: "wait-preference-request.v1",
+        wait_seconds: waitSeconds,
       },
     });
   }
 
-  waitPreference(): Promise<WaitPreference> {
-    return this.request('GET', '/me/wait-preference', waitPreferenceSchema);
-  }
-
-  putWaitPreference(waitSeconds: number): Promise<WaitPreference> {
-    return this.request('PUT', '/me/wait-preference', waitPreferenceSchema, {
-      body: { schema_version: 'wait-preference-request.v1', wait_seconds: waitSeconds },
-    });
-  }
-
   waitState(sessionId: string): Promise<WaitState> {
-    return this.request('GET', `/sessions/${sessionId}/wait`, waitStateSchema);
+    return this.request("GET", `/sessions/${sessionId}/wait`, waitStateSchema);
   }
 
   /** Explicit "Still thinking": wait metadata only. Not idempotent, so never auto-replayed. */
   stillThinking(sessionId: string): Promise<WaitState> {
-    return this.request('POST', `/sessions/${sessionId}/still-thinking`, waitStateSchema);
+    return this.request(
+      "POST",
+      `/sessions/${sessionId}/still-thinking`,
+      waitStateSchema,
+    );
   }
 
   private async request<T>(
-    method: 'GET' | 'POST' | 'PUT',
+    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
     path: string,
     schema: { parse: (value: unknown) => T },
-    options: { body?: unknown; idempotencyKey?: string; authenticated?: boolean } = {},
+    options: {
+      body?: unknown;
+      idempotencyKey?: string;
+      authenticated?: boolean;
+    } = {},
   ): Promise<T> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const headers: Record<string, string> = { Accept: 'application/json' };
+      const headers: Record<string, string> = { Accept: "application/json" };
       if (options.body !== undefined) {
-        headers['Content-Type'] = 'application/json';
+        headers["Content-Type"] = "application/json";
       }
       if (options.idempotencyKey !== undefined) {
-        headers['Idempotency-Key'] = options.idempotencyKey;
+        headers["Idempotency-Key"] = options.idempotencyKey;
       }
       if (options.authenticated !== false && this.accessToken !== null) {
         headers.Authorization = `Bearer ${this.accessToken}`;
@@ -252,16 +434,25 @@ export class ApiClient {
       const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
         method,
         headers,
-        body: options.body === undefined ? undefined : JSON.stringify(options.body),
+        body:
+          options.body === undefined ? undefined : JSON.stringify(options.body),
         signal: controller.signal,
       });
       const payload: unknown = await response.json().catch(() => null);
       if (!response.ok) {
         const envelope = errorEnvelopeSchema.safeParse(payload);
         if (envelope.success) {
-          throw new ApiClientError(response.status, envelope.data.error.code, envelope.data.error.message);
+          throw new ApiClientError(
+            response.status,
+            envelope.data.error.code,
+            envelope.data.error.message,
+          );
         }
-        throw new ApiClientError(response.status, 'http_error', `Request failed with status ${response.status}`);
+        throw new ApiClientError(
+          response.status,
+          "http_error",
+          `Request failed with status ${response.status}`,
+        );
       }
       return schema.parse(payload);
     } finally {
