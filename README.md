@@ -83,6 +83,69 @@ the repository-root `.env` file. To load a file, point `TUTOR_ENV_FILE` at it, f
 | `PAIRING_CODE_TTL_SECONDS` | `600` | Lifetime of one-time pairing codes (60 to 3600) |
 | `TUTOR_LOCAL_MODEL_LOAD_ENABLED` | `false` | Opt-in for lazy local model loading |
 | `TUTOR_LOCAL_MODEL_ID` / `_REVISION` | SmolLM2-135M-Instruct, pinned revision | Local model selection |
+| `TUTOR_LOCAL_DEVICE` / `_DTYPE` | `cpu` / `float32` | `cpu`, `mps` or `cuda`; `float32`, `bfloat16` or `float16` (not on CPU) |
+| `TUTOR_LOCAL_ALLOW_DOWNLOAD` | `false` | Without it, weights load from the local Hugging Face cache only |
+| `TUTOR_LOCAL_CONTEXT_WINDOW_TOKENS` / `_MAX_NEW_TOKENS` | `8192` / `512` | Prompt plus output ceiling and output ceiling |
+| `TUTOR_LOCAL_MAX_QUEUE` / `_TIMEOUT_SECONDS` | `2` / `120` | Turns allowed to wait behind the running one; per-call deadline |
+| `TUTOR_REMOTE_TIMEOUT_SECONDS` / `_MAX_ATTEMPTS` / `_BACKOFF_SECONDS` | `30` / `3` / `0.5` | Remote deadline (all attempts), attempts and base backoff |
+| `TUTOR_REMOTE_MAX_OUTPUT_TOKENS` / `_MAX_REQUEST_CHARS` | `512` / `32000` | Remote output and request-size ceilings |
+| `TUTOR_ENDPOINT_BASE_URL` / `_MODEL` / `_API_KEY` / `_STREAMING` | unset / unset / unset / `true` | OpenAI-compatible server (`.../chat/completions`) |
+| `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` | unset | Claude; no default model is guessed |
+
+## Tutor language-model providers
+
+The default is `TUTOR_PROVIDER=mock`, a labeled deterministic tutor that is not a language model.
+Every provider, mock or not, only *proposes* a draft. The coordinator commits it only when it is a
+complete, valid draft for the current turn and session revision; a truncated, malformed, stale or
+rejected draft fails the turn with no tutor text, drawings, hints or memory written. A provider
+failure never switches to another provider, and there is no paid fallback.
+
+**Local Transformers (`TUTOR_PROVIDER=transformers`).** Opt-in and CPU-first. Nothing is imported
+or downloaded at startup, health or readiness (`/health/model` reports `disabled`, `not_loaded`,
+then `ready`). With `TUTOR_LOCAL_MODEL_LOAD_ENABLED=true`, the first turn loads the model once per
+process on a dedicated worker thread, so the event loop and health stay responsive; later turns
+reuse it. One generation runs at a time, at most `TUTOR_LOCAL_MAX_QUEUE` more wait, and any further
+turn is refused at once. A deadline or cancel stops generation between tokens and a late result is
+discarded, never committed. Loading is cache-only and also switches the Hugging Face Hub offline
+while it runs; `TUTOR_LOCAL_ALLOW_DOWNLOAD=true` is the only way weights are fetched, and it is
+not set by default. Decoding is greedy (no sampling), `trust_remote_code` is off, and a request
+whose prompt plus output ceiling exceeds the configured window is refused rather than truncated.
+An unavailable `cuda`/`mps` device or half precision on CPU is a typed `device_unavailable` error.
+
+| | |
+| --- | --- |
+| Candidate (as of 2026-10-17) | `HuggingFaceTB/SmolLM2-135M-Instruct` |
+| Pinned revision | `12fd25f77366fa6b3b4b768ec3050bf629380bac` |
+| License | Apache-2.0, as published on the model card; confirm it when you download |
+| Weight memory (estimate) | about 135M parameters: roughly 0.54 GB in `float32`, 0.27 GB in `bfloat16`, plus runtime overhead. Not measured here |
+| Context | The 8192-token default is a configured ceiling, not read from the model. Check the model's `config.json` for the pinned revision before raising it |
+| Limits | A 135M model gives weak, sometimes off-plan tutoring; the coordinator's validation, not the model, enforces what the learner sees. Tests do **not** run these weights: they use instrumented loaders and a tiny random-weight model, so no pretrained quality, latency or memory is claimed |
+
+To use it, download the weights yourself first (this is the one step that touches the network):
+
+```sh
+HF_HOME=~/.cache/huggingface backend/.venv/bin/python -c "from huggingface_hub import snapshot_download as d; d('HuggingFaceTB/SmolLM2-135M-Instruct', revision='12fd25f77366fa6b3b4b768ec3050bf629380bac')"
+TUTOR_PROVIDER=transformers TUTOR_LOCAL_MODEL_LOAD_ENABLED=true  # then start the API
+```
+
+**Remote providers (`endpoint`, `claude`).** Disabled until `EXTERNAL_INTEGRATIONS_ENABLED=true`
+*and* the provider is configured; a selected but disabled provider answers turns with
+`503 provider_unavailable`. Readiness is `disabled`, then `unverified` (never "ready", because
+nothing contacts the provider at startup). Keys are read only server-side from the environment,
+never returned by the API and never put in events or errors. The label and `/health/model`
+`transmission` field say where learner context goes: `remote_provider` (sent to Anthropic or a
+remote server) or `loopback` (an `http://127.0.0.1` server on this machine). A non-loopback endpoint
+must use `https`, and redirects are not followed so a key cannot leave the configured host.
+
+Both adapters use one overall deadline per turn, a bounded number of attempts (only transient
+failures such as 429, 5xx and dropped connections are retried, honoring `Retry-After` within the
+deadline), and an output-token ceiling. Streams may arrive in arbitrary fragments; a stream that
+ends before its completion marker is retried and never committed. A completed but malformed,
+oversized, truncated or stale answer is rejected without a second call. The OpenAI-compatible
+adapter uses `httpx`; Claude uses the official `anthropic` SDK, which in the installed version
+runs on `httpx2`. Their tests use in-process transport fixtures with outbound sockets blocked,
+so they establish request shapes and failure handling, not live provider behavior or quality.
+Live calls are deferred and unverified.
 
 The frontend finds the API at `EXPO_PUBLIC_API_BASE_URL` if set. Otherwise the web build uses
 `http://127.0.0.1:3100`, and Expo Go uses the Mac's LAN address that served the bundle, on port 3100.

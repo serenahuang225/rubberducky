@@ -8,11 +8,14 @@ whole production path (coordinator, retrieval, validation, persistence) is exerc
 development and tests without a language model.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Protocol
 
 from app.config import Settings
+from app.inference.cancel import CancelToken
+from app.inference.errors import ProviderUnavailableError
+from app.inference.events import EventSink
 from app.inference.request import ProviderRequest
 from app.pedagogy.messages import render_utterance
 from app.pedagogy.policy import TurnPlan
@@ -40,6 +43,9 @@ class DraftInputs:
     session_revision: int
     learner_text: str
     now: datetime
+    # Cooperative cancel for the call and an optional observer of untrusted stream fragments.
+    cancel: CancelToken = field(default_factory=CancelToken)
+    on_event: EventSink | None = None
 
 
 class TutorProvider(Protocol):
@@ -113,15 +119,21 @@ class MockTutorProvider:
         return []
 
 
-class ProviderUnavailableError(RuntimeError):
-    """The configured provider has no adapter in this build; say so, never fake it."""
-
-    def __init__(self, provider: str) -> None:
-        super().__init__(f"tutor provider {provider!r} is not available in this build")
-        self.provider = provider
+__all__ = [
+    "MOCK_LABEL",
+    "DraftInputs",
+    "MockTutorProvider",
+    "ProviderLabel",
+    "ProviderUnavailableError",
+    "TutorProvider",
+    "get_provider",
+]
 
 
 def get_provider(settings: Settings) -> TutorProvider:
+    """The configured provider. Non-mock adapters are cached per process and built lazily."""
     if settings.tutor_provider == "mock":
         return MockTutorProvider()
-    raise ProviderUnavailableError(settings.tutor_provider)
+    from app.inference.factory import adapter_for
+
+    return adapter_for(settings)
