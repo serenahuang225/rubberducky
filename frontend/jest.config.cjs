@@ -3,4 +3,5 @@ module.exports = {
   testMatch: ['<rootDir>/src/**/*.test.ts?(x)'],
   maxWorkers: 1,
   watchman: false,
+  setupFiles: ['<rootDir>/jest.setup.cjs'],
 };

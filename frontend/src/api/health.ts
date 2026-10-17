@@ -43,7 +43,8 @@ async function getJson<T>(url: string, schema: z.ZodType<T>, fetchImpl: FetchLik
 
 export async function fetchServiceStatus(
   baseUrl: string,
-  fetchImpl: FetchLike = fetch,
+  // Wrap the global fetch: a bare extracted reference loses its Window receiver.
+  fetchImpl: FetchLike = (input, init) => fetch(input, init),
 ): Promise<ServiceStatus> {
   const [health, model] = await Promise.all([
     getJson(`${baseUrl}/health`, appHealthSchema, fetchImpl),

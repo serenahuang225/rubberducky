@@ -1,0 +1,275 @@
+/**
+ * Shared SVG renderer for durable scene objects.
+ *
+ * Every durable object kind the server can commit renders here for both native and web:
+ * student paths and dots, tutor paths, the five shapes (circle, rectangle, line, bracket,
+ * arrow), safe math text, problem statements, highlight washes and focus frames. Ink
+ * colors come only from the fixed session palette keyed by the server-assigned color
+ * role; the renderer never accepts a color from the payload.
+ */
+
+import React from 'react';
+import { Circle, Ellipse, G, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
+
+import type { LogicalPoint } from '../board/geometry';
+import { PEN_WIDTH } from '../board/geometry';
+import { colorForRole, type BoardTheme } from '../board/palette';
+import { DOT_RADIUS, pointsBounds, pointsToPathData, unionBounds, type Bounds } from '../board/pathData';
+import {
+  payloadPoint,
+  payloadPoints,
+  payloadRole,
+  payloadText,
+  type SceneObjectRecord,
+} from '../board/sceneTypes';
+
+const STATEMENT_FONT_SIZE = 52;
+const MATH_FONT_SIZE = 44;
+const BRACKET_TICK = 26;
+const ARROW_HEAD = 22;
+
+/** Text bounds estimate for highlight washes (the server owns the true layout). */
+function textBounds(at: LogicalPoint, text: string, fontSize: number): Bounds {
+  const width = Math.max(1, text.length) * fontSize * 0.56;
+  return { minX: at.x - 8, minY: at.y - fontSize, maxX: at.x + width + 8, maxY: at.y + 12 };
+}
+
+/** Approximate logical bounds of one object, used by highlight washes. */
+export function objectBounds(object: SceneObjectRecord): Bounds | null {
+  const { kind, payload } = object;
+  if (kind === 'path' || kind === 'draw_path') {
+    return pointsBounds(payloadPoints(payload));
+  }
+  if (kind === 'text') {
+    const text = payloadText(payload, 'text');
+    const x = typeof payload.x === 'number' ? payload.x : null;
+    const y = typeof payload.y === 'number' ? payload.y : null;
+    if (text === null || x === null || y === null) return null;
+    return textBounds({ x, y }, text, STATEMENT_FONT_SIZE);
+  }
+  if (kind === 'add_math') {
+    const text = payloadText(payload, 'text');
+    const at = payloadPoint(payload, 'at');
+    if (text === null || at === null) return null;
+    return textBounds(at, text, MATH_FONT_SIZE);
+  }
+  const start = payloadPoint(payload, 'start');
+  const end = payloadPoint(payload, 'end');
+  if (start !== null && end !== null) {
+    return {
+      minX: Math.min(start.x, end.x),
+      minY: Math.min(start.y, end.y),
+      maxX: Math.max(start.x, end.x),
+      maxY: Math.max(start.y, end.y),
+    };
+  }
+  return null;
+}
+
+function bracketPath(start: LogicalPoint, end: LogicalPoint): string {
+  const horizontal = Math.abs(end.x - start.x) >= Math.abs(end.y - start.y);
+  if (horizontal) {
+    // A square under-bracket spanning start -> end, opening upward.
+    const y = end.y;
+    return `M ${start.x} ${y - BRACKET_TICK} L ${start.x} ${y} L ${end.x} ${y} L ${end.x} ${y - BRACKET_TICK}`;
+  }
+  const x = start.x;
+  return `M ${x + BRACKET_TICK} ${start.y} L ${x} ${start.y} L ${x} ${end.y} L ${x + BRACKET_TICK} ${end.y}`;
+}
+
+function arrowHead(start: LogicalPoint, end: LogicalPoint): string {
+  const angle = Math.atan2(end.y - start.y, end.x - start.x);
+  const left = angle + Math.PI * 0.82;
+  const right = angle - Math.PI * 0.82;
+  const x1 = end.x + ARROW_HEAD * Math.cos(left);
+  const y1 = end.y + ARROW_HEAD * Math.sin(left);
+  const x2 = end.x + ARROW_HEAD * Math.cos(right);
+  const y2 = end.y + ARROW_HEAD * Math.sin(right);
+  return `M ${end.x} ${end.y} L ${x1} ${y1} M ${end.x} ${end.y} L ${x2} ${y2}`;
+}
+
+export type SceneObjectViewProps = {
+  object: SceneObjectRecord;
+  theme: BoardTheme;
+  /** Resolve a highlight's target bounds; missing targets render nothing. */
+  resolveTarget?: (objectId: string) => SceneObjectRecord | null;
+};
+
+export function SceneObjectView({ object, theme, resolveTarget }: SceneObjectViewProps) {
+  const { kind, payload } = object;
+  const ink = colorForRole(theme, payloadRole(payload));
+
+  if (kind === 'path' || kind === 'draw_path') {
+    const points = payloadPoints(payload);
+    if (points.length === 0) return null;
+    const width =
+      typeof payload.width === 'number' && Number.isFinite(payload.width)
+        ? payload.width
+        : PEN_WIDTH;
+    if (points.length === 1) {
+      // A dot: one tap with no drag.
+      return (
+        <Circle cx={points[0].x} cy={points[0].y} r={Math.max(DOT_RADIUS, width / 2)} fill={ink} />
+      );
+    }
+    const d = pointsToPathData(points);
+    if (d === null) return null;
+    return (
+      <Path d={d} stroke={ink} strokeWidth={width} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    );
+  }
+
+  if (kind === 'text' || kind === 'add_math') {
+    const text = payloadText(payload, 'text');
+    const at = kind === 'text'
+      ? (typeof payload.x === 'number' && typeof payload.y === 'number'
+          ? { x: payload.x, y: payload.y }
+          : null)
+      : payloadPoint(payload, 'at');
+    if (text === null || at === null) return null;
+    const fontSize = kind === 'text' ? STATEMENT_FONT_SIZE : MATH_FONT_SIZE;
+    return (
+      <SvgText x={at.x} y={at.y} fontSize={fontSize} fill={ink} fontFamily="monospace">
+        {text}
+      </SvgText>
+    );
+  }
+
+  if (kind === 'highlight') {
+    const targetId = payloadText(payload, 'target_object_id');
+    const target = targetId !== null && resolveTarget ? resolveTarget(targetId) : null;
+    const bounds = target !== null ? objectBounds(target) : null;
+    if (bounds === null) return null;
+    return (
+      <Rect
+        x={bounds.minX - 10}
+        y={bounds.minY - 10}
+        width={bounds.maxX - bounds.minX + 20}
+        height={bounds.maxY - bounds.minY + 20}
+        rx={14}
+        fill={theme.highlightFill}
+      />
+    );
+  }
+
+  if (kind === 'focus_region') {
+    const start = payloadPoint(payload, 'start');
+    const end = payloadPoint(payload, 'end');
+    if (start === null || end === null) return null;
+    return (
+      <Rect
+        x={Math.min(start.x, end.x)}
+        y={Math.min(start.y, end.y)}
+        width={Math.abs(end.x - start.x)}
+        height={Math.abs(end.y - start.y)}
+        rx={16}
+        fill="none"
+        stroke={theme.focusOutline}
+        strokeWidth={4}
+        strokeDasharray="18 12"
+      />
+    );
+  }
+
+  // Shapes: circle, rectangle, line, bracket, arrow.
+  const start = payloadPoint(payload, 'start');
+  const end = payloadPoint(payload, 'end');
+  if (start === null || end === null) return null;
+
+  if (kind === 'circle') {
+    return (
+      <Ellipse
+        cx={(start.x + end.x) / 2}
+        cy={(start.y + end.y) / 2}
+        rx={Math.abs(end.x - start.x) / 2}
+        ry={Math.abs(end.y - start.y) / 2}
+        stroke={ink}
+        strokeWidth={PEN_WIDTH}
+        fill="none"
+      />
+    );
+  }
+  if (kind === 'rectangle') {
+    return (
+      <Rect
+        x={Math.min(start.x, end.x)}
+        y={Math.min(start.y, end.y)}
+        width={Math.abs(end.x - start.x)}
+        height={Math.abs(end.y - start.y)}
+        stroke={ink}
+        strokeWidth={PEN_WIDTH}
+        fill="none"
+      />
+    );
+  }
+  if (kind === 'line') {
+    return <Line x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke={ink} strokeWidth={PEN_WIDTH} strokeLinecap="round" />;
+  }
+  if (kind === 'bracket') {
+    return (
+      <Path d={bracketPath(start, end)} stroke={ink} strokeWidth={PEN_WIDTH} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    );
+  }
+  if (kind === 'arrow') {
+    return (
+      <G>
+        <Line x1={start.x} y1={start.y} x2={end.x} y2={end.y} stroke={ink} strokeWidth={PEN_WIDTH} strokeLinecap="round" />
+        <Path d={arrowHead(start, end)} stroke={ink} strokeWidth={PEN_WIDTH} fill="none" strokeLinecap="round" />
+      </G>
+    );
+  }
+  return null;
+}
+
+/** Live in-progress student stroke (not yet committed to the scene). */
+export function LiveStroke({ points, theme }: { points: readonly LogicalPoint[]; theme: BoardTheme }) {
+  if (points.length === 0) return null;
+  const ink = theme.studentInk;
+  if (points.length === 1) {
+    return <Circle cx={points[0].x} cy={points[0].y} r={DOT_RADIUS} fill={ink} />;
+  }
+  const d = pointsToPathData(points);
+  if (d === null) return null;
+  return (
+    <Path d={d} stroke={ink} strokeWidth={PEN_WIDTH} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+  );
+}
+
+/** Stable render order: highlight washes and focus frames paint underneath ink. */
+export function orderedObjects(objects: readonly SceneObjectRecord[]): SceneObjectRecord[] {
+  const underlay = objects.filter((o) => o.kind === 'highlight' || o.kind === 'focus_region');
+  const overlay = objects.filter((o) => o.kind !== 'highlight' && o.kind !== 'focus_region');
+  return [...underlay, ...overlay];
+}
+
+/** Human-readable, color-independent description of one object for assistive tech. */
+export function describeObject(object: SceneObjectRecord): string {
+  const who = object.author_role === 'student' ? 'Your' : 'Tutor';
+  const text = payloadText(object.payload, 'text');
+  switch (object.semantic_role) {
+    case 'problem_statement':
+      return `Tutor posed the problem: "${text ?? ''}"`;
+    case 'grouping_mark':
+      return 'Tutor grouping mark around the parentheses';
+    case 'emphasis':
+      return 'Tutor highlight on your work';
+    case 'focus':
+      return 'Tutor focus frame';
+    case 'annotation':
+      return text !== null ? `Tutor note: "${text}"` : 'Tutor note';
+    default:
+      if (object.kind === 'path') {
+        const count = payloadPoints(object.payload).length;
+        return count <= 1 ? `${who} dot` : `${who} pen stroke`;
+      }
+      return text !== null ? `${who} mark: "${text}"` : `${who} ${object.kind} mark`;
+  }
+}
+
+/** Bounds union for the whole scene, e.g. for future fit-to-content views. */
+export function sceneBounds(objects: readonly SceneObjectRecord[]): Bounds | null {
+  return objects.reduce<Bounds | null>(
+    (acc, object) => unionBounds(acc, objectBounds(object)),
+    null,
+  );
+}
