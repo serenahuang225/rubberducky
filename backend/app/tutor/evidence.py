@@ -25,12 +25,14 @@ from app.db.models import (
 )
 from app.db.repositories import ScopedRepository
 from app.learner.pairing import new_id
+from app.pedagogy.intents import HelpIntent
 from app.pedagogy.policy import (
     EXPLANATION_ADEQUATE_CRITERIA,
     PARTIAL_DISTRIBUTION_ALTERNATIVES,
     PARTIAL_DISTRIBUTION_CONFIDENCE,
     PARTIAL_DISTRIBUTION_LABEL,
     WorkAnalysis,
+    classify_help,
     classify_work,
     normalize,
 )
@@ -204,6 +206,203 @@ class RecordedWork:
     attempt_hint_ids: tuple[str, ...]
     attempt_hint_levels: tuple[int, ...]
     expanded_seen: bool
+    attempt_answer_revealed: bool = False
+
+
+SUBSTANTIVE_COUNTER_STRENGTH = 0.5
+UNASSISTED_COUNTER_STRENGTH = 0.7
+ASSISTED_COUNTER_STRENGTH = 0.3
+SUPPORT_STEP_STRENGTH = 0.6
+
+
+def _hypothesis_view(repo: ScopedRepository, row: MisconceptionHypothesisRow) -> HypothesisView:
+    links = list(
+        repo.db.execute(
+            select(EvidenceLinkRow)
+            .where(
+                EvidenceLinkRow.learner_id == repo.learner_id,
+                EvidenceLinkRow.hypothesis_id == row.id,
+            )
+            .order_by(EvidenceLinkRow.created_at, EvidenceLinkRow.id)
+        ).scalars()
+    )
+    against = [link for link in links if link.polarity == "contradicts"]
+    return HypothesisView(
+        id=row.id,
+        label=row.label,
+        confidence=row.confidence,
+        alternatives=list(row.alternatives),
+        status=row.status,
+        source_ids=list(row.source_ids),
+        contradicting_source_ids=[link.observation_id for link in against][-5:],
+        substantive_counterevidence=any(
+            link.strength >= SUBSTANTIVE_COUNTER_STRENGTH for link in against
+        ),
+    )
+
+
+def _refresh_hypothesis(
+    repo: ScopedRepository, row: MisconceptionHypothesisRow, now: datetime
+) -> None:
+    """Recompute the tentative confidence from the personal evidence links.
+
+    One supporting step is weak evidence (0.5). Further matching steps raise it slowly and
+    counterevidence lowers it by its strength; the value never exceeds 0.8, and the
+    hypothesis is marked contradicted when the weight against it matches the weight for it.
+    """
+    links = list(
+        repo.db.execute(
+            select(EvidenceLinkRow).where(
+                EvidenceLinkRow.learner_id == repo.learner_id,
+                EvidenceLinkRow.hypothesis_id == row.id,
+            )
+        ).scalars()
+    )
+    supports = [link for link in links if link.polarity == "supports"]
+    against = [link for link in links if link.polarity == "contradicts"]
+    weight_for = sum(link.strength for link in supports)
+    weight_against = sum(link.strength for link in against)
+    confidence = 0.5 + 0.1 * max(len(supports) - 1, 0) - 0.3 * weight_against
+    row.confidence = round(min(max(confidence, 0.15), 0.8), 4)
+    row.status = "contradicted" if against and weight_against >= weight_for else "tentative"
+    row.updated_at = now
+    repo.db.flush()
+
+
+def _find_partial_hypothesis(
+    repo: ScopedRepository, spec: ProblemSpec
+) -> MisconceptionHypothesisRow | None:
+    return repo.db.execute(
+        select(MisconceptionHypothesisRow)
+        .where(
+            MisconceptionHypothesisRow.learner_id == repo.learner_id,
+            MisconceptionHypothesisRow.concept_id == spec.step_concept_id,
+            MisconceptionHypothesisRow.label == PARTIAL_DISTRIBUTION_LABEL,
+            MisconceptionHypothesisRow.status != "retracted",
+        )
+        .order_by(MisconceptionHypothesisRow.created_at)
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def _link(
+    repo: ScopedRepository,
+    hypothesis_id: str,
+    observation_id: str,
+    polarity: str,
+    strength: float,
+    rationale: str,
+    now: datetime,
+) -> bool:
+    exists = repo.db.execute(
+        select(EvidenceLinkRow.id).where(
+            EvidenceLinkRow.hypothesis_id == hypothesis_id,
+            EvidenceLinkRow.observation_id == observation_id,
+        )
+    ).scalar_one_or_none()
+    if exists is not None:
+        return False
+    repo.db.add(
+        EvidenceLinkRow(
+            **EvidenceLink(
+                id=new_id(),
+                learner_id=repo.learner_id,
+                hypothesis_id=hypothesis_id,
+                observation_id=observation_id,
+                polarity=polarity,  # type: ignore[arg-type]
+                strength=strength,
+                rationale=rationale,
+                provenance="submitted",
+                created_at=now,
+            ).model_dump()
+        )
+    )
+    repo.db.flush()
+    return True
+
+
+def _counter_evidence_view(
+    repo: ScopedRepository,
+    spec: ProblemSpec,
+    observation_id: str,
+    *,
+    assisted: bool,
+    answer_revealed: bool,
+    now: datetime,
+) -> HypothesisView | None:
+    """A verified full distribution argues against the first-term-only hypothesis.
+
+    Copying a step the tutor itself revealed shows nothing about the learner, so it is not
+    linked. A step after a non-revealing hint is only weak counterevidence.
+    """
+    row = _find_partial_hypothesis(repo, spec)
+    if row is None or answer_revealed:
+        return None
+    _link(
+        repo,
+        row.id,
+        observation_id,
+        "contradicts",
+        ASSISTED_COUNTER_STRENGTH if assisted else UNASSISTED_COUNTER_STRENGTH,
+        "Spread the outside factor over every term in a verified step.",
+        now,
+    )
+    _refresh_hypothesis(repo, row, now)
+    return _hypothesis_view(repo, row)
+
+
+def record_help(
+    repo: ScopedRepository,
+    session_id: str,
+    attempt: AttemptRow,
+    spec: ProblemSpec,
+    intent: HelpIntent,
+    turn_id: str,
+    now: datetime,
+) -> RecordedWork:
+    """Record "I don't know" / "just tell me" / a Help press as a self-report, nothing else.
+
+    No step, assessment or correctness is created: asking for help is not mathematical
+    evidence, and any later success in this attempt stays assisted because of the hint.
+    """
+    hints = attempt_hints(repo, attempt.id)
+    row = ObservationRow(
+        **Observation(
+            id=new_id(),
+            learner_id=repo.learner_id,
+            session_id=session_id,
+            source_type="help_request",
+            source_id=turn_id,
+            evidence_kind="self_report",
+            concept_id=spec.step_concept_id,
+            correct=None,
+            latency_ms=None,
+            confidence=SELF_REPORT_CONFIDENCE,
+            assisted=False,
+            provenance="submitted",
+            observed_at=now,
+            recorded_at=now,
+        ).model_dump()
+    )
+    repo.db.add(row)
+    repo.db.flush()
+    return RecordedWork(
+        analysis=classify_help(intent),
+        step_id=None,
+        observation_ids=(row.id,),
+        assessment_id=None,
+        assessment_kind=None,
+        assessment_independent=None,
+        assessment_observation_id=None,
+        hypothesis=None,
+        explanation=None,
+        explanation_missing=None,
+        eligibility=(_eligibility_note(row, None, hints),),
+        attempt_hint_ids=tuple(h.id for h in hints),
+        attempt_hint_levels=tuple(h.level for h in hints),
+        expanded_seen=False,
+        attempt_answer_revealed=any(h.answer_revealed for h in hints),
+    )
 
 
 def _partial_distribution_hypothesis(
@@ -217,19 +416,9 @@ def _partial_distribution_hypothesis(
     """Find or create the tentative partial-distribution hypothesis and link this observation.
 
     One matching step is weak evidence: the hypothesis stays tentative, keeps its
-    alternatives, and the new observation joins it through a personal evidence link.
+    alternatives, and each new observation joins it through a personal evidence link.
     """
-    row = repo.db.execute(
-        select(MisconceptionHypothesisRow)
-        .where(
-            MisconceptionHypothesisRow.learner_id == repo.learner_id,
-            MisconceptionHypothesisRow.concept_id == spec.step_concept_id,
-            MisconceptionHypothesisRow.label == PARTIAL_DISTRIBUTION_LABEL,
-            MisconceptionHypothesisRow.status != "retracted",
-        )
-        .order_by(MisconceptionHypothesisRow.created_at)
-        .limit(1)
-    ).scalar_one_or_none()
+    row = _find_partial_hypothesis(repo, spec)
     if row is None:
         hypothesis = MisconceptionHypothesis(
             id=new_id(),
@@ -248,44 +437,35 @@ def _partial_distribution_hypothesis(
             created_at=now,
             updated_at=now,
         )
-        repo.db.add(MisconceptionHypothesisRow(**hypothesis.model_dump()))
-    else:
-        hypothesis = MisconceptionHypothesis.model_validate(row)
+        row = MisconceptionHypothesisRow(**hypothesis.model_dump())
+        repo.db.add(row)
     repo.db.flush()
-    linked = repo.db.execute(
-        select(EvidenceLinkRow.id).where(
-            EvidenceLinkRow.hypothesis_id == hypothesis.id,
-            EvidenceLinkRow.observation_id == observation_id,
-        )
-    ).scalar_one_or_none()
-    if linked is None:
-        repo.db.add(
-            EvidenceLinkRow(
-                **EvidenceLink(
-                    id=new_id(),
-                    learner_id=repo.learner_id,
-                    hypothesis_id=hypothesis.id,
-                    observation_id=observation_id,
-                    polarity="supports",
-                    strength=0.6,
-                    rationale="Multiplied only the first term inside the parentheses.",
-                    provenance="submitted",
-                    created_at=now,
-                ).model_dump()
-            )
-        )
-        repo.db.flush()
-    return HypothesisView(
-        id=hypothesis.id,
-        label=hypothesis.label,
-        confidence=hypothesis.confidence,
-        alternatives=list(hypothesis.alternatives),
-        status=hypothesis.status,
-        source_ids=list(hypothesis.source_ids),
+    added = _link(
+        repo,
+        row.id,
+        observation_id,
+        "supports",
+        SUPPORT_STEP_STRENGTH,
+        "Multiplied only the first term inside the parentheses.",
+        now,
     )
+    if added:
+        sources = list(row.source_ids)
+        for source_id in (step_id, observation_id):
+            if source_id not in sources and len(sources) < 20:
+                sources.append(source_id)
+        row.source_ids = sources
+        _refresh_hypothesis(repo, row, now)
+    return _hypothesis_view(repo, row)
 
 
-_SOLUTION_KINDS = ("solution_with_reasoning", "solution_without_reasoning", "wrong_solution")
+_SOLUTION_KINDS = (
+    "solution_with_reasoning",
+    "solution_without_reasoning",
+    "solution_with_questionable_reasoning",
+    "wrong_solution",
+)
+_UNRESOLVED_REASONING = ("solution_without_reasoning", "solution_with_questionable_reasoning")
 
 
 def record_work(
@@ -296,6 +476,7 @@ def record_work(
     text: str,
     input_mode: WorkInputMode,
     now: datetime,
+    turn_id: str | None = None,
 ) -> RecordedWork:
     """Verify and store one submission. Returns the raw records and policy facts."""
     prior_steps = list(
@@ -309,10 +490,16 @@ def record_work(
     hint_ids = tuple(h.id for h in hints)
     hint_levels = tuple(h.level for h in hints)
     assisted = bool(hints)
+    answer_revealed = any(h.answer_revealed for h in hints)
     expanded_seen = spec.expanded_step is not None and any(
         normalize(step.content) == normalize(spec.expanded_step) for step in prior_steps
     )
     analysis = classify_work(spec, [step.content for step in prior_steps], text, input_mode)
+    if analysis.classification in ("not_sure", "explain_request"):
+        intent: HelpIntent = (
+            "explain_request" if analysis.classification == "explain_request" else "not_sure"
+        )
+        return record_help(repo, session_id, attempt, spec, intent, turn_id or new_id(), now)
     if input_mode == "unconfirmed_ink":
         # Raw ink is never stored as a step and never assessed; the tutor asks to confirm.
         return RecordedWork(
@@ -330,6 +517,7 @@ def record_work(
             attempt_hint_ids=hint_ids,
             attempt_hint_levels=hint_levels,
             expanded_seen=expanded_seen,
+            attempt_answer_revealed=answer_revealed,
         )
 
     step_row = StepRow(
@@ -414,7 +602,7 @@ def record_work(
                 kind="practice_check" if spec.kind == "practice" else "transfer_check",
                 # Hints earlier in this attempt make the outcome assisted, and a correct
                 # value without verified reasoning is not independent evidence either.
-                independent=not assisted and classification != "solution_without_reasoning",
+                independent=not assisted and classification not in _UNRESOLVED_REASONING,
                 outcome=outcome,
                 provenance="submitted",
                 assessed_at=now,
@@ -474,6 +662,15 @@ def record_work(
         hypothesis = _partial_distribution_hypothesis(
             repo, session_id, spec, step_row.id, observation_rows[0].id, now
         )
+    elif classification == "valid_step" and analysis.is_expanded_step:
+        hypothesis = _counter_evidence_view(
+            repo,
+            spec,
+            observation_rows[0].id,
+            assisted=assisted,
+            answer_revealed=answer_revealed,
+            now=now,
+        )
     eligibility = tuple(
         _eligibility_note(observation_row, assessment_row, hints)
         for observation_row in observation_rows
@@ -493,4 +690,5 @@ def record_work(
         attempt_hint_ids=hint_ids,
         attempt_hint_levels=hint_levels,
         expanded_seen=expanded_seen,
+        attempt_answer_revealed=answer_revealed,
     )

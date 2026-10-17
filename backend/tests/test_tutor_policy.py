@@ -189,9 +189,10 @@ class TestWorkPlan:
         assert [a["tool"] for a in plan.drawing_actions] == ["highlight", "draw_shape"]
         assert plan.drawing_actions[0]["term"] == "(x + 3)"
 
-    def test_repeated_partial_distribution_escalates_the_hint_one_level(self) -> None:
+    def test_repeated_partial_distribution_changes_representation_one_level_up(self) -> None:
         plan = plan_work(facts(attempt_hint_ids=("h1",), attempt_hint_levels=(1,)), Persona())
-        assert plan.action_type == "diagnostic_hint"
+        assert plan.action_type == "change_representation"
+        assert plan.representation == "groups_picture"
         assert plan.hint_level == 2
         assert "groups of" in render_utterance(plan)
 
@@ -289,7 +290,7 @@ class TestPersona:
         assert COMFORT_OVERRIDES == ("none", "neutral_supportive", "reduced_sass")
 
     @pytest.mark.parametrize("personality", PERSONALITIES)
-    @pytest.mark.parametrize("tone", ("neutral", "correction", "success"))
+    @pytest.mark.parametrize("tone", ("neutral", "correction", "success", "support"))
     def test_every_personality_and_tone_is_worded_and_kind(self, personality, tone) -> None:
         # All 12 combinations produce wording; none demeans the learner.
         text = opener(personality, "none", tone)  # type: ignore[arg-type]

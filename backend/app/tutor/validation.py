@@ -14,9 +14,7 @@ from app.schemas.tutor import TurnRejection, TutorDraft
 from app.whiteboard.tools import ToolAction, text_of_actions, validate_tool_actions
 
 
-def citable_for_turn(
-    context_citable_ids: Iterable[str], plan: TurnPlan
-) -> frozenset[str]:
+def citable_for_turn(context_citable_ids: Iterable[str], plan: TurnPlan) -> frozenset[str]:
     """IDs a draft may cite: the context it saw plus records this turn itself created."""
     return frozenset(
         set(context_citable_ids) | set(plan.local_source_ids) | set(plan.required_evidence_ids)
@@ -72,6 +70,13 @@ def validate_draft(
             TurnRejection(
                 code="answer_disclosed",
                 message="the draft marks the answer as revealed, which this turn does not allow",
+            )
+        )
+    if plan.reveal_allowed and not draft.answer_revealed:
+        rejections.append(
+            TurnRejection(
+                code="disclosure_not_marked",
+                message="the planned explanation shows a completed step, so it must be marked",
             )
         )
     # The verifier's status is authoritative; a provider's own reading can never override it.

@@ -14,6 +14,7 @@ from app.api.scene import router as scene_router
 from app.api.sessions import router as sessions_router
 from app.api.tracing import router as tracing_router
 from app.api.tutor import router as tutor_router
+from app.api.wait import router as wait_router
 from app.config import Settings, get_settings
 from app.db.database import Database
 
@@ -47,6 +48,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(tracing_router)
     application.include_router(memory_router)
     application.include_router(tutor_router)
+    application.include_router(wait_router)
     return application
 
 

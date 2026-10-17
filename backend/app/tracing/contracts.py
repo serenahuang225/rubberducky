@@ -39,6 +39,7 @@ IneligibleReason = Literal[
     "explanation_not_response_opportunity",
     "assessment_outcome_mismatch",
     "assisted",
+    "independent_reasoning_missing",
     "hint_in_attempt",
     "answer_revealed",
 ]

@@ -38,13 +38,29 @@ ActionType = Literal[
     "transfer_feedback_and_explain",
     "explanation_feedback",
     "explanation_follow_up",
+    "smaller_scaffold",
+    "change_representation",
+    "explain_on_request",
     "wrap_up",
 ]
+Representation = Literal[
+    "outside_factor",
+    "groups_picture",
+    "number_case",
+    "copy_check",
+    "worked_step",
+    "next_step",
+]
+SupportChange = Literal["none", "reduced"]
+HelpMode = Literal["hint", "explain"]
 Pace = Literal["standard", "lighter"]
 Energy = Literal["ready", "a_bit_tired", "tired"]
 GoalChoice = Literal["solve_equations_with_parentheses", "explain_distribution"]
 WorkInputMode = Literal["typed", "confirmed_ink", "unconfirmed_ink"]
 WorkClassification = Literal[
+    "not_sure",
+    "explain_request",
+    "solution_with_questionable_reasoning",
     "unconfirmed_ink",
     "unsupported",
     "valid_step",
@@ -85,6 +101,17 @@ class WorkRequest(_Request):
     expected_revision: Annotated[int, Field(ge=0)]
     text: Annotated[str, Field(min_length=1, max_length=MAX_WORK_CHARS)]
     input_mode: WorkInputMode = "typed"
+
+
+class HelpRequest(_Request):
+    """An explicit Help me press: a hint (or, on request, an explanation) right now.
+
+    It is a learner self-report, never mathematical evidence, and needs no timer to expire.
+    """
+
+    schema_version: Literal["help-request.v1"] = "help-request.v1"
+    expected_revision: Annotated[int, Field(ge=0)]
+    mode: HelpMode = "hint"
 
 
 class TutorDraft(ContractModel):
@@ -132,6 +159,26 @@ class HypothesisView(ContractModel):
     status: Annotated[str, Field(max_length=16)]
     evidence_kind: Literal["inference"] = "inference"
     source_ids: list[EntityId]
+    # Observations that argue against the hypothesis. They keep it tentative or lower it.
+    contradicting_source_ids: list[EntityId] = Field(default_factory=list)
+    # True when some counterevidence is substantive (unassisted), not just a weak hinted echo.
+    substantive_counterevidence: bool = False
+
+
+class ReasoningAssessment(ContractModel):
+    """A bounded pedagogical reading of the learner's stated reasoning, apart from the verifier.
+
+    The verifier decides whether a value is mathematically right. This records only that
+    the stated method looks questionable; it is an inference with a low confidence cap and
+    never marks the learner or the value wrong.
+    """
+
+    judgment_scope: Literal["pedagogical"] = "pedagogical"
+    evidence_kind: Literal["inference"] = "inference"
+    status: Literal["questionable"] = "questionable"
+    pattern: Annotated[str, Field(max_length=40)]
+    confidence: Confidence
+    explanation_text: Annotated[str, Field(max_length=MAX_WORK_CHARS)]
 
 
 class EligibilityNote(ContractModel):
@@ -147,7 +194,7 @@ class EligibilityNote(ContractModel):
 
 
 class StudentInputOutcome(ContractModel):
-    input_mode: WorkInputMode | Literal["check_in"]
+    input_mode: WorkInputMode | Literal["check_in", "help_button"]
     text: Annotated[str, Field(max_length=MAX_WORK_CHARS)] | None = None
     classification: WorkClassification | Literal["check_in"]
     step_id: EntityId | None = None
@@ -156,6 +203,7 @@ class StudentInputOutcome(ContractModel):
     assessment_kind: Annotated[str, Field(max_length=32)] | None = None
     assessment_independent: bool | None = None
     verification: VerificationResult | None = None
+    reasoning_assessment: ReasoningAssessment | None = None
     explanation_judgment: ExplanationJudgment | None = None
     eligibility: list[EligibilityNote] = Field(default_factory=list)
 
@@ -199,6 +247,8 @@ class TutorTurnResult(ContractModel):
     hint_id: EntityId | None = None
     hint_level: Annotated[int, Field(ge=0, le=5)] = 0
     answer_revealed: bool = False
+    representation: Representation | None = None
+    support_change: SupportChange = "none"
     drawings: list[CommittedDrawing] = Field(default_factory=list)
     memory: MemoryUpdateResult | None = None
     decision_justification: Annotated[str, Field(max_length=200)] | None = None
@@ -214,6 +264,7 @@ class PersonaOptions(ContractModel):
     personalities: list[Personality]
     comfort_overrides: list[ComfortOverride]
     note: ShortText = "Appearance and personality are chosen separately; none implies ability."
+
 
 class TutorConfigurationRequest(_Request):
     """Persona choice. Appearance and personality are independent axes; neither implies ability.
@@ -238,4 +289,3 @@ class SessionState(ContractModel):
     # Temporary session context from another sitting exists and must be rechecked, not reused.
     session_context_recheck: bool = False
     persona: TutorConfiguration | None = None
-

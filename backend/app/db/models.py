@@ -499,9 +499,7 @@ class MemoryEntryRow(Base):
         _evidence_kind(),
         _confidence(),
         _one_of("layer", "layer", ("episodic_note", "session_context")),
-        _one_of(
-            "status", "status", ("active", "needs_review", "corrected", "expired", "deleted")
-        ),
+        _one_of("status", "status", ("active", "needs_review", "corrected", "expired", "deleted")),
     )
 
     id: Mapped[str] = mapped_column(ID, primary_key=True)
@@ -544,6 +542,7 @@ class SceneObjectRow(Base):
     provenance: Mapped[str] = mapped_column(String(32))
     created_at: Mapped[datetime]
     deleted_at: Mapped[datetime | None]
+
 
 class SceneOperationRow(Base):
     """One committed scene operation in a session's durable, append-only operation log.
@@ -610,9 +609,7 @@ class TutorTurnRow(Base):
         UniqueConstraint("learner_id", "idempotency_key"),
         _session_fk(),
         _one_of("kind", "kind", ("check_in", "work")),
-        _one_of(
-            "status", "status", ("pending", "committed", "rejected", "failed", "superseded")
-        ),
+        _one_of("status", "status", ("pending", "committed", "rejected", "failed", "superseded")),
         CheckConstraint("base_revision >= 0", name="base_revision_nonnegative"),
     )
 
@@ -632,3 +629,24 @@ class TutorTurnRow(Base):
     result: Mapped[dict[str, Any]] = mapped_column(JSON)
     created_at: Mapped[datetime]
     completed_at: Mapped[datetime | None]
+
+
+class SessionWaitSignalRow(Base):
+    """The learner's explicit "Still thinking" presses for one session.
+
+    This is a record of a deliberate request for space, not an observation: it never feeds
+    correctness, latency or mastery. One row per session keeps repeated presses bounded.
+    """
+
+    __tablename__ = "session_wait_signals"
+    __table_args__ = (
+        PrimaryKeyConstraint("learner_id", "session_id"),
+        _session_fk(),
+        CheckConstraint("still_thinking_count >= 0", name="still_thinking_count_nonnegative"),
+    )
+
+    learner_id: Mapped[str] = mapped_column(ID)
+    session_id: Mapped[str] = mapped_column(ID)
+    still_thinking_at: Mapped[datetime | None]
+    still_thinking_count: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime]

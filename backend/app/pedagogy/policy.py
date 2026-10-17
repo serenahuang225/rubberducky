@@ -12,10 +12,21 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field
 
+from app.pedagogy.intents import (
+    REASONING_CONFIDENCE,
+    HelpIntent,
+    help_intent,
+    questionable_reasoning,
+    split_claim_and_reasoning,
+)
 from app.pedagogy.problems import (
     GROUP_MARK_OFFSET,
     STATEMENT_Y,
     ProblemSpec,
+)
+from app.pedagogy.scaffolds import (
+    choose_move,
+    representation_drawings,
 )
 from app.schemas.common import ContractModel, EntityId
 from app.schemas.learner import ComfortOverride, Personality
@@ -25,6 +36,9 @@ from app.schemas.tutor import (
     HypothesisView,
     Pace,
     ProblemView,
+    ReasoningAssessment,
+    Representation,
+    SupportChange,
     WorkClassification,
     WorkInputMode,
 )
@@ -40,7 +54,7 @@ PARTIAL_DISTRIBUTION_CONFIDENCE = 0.5
 EXPLANATION_ADEQUATE_CRITERIA = 2
 
 MemoryHint = Literal["none", "session_tiredness", "assisted_success_note"]
-Tone = Literal["neutral", "correction", "success"]
+Tone = Literal["neutral", "correction", "success", "support"]
 
 
 def normalize(text: str) -> str:
@@ -54,52 +68,88 @@ class WorkAnalysis:
     normalized: str | None = None
     is_expanded_step: bool = False
     unresolved_step: str | None = None
+    reasoning: ReasoningAssessment | None = None
+    # What the learner said about their method, when the value came with an explanation.
+    explanation_seen: str | None = None
 
 
 def _is_solution_claim(result: VerificationResult) -> bool:
     return result.reason in ("solution_matches", "solution_differs")
 
 
+def _help_analysis(text: str) -> WorkAnalysis | None:
+    intent = help_intent(text)
+    if intent is None:
+        return None
+    return WorkAnalysis("explain_request" if intent == "explain_request" else "not_sure", None)
+
+
+def classify_help(intent: HelpIntent) -> WorkAnalysis:
+    """The analysis for an explicit Help me press (no typed words to read)."""
+    return WorkAnalysis("explain_request" if intent == "explain_request" else "not_sure", None)
+
+
 def classify_work(
     spec: ProblemSpec, prior_steps: Sequence[str], text: str, input_mode: WorkInputMode
 ) -> WorkAnalysis:
-    """Classify one submission on ``spec`` using only the bounded verifier."""
+    """Classify one submission on ``spec`` using only the bounded verifier.
+
+    A leading mathematical claim is verified on its own; any words after it only inform
+    the pedagogical reasoning reading and never the verifier's outcome.
+    """
     if spec.kind == "explanation":
-        return WorkAnalysis("explanation", None)
+        return _help_analysis(text) or WorkAnalysis("explanation", None)
     source = WorkSource(author_role="student", input_mode=input_mode)
     if input_mode == "unconfirmed_ink":
         return WorkAnalysis("unconfirmed_ink", check_step(spec.statement, text, source))
-    solution = check_solution(spec.statement, text, source)
+    claim, reasoning_words = split_claim_and_reasoning(text)
+    solution = check_solution(spec.statement, claim, source)
     if solution.status == "valid":
         intermediates = []
         for prior in prior_steps:
-            if _is_solution_claim(check_solution(spec.statement, prior)):
+            prior_claim = split_claim_and_reasoning(prior)[0]
+            if _is_solution_claim(check_solution(spec.statement, prior_claim)):
                 continue
-            intermediates.append((prior, check_step(spec.statement, prior).status))
+            intermediates.append((prior_claim, check_step(spec.statement, prior_claim).status))
         if intermediates and intermediates[-1][1] == "valid":
             return WorkAnalysis("solution_with_reasoning", solution, solution.candidate.normalized)
         unresolved = intermediates[-1][0] if intermediates else None
+        pattern = questionable_reasoning(spec, reasoning_words)
+        if pattern is not None and reasoning_words is not None:
+            return WorkAnalysis(
+                "solution_with_questionable_reasoning",
+                solution,
+                solution.candidate.normalized,
+                unresolved_step=unresolved,
+                reasoning=ReasoningAssessment(
+                    pattern=pattern,
+                    confidence=REASONING_CONFIDENCE,
+                    explanation_text=reasoning_words,
+                ),
+                explanation_seen=reasoning_words,
+            )
         return WorkAnalysis(
             "solution_without_reasoning",
             solution,
             solution.candidate.normalized,
             unresolved_step=unresolved,
+            explanation_seen=reasoning_words,
         )
     if solution.status == "invalid" and solution.reason == "solution_differs":
         return WorkAnalysis("wrong_solution", solution, solution.candidate.normalized)
-    step = check_step(spec.statement, text, source)
+    step = check_step(spec.statement, claim, source)
     if step.status == "valid":
-        expanded = spec.expanded_step is not None and normalize(text) == normalize(
+        expanded = spec.expanded_step is not None and normalize(claim) == normalize(
             spec.expanded_step
         )
         return WorkAnalysis(
             "valid_step", step, step.candidate.normalized, is_expanded_step=expanded
         )
     if step.status == "invalid":
-        partial = normalize(text) in {normalize(s) for s in spec.partial_distribution_steps}
+        partial = normalize(claim) in {normalize(s) for s in spec.partial_distribution_steps}
         kind: WorkClassification = "partial_distribution" if partial else "invalid_step"
         return WorkAnalysis(kind, step, step.candidate.normalized)
-    return WorkAnalysis("unsupported", step)
+    return _help_analysis(text) or WorkAnalysis("unsupported", step)
 
 
 class TurnPlan(ContractModel):
@@ -127,6 +177,9 @@ class TurnPlan(ContractModel):
     personality: Personality
     comfort_override: ComfortOverride
     current_problem: ProblemView | None = None
+    representation: Representation | None = None
+    # A following move that deliberately offers less help than the learner just needed.
+    support_change: SupportChange = "none"
     # The attempt the learner was working in when the turn was reserved (None for check-ins).
     worked_attempt_id: EntityId | None = None
     decision_justification: Annotated[str, Field(max_length=200)]
@@ -193,7 +246,8 @@ def plan_check_in(
         comfort_override=persona.comfort_override,
         current_problem=problem,
         decision_justification=(
-            "Returning: earlier grouping help was assisted, so start with an unaided variant."
+            "Returning: earlier grouping help was assisted, so pose the same problem with a "
+            "reminder drawn from that note and leave the work to the learner."
             if returning
             else "New session: pose the unit's first problem and leave the work to the learner."
         ),
@@ -244,6 +298,8 @@ class WorkFacts:
     next_spec: ProblemSpec | None = None
     explanation: ExplanationJudgment | None = None
     explanation_missing: str | None = None
+    # An earlier hint in this attempt already showed the completed step.
+    attempt_answer_revealed: bool = False
 
 
 _MISSING_QUESTIONS = {
@@ -264,11 +320,35 @@ def plan_work(facts: WorkFacts, persona: Persona) -> TurnPlan:
     solution_known = analysis.classification in (
         "solution_with_reasoning",
         "solution_without_reasoning",
+        "solution_with_questionable_reasoning",
     )
+    helping = analysis.classification in ("not_sure", "explain_request")
+    move = None
+    if helping or analysis.classification == "partial_distribution":
+        move = choose_move(
+            spec,
+            source=(
+                "partial_distribution"
+                if analysis.classification == "partial_distribution"
+                else (
+                    "explain_request"
+                    if analysis.classification == "explain_request"
+                    else "not_sure"
+                )
+            ),
+            levels=facts.attempt_hint_levels,
+            counter_evidence=facts.hypothesis is not None
+            and facts.hypothesis.substantive_counterevidence,
+        )
     forbidden = _forbidden(
         spec,
         solution_known=solution_known,
-        expanded_known=facts.expanded_seen or analysis.is_expanded_step,
+        expanded_known=(
+            facts.expanded_seen
+            or analysis.is_expanded_step
+            or facts.attempt_answer_revealed
+            or (move is not None and move.reveals)
+        ),
     )
     if facts.next_spec is not None:
         # The fresh problem is posed unsolved: its answer and completed step stay hidden too.
@@ -287,6 +367,9 @@ def plan_work(facts: WorkFacts, persona: Persona) -> TurnPlan:
     action: ActionType
     concepts = [spec.concept_id]
     assisted = bool(facts.attempt_hint_ids)
+    representation: Representation | None = None
+    support_change: SupportChange = "none"
+    reveal_allowed = False
 
     match analysis.classification:
         case "unconfirmed_ink":
@@ -303,27 +386,42 @@ def plan_work(facts: WorkFacts, persona: Persona) -> TurnPlan:
             params |= {"step": analysis.normalized or facts.text, "factor": spec.factor_text or ""}
             params["expanded"] = "yes" if analysis.is_expanded_step else "no"
             concepts = [spec.step_concept_id]
-            justification = "Verified equivalent step; acknowledge it and leave the next step."
-        case "partial_distribution":
-            action = "diagnostic_hint"
-            tone = "correction"
-            hint_level = 2 if facts.attempt_hint_levels else 1
-            params |= {
-                "factor": spec.factor_text or "",
-                "group": spec.group_text or "",
-                "level": str(hint_level),
-            }
-            concepts = [spec.step_concept_id]
+            if (
+                facts.hypothesis is not None
+                and analysis.is_expanded_step
+                and facts.hypothesis.contradicting_source_ids
+            ):
+                # A verified full distribution is counterevidence the learner can inspect.
+                hypothesis = facts.hypothesis
+                grounded.append(hypothesis.id)
+                grounded.extend(hypothesis.contradicting_source_ids[-2:])
+                justification = (
+                    "Verified full distribution argues against the earlier tentative "
+                    "hypothesis; acknowledge it and leave the next step."
+                )
+            else:
+                justification = "Verified equivalent step; acknowledge it and leave the next step."
+        case "partial_distribution" | "not_sure" | "explain_request":
+            assert move is not None  # noqa: S101 - chosen above for exactly these cases
+            action = move.action
+            tone = "correction" if analysis.classification == "partial_distribution" else "support"
+            hint_level = move.level
+            representation = move.representation
+            reveal_allowed = move.reveals
+            params |= move.params | {"level": str(move.level)}
+            params["representation"] = move.representation
+            concepts = move.concepts
             hypothesis = facts.hypothesis
             if problem.statement_object_id is not None:
-                drawings = grouping_mark(spec, problem.statement_object_id)
-            if hypothesis is not None:
+                drawings = representation_drawings(
+                    spec, move.representation, problem.statement_object_id
+                )
+            if hypothesis is not None and analysis.classification == "partial_distribution":
                 grounded.append(hypothesis.id)
-            expected = "Rewrite the left side so the outside factor reaches every term."
-            justification = (
-                "Step is not equivalent and matches only the first term being multiplied; "
-                "ask about both terms (tentative, a copying slip is possible)."
-            )
+                grounded.extend(hypothesis.contradicting_source_ids[-2:])
+            grounded.extend(facts.attempt_hint_ids[-3:])
+            expected = move.expected
+            justification = move.justification
         case "invalid_step":
             action = "step_not_equivalent"
             tone = "correction"
@@ -335,10 +433,33 @@ def plan_work(facts: WorkFacts, persona: Persona) -> TurnPlan:
             params |= {"value": analysis.normalized or facts.text}
             if analysis.unresolved_step is not None:
                 params["unresolved"] = analysis.unresolved_step
+            if analysis.explanation_seen is not None:
+                params["explained"] = "yes"
             expected = "Type one step that shows how you got this value."
             justification = (
                 "Correct value, but no checked reasoning yet, so it is not independent evidence."
             )
+        case "solution_with_questionable_reasoning":
+            action = "reasoning_check"
+            hint_level = 1
+            params |= {
+                "value": analysis.normalized or facts.text,
+                "questionable": analysis.reasoning.pattern if analysis.reasoning else "",
+                "factor": spec.factor_text or "",
+                "group": spec.group_text or "",
+            }
+            representation = "outside_factor"
+            expected = (
+                "Say what the outside factor does to each term, or type a step that shows it."
+            )
+            justification = (
+                "Verified value, but the stated method skips a term (a bounded keyword reading); "
+                "ask about the method before counting it as independent."
+            )
+            if problem.statement_object_id is not None:
+                drawings = representation_drawings(
+                    spec, "outside_factor", problem.statement_object_id
+                )
         case "wrong_solution":
             action = "solution_feedback"
             tone = "correction"
@@ -351,8 +472,9 @@ def plan_work(facts: WorkFacts, persona: Persona) -> TurnPlan:
             params |= {
                 "value": analysis.normalized or facts.text,
                 "assisted": "yes" if assisted else "no",
+                "revealed": "yes" if facts.attempt_answer_revealed else "no",
             }
-            grounded.extend(facts.attempt_hint_ids)
+            grounded.extend(facts.attempt_hint_ids[-4:])
             if facts.assessment_observation_id is not None:
                 grounded.append(facts.assessment_observation_id)
             memory_hint = "assisted_success_note" if assisted else "none"
@@ -373,11 +495,19 @@ def plan_work(facts: WorkFacts, persona: Persona) -> TurnPlan:
                 else:
                     action = "feedback_and_transfer"
                     expected = f"Type your first step for {next_problem.statement}."
-                    justification = (
-                        "Solved after help, so offer a fresh variant to try without hints."
-                        if assisted
-                        else "Solved independently; offer a fresh variant with changed numbers."
-                    )
+                    if assisted:
+                        # Support fades: the next problem restarts at the lowest rung and
+                        # the tutor holds hints back until the learner asks or needs them.
+                        support_change = "reduced"
+                        params["support"] = "reduced"
+                        justification = (
+                            "Solved after help, so offer a fresh variant and hold hints back "
+                            "until needed (lower support than this attempt needed)."
+                        )
+                    else:
+                        justification = (
+                            "Solved independently; offer a fresh variant with changed numbers."
+                        )
             if facts.next_problem is not None:
                 concepts = [spec.concept_id]
         case "explanation":
@@ -424,5 +554,8 @@ def plan_work(facts: WorkFacts, persona: Persona) -> TurnPlan:
         personality=persona.personality,
         comfort_override=persona.comfort_override,
         current_problem=current,
+        representation=representation,
+        support_change=support_change,
+        reveal_allowed=reveal_allowed,
         decision_justification=justification,
     )

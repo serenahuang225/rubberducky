@@ -1032,8 +1032,8 @@ class TestReturningSessionAdaptation:
             # The concise justification cites the actual stored note as its source.
             assert note_id in returning["evidence_ids"]
             assert returning["decision_justification"] == (
-                "Returning: earlier grouping help was assisted, "
-                "so start with an unaided variant."
+                "Returning: earlier grouping help was assisted, so pose the same problem with a "
+                "reminder drawn from that note and leave the work to the learner."
             )
             assert returning["current_problem"]["statement"] == "2(x + 3) = 14"
 

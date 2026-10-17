@@ -12,6 +12,8 @@ Rules (version ``bkt-eligibility.v1``), checked in order:
 5. The work was independent: the observation is not assisted, the assessment is marked
    independent, and no hint (in particular an answer-revealing one) was given in the
    attempt before the response. Later hints cannot reach back and taint earlier work.
+   Unhinted work whose assessment is not independent (a correct value without checked
+   reasoning) is reported as ``independent_reasoning_missing``, not as assisted.
 
 An opportunity is one problem for one concept (``concept|problem``). Retries and replays of
 the same problem therefore count at most once; a distinct transfer problem is a new
@@ -51,8 +53,12 @@ def _reason(
     hints = [hint for hint in attempt_hints if hint.given_at < observation.observed_at]
     if any(hint.answer_revealed for hint in hints):
         return "answer_revealed"
-    if observation.assisted or not assessment.independent:
+    if observation.assisted:
         return "assisted"
+    if not assessment.independent:
+        # No hint preceded this response, so nothing assisted it: the assessment simply
+        # lacks verified independent reasoning (for example a bare correct value).
+        return "independent_reasoning_missing"
     if hints:
         return "hint_in_attempt"
     return None

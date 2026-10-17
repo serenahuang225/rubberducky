@@ -66,7 +66,7 @@ class MockTutorProvider:
             target_concept_ids=list(plan.target_concept_ids),
             evidence_ids=list(dict.fromkeys(plan.required_evidence_ids)),
             hint_level=plan.hint_level,
-            answer_revealed=False,
+            answer_revealed=plan.reveal_allowed,
             drawing_actions=[dict(action) for action in plan.drawing_actions],
             expected_student_action=plan.expected_student_action,
             proposed_memory_updates=self._memory_proposals(inputs),
@@ -97,7 +97,10 @@ class MockTutorProvider:
                     learner_id=inputs.learner_id,
                     session_id=inputs.session_id,
                     content=(
-                        "Solved with correct steps after a grouping hint; "
+                        "Solved with correct steps after a worked explanation; "
+                        "independent transfer not yet seen."
+                        if plan.message_params.get("revealed") == "yes"
+                        else "Solved with correct steps after a grouping hint; "
                         "independent transfer not yet seen."
                     ),
                     evidence_kind="inference",

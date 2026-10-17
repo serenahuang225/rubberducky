@@ -15,7 +15,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from sqlalchemy import select, update
 from sqlalchemy.engine import CursorResult
@@ -34,6 +34,7 @@ from app.inference.request import (
 from app.learner.memory import episodic_notes
 from app.learner.memory_updates import ProposalScope, apply_memory_updates
 from app.learner.pairing import LearnerScope, new_id
+from app.pedagogy.intents import HelpIntent
 from app.pedagogy.policy import Persona, TurnPlan, WorkFacts, plan_check_in, plan_work
 from app.pedagogy.problems import (
     TRANSFER_ORDER,
@@ -46,12 +47,14 @@ from app.schemas.memory import MemoryUpdateResult
 from app.schemas.tutor import (
     CheckInRequest,
     CommittedDrawing,
+    HelpRequest,
     ProblemView,
     ProviderLabel,
     StudentInputOutcome,
     TurnRejection,
     TutorDraft,
     TutorTurnResult,
+    WorkInputMode,
     WorkRequest,
 )
 from app.tracing.replay import replay_learner
@@ -61,6 +64,7 @@ from app.tutor.evidence import (
     open_attempt,
     problem_view,
     record_check_in,
+    record_help,
     record_work,
     statement_object_id,
 )
@@ -96,7 +100,7 @@ class _Reserved:
     student_input: StudentInputOutcome
 
 
-def _request_hash(kind: str, body: CheckInRequest | WorkRequest) -> str:
+def _request_hash(kind: str, body: CheckInRequest | WorkRequest | HelpRequest) -> str:
     payload = json.dumps({"kind": kind, "body": body.model_dump(mode="json")}, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -129,9 +133,7 @@ def _plan_check_in_turn(
     attempt = open_attempt(repo, session.id)
     if attempt is None:
         problem_id = (
-            EXPLANATION_PROBLEM_ID
-            if body.goal == "explain_distribution"
-            else FIXTURE_PROBLEM_ID
+            EXPLANATION_PROBLEM_ID if body.goal == "explain_distribution" else FIXTURE_PROBLEM_ID
         )
         spec = problem_spec(problem_id)
         attempt = ensure_attempt(repo, session.id, problem_id, now)
@@ -197,7 +199,7 @@ def _fresh_next(spec: ProblemSpec) -> ProblemSpec | None:
 def _plan_work_turn(
     repo: ScopedRepository,
     session: SessionRow,
-    body: WorkRequest,
+    body: WorkRequest | HelpRequest,
     turn_id: str,
     now: datetime,
 ) -> tuple[TurnPlan, StudentInputOutcome]:
@@ -207,7 +209,18 @@ def _plan_work_turn(
             "no_active_problem", "No problem is currently posed; check in first."
         )
     spec = _spec_for_attempt(attempt)
-    recorded = record_work(repo, session.id, attempt, spec, body.text, body.input_mode, now)
+    input_mode: WorkInputMode | Literal["help_button"]
+    if isinstance(body, HelpRequest):
+        input_mode = "help_button"
+        learner_text = ""
+        help_intent: HelpIntent = "explain_request" if body.mode == "explain" else "not_sure"
+        recorded = record_help(repo, session.id, attempt, spec, help_intent, turn_id, now)
+    else:
+        input_mode = body.input_mode
+        learner_text = body.text
+        recorded = record_work(
+            repo, session.id, attempt, spec, body.text, body.input_mode, now, turn_id
+        )
     problem = problem_view(spec, attempt.id, statement_object_id(session.id, spec.problem_id))
 
     next_problem = None
@@ -229,7 +242,7 @@ def _plan_work_turn(
         spec=spec,
         problem=problem,
         analysis=recorded.analysis,
-        text=body.text,
+        text=learner_text,
         step_id=recorded.step_id,
         observation_ids=recorded.observation_ids,
         attempt_hint_ids=recorded.attempt_hint_ids,
@@ -241,6 +254,7 @@ def _plan_work_turn(
         next_spec=next_spec,
         explanation=recorded.explanation,
         explanation_missing=recorded.explanation_missing,
+        attempt_answer_revealed=recorded.attempt_answer_revealed,
     )
     # Pace is a session-level property: a tiredness check-in lightens the whole session,
     # so work turns carry the pace of the latest committed turn rather than resetting.
@@ -261,8 +275,8 @@ def _plan_work_turn(
         update={"worked_attempt_id": attempt.id, "pace": pace}
     )
     student_input = StudentInputOutcome(
-        input_mode=body.input_mode,
-        text=body.text,
+        input_mode=input_mode,
+        text=learner_text,
         classification=recorded.analysis.classification,
         step_id=recorded.step_id,
         observation_ids=list(recorded.observation_ids),
@@ -270,6 +284,7 @@ def _plan_work_turn(
         assessment_kind=recorded.assessment_kind,
         assessment_independent=recorded.assessment_independent,
         verification=recorded.analysis.verification,
+        reasoning_assessment=recorded.analysis.reasoning,
         explanation_judgment=recorded.explanation,
         eligibility=list(recorded.eligibility),
     )
@@ -281,12 +296,14 @@ def _reserve(
     scope: LearnerScope,
     session_id: str,
     kind: str,
-    body: CheckInRequest | WorkRequest,
+    body: CheckInRequest | WorkRequest | HelpRequest,
     idempotency_key: str,
     label: ProviderLabel,
     now: datetime,
 ) -> _Reserved | TutorTurnResult:
     request_hash = _request_hash(kind, body)
+    # A Help press is stored as a work turn: it records learner input for the open problem.
+    row_kind = "work" if kind == "help" else kind
     with database.transaction() as db:
         repo = ScopedRepository(db, scope)
         session = repo.require_session(session_id)
@@ -299,7 +316,7 @@ def _reserve(
             )
         ).scalar_one_or_none()
         if existing is not None:
-            if existing.request_hash != request_hash or existing.kind != kind:
+            if existing.request_hash != request_hash or existing.kind != row_kind:
                 raise TurnCommandError(
                     "idempotency_conflict",
                     "This idempotency key was already used with different content.",
@@ -345,14 +362,14 @@ def _reserve(
             assert isinstance(body, CheckInRequest)  # noqa: S101 - narrowed by caller
             plan, student_input = _plan_check_in_turn(repo, session, body, turn_id, now)
         else:
-            assert isinstance(body, WorkRequest)  # noqa: S101 - narrowed by caller
+            assert isinstance(body, WorkRequest | HelpRequest)  # noqa: S101 - narrowed by caller
             plan, student_input = _plan_work_turn(repo, session, body, turn_id, now)
         # The compare-and-swap above already advanced the stored revision.
         base_revision = body.expected_revision
         pending = TutorTurnResult(
             turn_id=turn_id,
             session_id=session_id,
-            kind=kind,  # type: ignore[arg-type]
+            kind=row_kind,  # type: ignore[arg-type]
             status="pending",
             base_revision=base_revision,
             session_revision=base_revision + 1,
@@ -371,7 +388,7 @@ def _reserve(
                 schema_version="tutor-turn.v1",
                 learner_id=scope.learner_id,
                 session_id=session_id,
-                kind=kind,
+                kind=row_kind,
                 status="pending",
                 idempotency_key=idempotency_key,
                 request_hash=request_hash,
@@ -394,9 +411,11 @@ def _reserve(
         )
 
 
-def _learner_text(body: CheckInRequest | WorkRequest) -> str:
+def _learner_text(body: CheckInRequest | WorkRequest | HelpRequest) -> str:
     if isinstance(body, CheckInRequest):
         return f"Check-in: goal={body.goal}; energy={body.energy or 'not said'}."
+    if isinstance(body, HelpRequest):
+        return f"[help_button] mode={body.mode}"
     return f"[{body.input_mode}] {body.text}"
 
 
@@ -405,7 +424,7 @@ def _infer(
     scope: LearnerScope,
     session_id: str,
     reserved: _Reserved,
-    body: CheckInRequest | WorkRequest,
+    body: CheckInRequest | WorkRequest | HelpRequest,
     provider: TutorProvider,
     now: datetime,
 ) -> tuple[TutorDraft, list[str]]:
@@ -462,7 +481,7 @@ def _commit(
     scope: LearnerScope,
     session_id: str,
     reserved: _Reserved,
-    body: CheckInRequest | WorkRequest,
+    body: CheckInRequest | WorkRequest | HelpRequest,
     draft: TutorDraft | None,
     draft_error: TurnRejection | None,
     citable_ids: list[str],
@@ -479,9 +498,7 @@ def _commit(
         ).scalar_one()
         if row.status != "pending":
             # A concurrent completion of the same turn already committed; replay it.
-            return TutorTurnResult.model_validate(row.result).model_copy(
-                update={"replayed": True}
-            )
+            return TutorTurnResult.model_validate(row.result).model_copy(update={"replayed": True})
         session = repo.require_session(session_id)
         plan = TurnPlan.model_validate(row.plan)
         student_input = TutorTurnResult.model_validate(row.result).student_input
@@ -546,7 +563,7 @@ def _commit(
                             ),
                             concept_id=plan.target_concept_ids[0],
                             level=draft.hint_level,
-                            answer_revealed=False,
+                            answer_revealed=draft.answer_revealed,
                             content=draft.utterance[:500],
                             provenance="submitted",
                             given_at=now,
@@ -606,7 +623,9 @@ def _commit(
             hypothesis=plan.hypothesis if committed else None,
             hint_id=hint_id,
             hint_level=draft.hint_level if committed and draft is not None else 0,
-            answer_revealed=False,
+            answer_revealed=committed and draft is not None and draft.answer_revealed,
+            representation=plan.representation if committed else None,
+            support_change=plan.support_change if committed else "none",
             drawings=drawings,
             memory=memory,
             decision_justification=(
@@ -633,7 +652,7 @@ def execute_turn(
     settings: Settings,
     session_id: str,
     kind: str,
-    body: CheckInRequest | WorkRequest,
+    body: CheckInRequest | WorkRequest | HelpRequest,
     idempotency_key: str,
     now: datetime,
 ) -> TutorTurnResult:

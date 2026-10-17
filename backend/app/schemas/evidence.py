@@ -23,7 +23,14 @@ from app.schemas.common import (
 
 StepInputMode = Literal["typed", "confirmed_ink"]
 ObservationSource = Literal[
-    "step", "attempt", "assessment", "check_in", "hint", "hypothesis", "explanation"
+    "step",
+    "attempt",
+    "assessment",
+    "check_in",
+    "hint",
+    "hypothesis",
+    "explanation",
+    "help_request",
 ]
 AssessmentKind = Literal["practice_check", "transfer_check", "explanation_check"]
 AssessmentOutcome = Literal["correct", "incorrect", "unknown"]

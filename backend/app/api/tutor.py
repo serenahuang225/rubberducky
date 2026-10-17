@@ -21,6 +21,7 @@ from app.learner.pairing import LearnerScope
 from app.schemas import TutorConfiguration
 from app.schemas.tutor import (
     CheckInRequest,
+    HelpRequest,
     PersonaOptions,
     SessionState,
     TutorConfigurationRequest,
@@ -51,7 +52,7 @@ def _run_turn(
     settings: Settings,
     session_id: str,
     kind: str,
-    body: CheckInRequest | WorkRequest,
+    body: CheckInRequest | WorkRequest | HelpRequest,
     idempotency_key: str,
 ) -> TutorTurnResult:
     try:
@@ -112,9 +113,7 @@ def check_in(
     database: DatabaseDep,
     settings: SettingsDep,
 ) -> TutorTurnResult:
-    return _run_turn(
-        database, scope, settings, session_id, "check_in", body, idempotency_key
-    )
+    return _run_turn(database, scope, settings, session_id, "check_in", body, idempotency_key)
 
 
 @router.post(
@@ -132,6 +131,23 @@ def submit_work(
     settings: SettingsDep,
 ) -> TutorTurnResult:
     return _run_turn(database, scope, settings, session_id, "work", body, idempotency_key)
+
+
+@router.post(
+    "/sessions/{session_id}/help",
+    response_model=TutorTurnResult,
+    responses=_ERRORS,
+    summary="Help me: a hint (or an explanation when asked) now, without waiting for any timer",
+)
+def ask_for_help(
+    session_id: SessionIdPath,
+    body: HelpRequest,
+    idempotency_key: IdempotencyKeyHeader,
+    scope: ScopeDep,
+    database: DatabaseDep,
+    settings: SettingsDep,
+) -> TutorTurnResult:
+    return _run_turn(database, scope, settings, session_id, "help", body, idempotency_key)
 
 
 @router.get(

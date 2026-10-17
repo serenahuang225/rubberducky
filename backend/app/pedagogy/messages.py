@@ -30,16 +30,66 @@ def _check_in(plan: TurnPlan) -> str:
     return " ".join(parts)
 
 
-def _diagnostic(plan: TurnPlan) -> str:
+def _scaffold(plan: TurnPlan) -> str:
+    """A rung of the scaffold ladder, worded from the plan's representation."""
     p = plan.message_params
-    if p.get("level") == "2":
+    factor, group = p.get("factor", ""), p.get("group", "")
+    asked_for_help = p.get("source") == "not_sure"
+    match p.get("representation"):
+        case "outside_factor" if asked_for_help:
+            return (
+                f"Here's a smaller question: look at the {factor} outside {group}. "
+                "What does it multiply?"
+            )
+        case "outside_factor":
+            return (
+                f"Look at the {factor} outside {group}. Does it multiply only the first "
+                "term, or every term inside?"
+            )
+        case "groups_picture":
+            lead = "Let's look at it another way. " if asked_for_help else ""
+            return (
+                f"{lead}Picture {factor}{group} as {factor} groups of {group}, drawn on the "
+                "board. What happens to the second term inside?"
+            )
+        case "number_case":
+            case = p.get("number_case", "")
+            return (
+                f"Let's go back to multiplying with small numbers: {case} is the same idea. "
+                "Work out each part separately and compare with the board. What do you notice?"
+            )
+        case "copy_check":
+            return (
+                f"Earlier you spread the {factor} over both terms, so this may be a copying "
+                f"slip. Compare your line with {p['statement']}: did the {factor} reach every "
+                "term?"
+            )
+        case "next_step":
+            return (
+                f"Starting from {p['expanded']}, what could you do to both sides to leave "
+                "the x term by itself?"
+            )
+    return f"Look at the {factor} outside {group}. What does it multiply?"
+
+
+def _explain(plan: TurnPlan) -> str:
+    p = plan.message_params
+    lead = (
+        "Sure, here it is."
+        if p.get("trigger") == "requested"
+        else "We've looked at this a few ways, so let me show you."
+    )
+    factor, group = p["factor"], p["group"]
+    if p.get("kind") == "explanation":
         return (
-            f"Picture {p['factor']}{p['group']} as {p['factor']} groups of {p['group']}. "
-            "What happens to the second term inside?"
+            f"{lead} {factor}{group} is {factor} groups of {group}, so the {factor} multiplies "
+            "both terms and the value stays the same. Now say it back in your own words: "
+            "why does the second term get multiplied too?"
         )
     return (
-        f"Look at the {p['factor']} outside {p['group']}. Does it multiply only the first "
-        "term, or every term inside?"
+        f"{lead} {factor}{group} means {factor} groups of {group}, so the {factor} multiplies "
+        f"both terms: {p['expanded']}. Your turn: what could you do to both sides to leave the "
+        "x term by itself? Type that step."
     )
 
 
@@ -53,16 +103,30 @@ def _step_feedback(plan: TurnPlan) -> str:
 
 def _reasoning_check(plan: TurnPlan) -> str:
     p = plan.message_params
+    if "questionable" in p:
+        return (
+            f"{p['value']} does work, so the value isn't the question. You mentioned leaving a "
+            f"term unchanged. What does the {p['factor']} outside {p['group']} do to each "
+            "term inside?"
+        )
     if "unresolved" in p:
         return (
             f"{p['value']} does work, but the step \u201c{p['unresolved']}\u201d doesn't lead "
             "there. Which step got you to this value?"
         )
+    if p.get("explained") == "yes":
+        return (
+            f"{p['value']} does work. I can't check words as a method yet, so show me one "
+            "step that gets there."
+        )
     return f"{p['value']} does work. Show me one step that gets there, so we can check the method."
 
 
 def _success_praise(plan: TurnPlan) -> str:
-    if plan.message_params.get("assisted") == "yes":
+    p = plan.message_params
+    if p.get("revealed") == "yes":
+        return "You finished it with steps that check out, after I walked through the idea."
+    if p.get("assisted") == "yes":
         return "You finished it with steps that check out, after we looked at the grouping."
     return "You solved it on your own with steps that check out."
 
@@ -97,8 +161,10 @@ def render_utterance(plan: TurnPlan) -> str:
             )
         case "step_feedback":
             body = _step_feedback(plan)
-        case "diagnostic_hint":
-            body = _diagnostic(plan)
+        case "diagnostic_hint" | "smaller_scaffold" | "change_representation":
+            body = _scaffold(plan)
+        case "explain_on_request":
+            body = _explain(plan)
         case "step_not_equivalent":
             body = (
                 "That step changes what the equation says. Which operation did you use, and "
@@ -108,11 +174,14 @@ def render_utterance(plan: TurnPlan) -> str:
             body = _reasoning_check(plan)
         case "solution_feedback":
             body = (
-                f"Let's test it: put {p['claim']} back into {p['statement']}. "
-                "Do both sides match?"
+                f"Let's test it: put {p['claim']} back into {p['statement']}. Do both sides match?"
             )
         case "feedback_and_transfer":
             body = f"{_success_praise(plan)} Now a fresh one: {p['next_statement']}."
+            if p.get("support") == "reduced":
+                body += (
+                    " I'll hold the hints back this time, and you can ask whenever you want one."
+                )
         case "transfer_feedback_and_explain":
             body = (
                 f"{_success_praise(plan)} One more thing: {p['next_statement']} "

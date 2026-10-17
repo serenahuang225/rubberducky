@@ -13,28 +13,32 @@ APPEARANCES: tuple[Appearance, ...] = ("animal", "older_adult", "younger_adult")
 PERSONALITIES: tuple[Personality, ...] = ("gentle", "matter_of_fact", "playful", "mildly_sassy")
 COMFORT_OVERRIDES: tuple[ComfortOverride, ...] = ("none", "neutral_supportive", "reduced_sass")
 
-Tone = Literal["neutral", "correction", "success"]
+Tone = Literal["neutral", "correction", "success", "support"]
 
 _OPENERS: dict[Personality, dict[Tone, str]] = {
     "gentle": {
         "neutral": "",
         "correction": "Thanks for showing your step. ",
         "success": "Nice work. ",
+        "support": "That's okay. ",
     },
     "matter_of_fact": {
         "neutral": "",
         "correction": "Let's check one part. ",
         "success": "That checks out. ",
+        "support": "No problem. ",
     },
     "playful": {
         "neutral": "Puzzle time! ",
         "correction": "Ooh, this one has a sneaky spot. ",
         "success": "Yes! ",
+        "support": "No worries, tricky ones are the fun ones. ",
     },
     "mildly_sassy": {
         "neutral": "Right, let's do this. ",
         "correction": "Those parentheses are being sneaky again. ",
         "success": "Look at that, the equation behaved. ",
+        "support": "Fair enough, parentheses can be a lot. ",
     },
 }
 
