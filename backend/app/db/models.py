@@ -540,3 +540,40 @@ class SceneObjectRow(Base):
     provenance: Mapped[str] = mapped_column(String(32))
     created_at: Mapped[datetime]
     deleted_at: Mapped[datetime | None]
+
+class TutorTurnRow(Base):
+    """One reserved tutor turn: idempotency key, revisions, the deterministic plan and result.
+
+    A turn is reserved (``pending``) in a short transaction, inference runs outside any
+    transaction, and the turn is then finished as ``committed``, ``rejected``, ``failed`` or
+    ``superseded``. ``(learner_id, idempotency_key)`` is unique so a retried command can
+    never reserve a second turn.
+    """
+
+    __tablename__ = "tutor_turns"
+    __table_args__ = (
+        UniqueConstraint("learner_id", "idempotency_key"),
+        _session_fk(),
+        _one_of("kind", "kind", ("check_in", "work")),
+        _one_of(
+            "status", "status", ("pending", "committed", "rejected", "failed", "superseded")
+        ),
+        CheckConstraint("base_revision >= 0", name="base_revision_nonnegative"),
+    )
+
+    id: Mapped[str] = mapped_column(ID, primary_key=True)
+    schema_version: Mapped[str] = mapped_column(String(64))
+    learner_id: Mapped[str] = mapped_column(ID, _learner_fk(), index=True)
+    session_id: Mapped[str] = mapped_column(ID, index=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(16))
+    idempotency_key: Mapped[str] = mapped_column(String(128))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    base_revision: Mapped[int] = mapped_column(Integer)
+    committed_revision: Mapped[int | None] = mapped_column(Integer)
+    provider: Mapped[str] = mapped_column(String(40))
+    is_mock: Mapped[bool] = mapped_column(Boolean)
+    plan: Mapped[dict[str, Any]] = mapped_column(JSON)
+    result: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime]
+    completed_at: Mapped[datetime | None]

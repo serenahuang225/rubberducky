@@ -10,7 +10,8 @@ Rules (version ``bkt-eligibility.v1``), checked in order:
    excluded.
 4. The assessment outcome agrees with the observation's correctness.
 5. The work was independent: the observation is not assisted, the assessment is marked
-   independent, and no hint (in particular an answer-revealing one) was given in the attempt.
+   independent, and no hint (in particular an answer-revealing one) was given in the
+   attempt before the response. Later hints cannot reach back and taint earlier work.
 
 An opportunity is one problem for one concept (``concept|problem``). Retries and replays of
 the same problem therefore count at most once; a distinct transfer problem is a new
@@ -45,7 +46,9 @@ def _reason(
     expected = "correct" if observation.correct else "incorrect"
     if assessment.outcome != expected:
         return "assessment_outcome_mismatch"
-    hints = list(attempt_hints)
+    # Only hints given before this response can have assisted it; a hint that follows
+    # the work (for example corrective feedback after a wrong answer) must not reach back.
+    hints = [hint for hint in attempt_hints if hint.given_at < observation.observed_at]
     if any(hint.answer_revealed for hint in hints):
         return "answer_revealed"
     if observation.assisted or not assessment.independent:

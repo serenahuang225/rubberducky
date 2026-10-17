@@ -78,6 +78,7 @@ CONCEPT_IDS = (
 )
 FIXTURE_PROBLEM_ID = "problem.distribute_2x3_eq_14"
 TRANSFER_PROBLEM_ID = "problem.transfer_3x_minus_2_eq_12"
+STRUCTURAL_TRANSFER_PROBLEM_ID = "problem.transfer_5_eq_2z_minus_3_plus_1"
 EXPLANATION_PROBLEM_ID = "problem.explain_distribution"
 
 
@@ -174,6 +175,15 @@ def curriculum_records() -> list[ContractModel]:
             concept_id="concept.linear_equations",
             objective_id="objective.transfer_linear",
             statement="3(x - 2) = 12",
+            kind="transfer",
+            variant_of_problem_id=FIXTURE_PROBLEM_ID,
+            created_at=t,
+        ),
+        Problem(
+            id=STRUCTURAL_TRANSFER_PROBLEM_ID,
+            concept_id="concept.linear_equations",
+            objective_id="objective.transfer_linear",
+            statement="5 = 2(z - 3) + 1",
             kind="transfer",
             variant_of_problem_id=FIXTURE_PROBLEM_ID,
             created_at=t,

@@ -1,0 +1,149 @@
+"""Learner-scoped read models: resumable session state, turn events and persona choice."""
+
+from datetime import datetime
+
+from sqlalchemy import select
+
+from app.db.models import TutorConfigurationRow, TutorTurnRow
+from app.db.repositories import NotInScopeError, ScopedRepository
+from app.learner.memory import active_session_context, stale_session_context_count
+from app.learner.pairing import new_id
+from app.pedagogy.persona import APPEARANCES, COMFORT_OVERRIDES, PERSONALITIES
+from app.pedagogy.problems import UnknownProblemError, problem_spec
+from app.schemas import Session, TutorConfiguration
+from app.schemas.tutor import (
+    PersonaOptions,
+    SessionState,
+    TutorConfigurationRequest,
+    TutorTurnResult,
+)
+from app.tutor.evidence import open_attempt, problem_view, statement_object_id
+
+MAX_TURN_EVENTS = 50
+
+
+def persona_options() -> PersonaOptions:
+    """The independently selectable first-run persona axes (3 appearances x 4 personalities)."""
+    return PersonaOptions(
+        appearances=list(APPEARANCES),
+        personalities=list(PERSONALITIES),
+        comfort_overrides=list(COMFORT_OVERRIDES),
+    )
+
+
+def configure_persona(
+    repo: ScopedRepository, body: TutorConfigurationRequest, now: datetime
+) -> TutorConfiguration:
+    """Create the first-run persona configuration or replace it.
+
+    Baseline behavior: both axes are always editable here, and a comfort override applies
+    immediately. A durable-change cooldown is a separate concern layered on later.
+    """
+    row = repo.db.execute(
+        select(TutorConfigurationRow).where(
+            TutorConfigurationRow.learner_id == repo.learner_id
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        config = TutorConfiguration(
+            id=new_id(),
+            learner_id=repo.learner_id,
+            appearance=body.appearance,
+            personality=body.personality,
+            comfort_override=body.comfort_override,
+            provenance="submitted",
+            chosen_at=now,
+            last_changed_at=now,
+        )
+        repo.db.add(TutorConfigurationRow(**config.model_dump()))
+    else:
+        row.appearance = body.appearance
+        row.personality = body.personality
+        row.comfort_override = body.comfort_override
+        row.provenance = "submitted"
+        row.last_changed_at = now
+        repo.db.flush()
+        config = TutorConfiguration.model_validate(row)
+    repo.db.flush()
+    return config
+
+
+def session_state(repo: ScopedRepository, session_id: str, now: datetime) -> SessionState:
+    """The resumable view: current problem, revision (via the session), pace and persona."""
+    session = Session.model_validate(repo.require_session(session_id))
+    current = None
+    attempt = open_attempt(repo, session_id)
+    if attempt is not None:
+        try:
+            spec = problem_spec(attempt.problem_id)
+        except UnknownProblemError:
+            spec = None
+        if spec is not None:
+            current = problem_view(
+                spec, attempt.id, statement_object_id(session_id, spec.problem_id)
+            )
+    latest = repo.db.execute(
+        select(TutorTurnRow)
+        .where(
+            TutorTurnRow.learner_id == repo.learner_id,
+            TutorTurnRow.session_id == session_id,
+            TutorTurnRow.status == "committed",
+        )
+        .order_by(TutorTurnRow.created_at.desc(), TutorTurnRow.id)
+        .limit(1)
+    ).scalar_one_or_none()
+    pending = repo.db.execute(
+        select(TutorTurnRow.id)
+        .where(
+            TutorTurnRow.learner_id == repo.learner_id,
+            TutorTurnRow.session_id == session_id,
+            TutorTurnRow.status == "pending",
+        )
+        .order_by(TutorTurnRow.created_at.desc(), TutorTurnRow.id)
+        .limit(1)
+    ).scalar_one_or_none()
+    recheck = stale_session_context_count(repo, session_id, now) > 0 and not active_session_context(
+        repo, session_id, now
+    )
+    return SessionState(
+        session=session,
+        current_problem=current,
+        pace="standard" if latest is None else latest.result.get("pace", "standard"),
+        pending_turn_id=pending,
+        session_context_recheck=recheck,
+        persona=repo.tutor_configuration(),
+    )
+
+
+def list_turn_events(
+    repo: ScopedRepository, session_id: str, limit: int = MAX_TURN_EVENTS
+) -> list[TutorTurnResult]:
+    """Chronological turn outcomes for one own session (the documented event log to poll)."""
+    repo.require_session(session_id)
+    bounded = max(1, min(limit, MAX_TURN_EVENTS))
+    rows = list(
+        repo.db.execute(
+            select(TutorTurnRow)
+            .where(
+                TutorTurnRow.learner_id == repo.learner_id,
+                TutorTurnRow.session_id == session_id,
+            )
+            .order_by(TutorTurnRow.created_at.desc(), TutorTurnRow.id)
+            .limit(bounded)
+        ).scalars()
+    )
+    return [TutorTurnResult.model_validate(row.result) for row in reversed(rows)]
+
+
+def get_turn_result(repo: ScopedRepository, session_id: str, turn_id: str) -> TutorTurnResult:
+    repo.require_session(session_id)
+    row = repo.db.execute(
+        select(TutorTurnRow).where(
+            TutorTurnRow.id == turn_id,
+            TutorTurnRow.learner_id == repo.learner_id,
+            TutorTurnRow.session_id == session_id,
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise NotInScopeError("tutor_turns")
+    return TutorTurnResult.model_validate(row.result)
