@@ -455,6 +455,7 @@ class PreferenceRow(Base):
     key: Mapped[str] = mapped_column(String(64))
     value: Mapped[Any] = mapped_column(JSON, nullable=True)
     provenance: Mapped[str] = mapped_column(String(32))
+    updated_by: Mapped[str] = mapped_column(String(16), server_default="learner")
     updated_at: Mapped[datetime]
 
 
@@ -511,6 +512,9 @@ class MemoryEntryRow(Base):
     status: Mapped[str] = mapped_column(String(16))
     review_at: Mapped[datetime | None]
     expires_at: Mapped[datetime | None]
+    origin: Mapped[str] = mapped_column(String(16), server_default="system")
+    turn_id: Mapped[str | None] = mapped_column(ID)
+    supersedes_id: Mapped[str | None] = mapped_column(ID)
     provenance: Mapped[str] = mapped_column(String(32))
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]

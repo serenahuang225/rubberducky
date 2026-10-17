@@ -35,6 +35,7 @@ from app.graph.curriculum import (
     load_curriculum_graph,
     validation_report,
 )
+from app.learner.memory_cli import add_memory_parser
 from app.learner.pairing import (
     LearnerScope,
     PairingError,
@@ -309,6 +310,7 @@ def build_parser() -> argparse.ArgumentParser:
     history.set_defaults(handler=cmd_history)
     _add_graph_parser(sub)
     add_tracing_parser(sub)
+    add_memory_parser(sub)
     return parser
 
 

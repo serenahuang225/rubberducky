@@ -22,6 +22,12 @@ Personality = Literal["gentle", "matter_of_fact", "playful", "mildly_sassy"]
 ComfortOverride = Literal["none", "neutral_supportive", "reduced_sass"]
 MemoryLayer = Literal["episodic_note", "session_context"]
 MemoryStatus = Literal["active", "needs_review", "corrected", "expired", "deleted"]
+# Who wrote a memory entry: the learner, a validated tutor proposal, or the system/seed.
+MemoryOrigin = Literal["learner", "tutor_proposal", "system"]
+MEMORY_ORIGIN_VALUES: tuple[MemoryOrigin, ...] = ("learner", "tutor_proposal", "system")
+# Preferences are edited only by the learner or a local operator, never by a provider.
+PreferenceEditor = Literal["learner", "operator"]
+PREFERENCE_EDITOR_VALUES: tuple[PreferenceEditor, ...] = ("learner", "operator")
 PreferenceKey = Annotated[str, Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_]*$")]
 FiniteFloat = Annotated[float, Field(allow_inf_nan=False)]
 PreferenceValue = Annotated[str, Field(max_length=200)] | bool | int | FiniteFloat | None
@@ -62,6 +68,7 @@ class Preference(ContractModel):
     key: PreferenceKey
     value: PreferenceValue
     provenance: Provenance
+    updated_by: PreferenceEditor = "learner"
     updated_at: UtcDatetime
 
 
@@ -92,6 +99,11 @@ class MemoryEntry(ContractModel):
     status: MemoryStatus = "active"
     review_at: UtcDatetime | None = None
     expires_at: UtcDatetime | None = None
+    origin: MemoryOrigin = "system"
+    # The tutor turn whose validated proposal created this entry, if any.
+    turn_id: EntityId | None = None
+    # A correction points at the entry it replaces; the original keeps status "corrected".
+    supersedes_id: EntityId | None = None
     provenance: Provenance
     created_at: UtcDatetime
     updated_at: UtcDatetime

@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Annotated, Literal, TypeVar
 
 from pydantic import Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session as DbSession
 
 from app.db.models import (
@@ -140,6 +140,7 @@ class ScopedRepository:
         )
         self.db.add(SessionRow(**session.model_dump()))
         self.db.flush()
+        self.expire_session_context(now, keep_session_id=session.id)
         return session
 
     def end_session(self, session_id: str, now: datetime) -> Session:
@@ -149,7 +150,38 @@ class ScopedRepository:
             row.ended_at = now
             row.revision += 1
             self.db.flush()
+            self.expire_session_context(now, only_session_id=session_id)
         return Session.model_validate(row)
+
+    def expire_session_context(
+        self,
+        now: datetime,
+        *,
+        keep_session_id: str | None = None,
+        only_session_id: str | None = None,
+    ) -> int:
+        """Expire temporary session context, except ``keep_session_id``'s (or only one session's).
+
+        Session context (for example "tired today") describes one sitting only. When a new
+        session starts, or the session ends, it becomes ``expired`` so it is rechecked with
+        the learner instead of being carried forward as a fact.
+        """
+        query = update(MemoryEntryRow).where(
+            MemoryEntryRow.learner_id == self.learner_id,
+            MemoryEntryRow.layer == "session_context",
+            MemoryEntryRow.status.in_(("active", "needs_review")),
+        )
+        if keep_session_id is not None:
+            query = query.where(MemoryEntryRow.session_id != keep_session_id)
+        if only_session_id is not None:
+            query = query.where(MemoryEntryRow.session_id == only_session_id)
+        result = self.db.execute(
+            query.values(status="expired", updated_at=now).execution_options(
+                synchronize_session="fetch"
+            )
+        )
+        self.db.flush()
+        return int(getattr(result, "rowcount", 0) or 0)
 
     def history(self, limit: int = 20) -> HistorySnapshot:
         bounded = max(1, min(limit, MAX_HISTORY_ITEMS))

@@ -234,6 +234,7 @@ def learner_records() -> list[ContractModel]:
             key="wait_seconds",
             value=20,
             provenance="fictional_seed",
+            updated_by="operator",
             updated_at=_at(-59),
         )
     ]

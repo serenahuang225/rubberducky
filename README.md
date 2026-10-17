@@ -181,6 +181,42 @@ Devices use `GET /graph/context?concept_id=...` with the same bounds as query pa
 learner scope comes from the bearer token, so another learner's request returns the same shared
 curriculum and none of the first learner's evidence.
 
+### Memory layers and bounded tutor context
+
+Learner memory is kept in six separate layers: raw evidence (attempts, steps, observations,
+hints, assessments), derived beliefs (hypotheses and mastery estimates with source IDs and
+algorithm/parameter versions), editable preferences (`updated_by` learner or operator), temporary
+session context, source-linked episodic notes (review date, expiry, correction state) and the
+persona configuration. Session context such as "tired today" applies to its own session only.
+Starting a new session or ending the session expires it, and the next context asks the tutor to
+check again instead of treating it as a fact.
+
+A provider can only *propose* memory updates: a session-context entry for the current session,
+an episodic note, or a review flag on an existing note. `app/learner/memory_updates.py` checks
+the whole batch (schema, learner, cited sources, session scope, expiry windows, evidence kind and
+confidence) before writing anything. One bad proposal rejects the batch. Proposals cannot name a
+table, change preferences, persona, evidence or curriculum, or cite another learner's records.
+
+`app/inference/context.py` builds the context a provider would see. It contains the bounded graph
+context, a few recent observations from a fixed window, current session context, usable notes,
+preferences and persona. It never includes the lifetime transcript. The context is serialized
+and measured. When it is over budget, free text is removed first and then low-priority items are
+dropped. Source IDs, polarity and status (curriculum, observed, verified, self-report, inference,
+derived estimate, learner setting) always remain. Omissions are counted, and a context that
+cannot fit is reported as `insufficient`. `app/inference/request.py` applies the provider's
+window, output reservation and character limit to the final assembled request. The default
+token counter counts UTF-8 bytes, which is an upper bound for byte-level BPE tokenizers.
+
+```sh
+$CLI memory layers --learner ada
+$CLI memory context --learner ada --concept concept.distribution --max-chars 1500 --format text
+$CLI memory context --learner ada --concept concept.distribution --assemble \
+    --context-window 2048 --max-output-tokens 256
+$CLI memory propose --learner ada --file proposals.json --turn-id turn-1 --dry-run
+```
+
+Devices use `GET /memory/layers` and `GET /memory/context?concept_id=...`. As with every
+learner route, the scope comes from the bearer token.
 ### Knowledge tracing (NumPy BKT) and history replay
 
 `backend/app/tracing/` implements Bayesian Knowledge Tracing as small NumPy functions
