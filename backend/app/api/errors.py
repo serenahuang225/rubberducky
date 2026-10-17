@@ -1,8 +1,11 @@
 """Uniform JSON error envelope: ``{"schema_version": "error.v1", "error": {code, message}}``."""
 
-from typing import Literal
+import math
+from typing import Any, Literal
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.exc import OperationalError
@@ -75,7 +78,27 @@ async def _database_unavailable(_request: Request, _exc: Exception) -> JSONRespo
     )
 
 
+def _json_safe(value: Any) -> Any:
+    """Replace non-finite floats so a rejected NaN/inf input never breaks the 422 body."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    return value
+
+
+async def _request_validation(_request: Request, exc: Exception) -> JSONResponse:
+    # Same {"detail": [...]} shape as FastAPI's default 422, sanitized for JSON compliance.
+    assert isinstance(exc, RequestValidationError)  # noqa: S101 - registered for it only
+    return JSONResponse(
+        status_code=422, content=jsonable_encoder({"detail": _json_safe(exc.errors())})
+    )
+
+
 def install_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(ApiError, _api_error)
     app.add_exception_handler(NotInScopeError, _not_in_scope)
     app.add_exception_handler(OperationalError, _database_unavailable)
+    app.add_exception_handler(RequestValidationError, _request_validation)

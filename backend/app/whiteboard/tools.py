@@ -20,13 +20,17 @@ from app.db.models import SceneObjectRow
 from app.db.repositories import ScopedRepository
 from app.schemas.common import ContractModel, EntityId
 
-BOARD_WIDTH = 1600.0
-BOARD_HEIGHT = 1200.0
+# Geometry/bounds constants live in app.whiteboard.geometry and are re-exported here.
+from app.whiteboard.geometry import (
+    MAX_PATH_POINTS,
+    MIN_SHAPE_EXTENT,
+    Point,
+)
+from app.whiteboard.scene import log_tutor_add, log_tutor_erase
+
 MAX_ACTIONS_PER_TURN = 6
-MAX_PATH_POINTS = 200
 MAX_TOTAL_POINTS = 400
 MAX_PAYLOAD_BYTES = 12_000
-MIN_SHAPE_EXTENT = 2.0
 
 _NAMESPACE = uuid.UUID("9d4f1f8e-2b6a-4c47-8c0e-5e3a71b2d9a4")
 
@@ -37,11 +41,6 @@ SafeMathText = Annotated[
     str, Field(min_length=1, max_length=80, pattern=r"^[0-9a-z+\-*/=(). ]+$")
 ]
 TermText = Annotated[str, Field(min_length=1, max_length=40, pattern=r"^[0-9a-z+\-*/=(). ]+$")]
-
-
-class Point(ContractModel):
-    x: Annotated[float, Field(ge=0.0, le=BOARD_WIDTH, allow_inf_nan=False)]
-    y: Annotated[float, Field(ge=0.0, le=BOARD_HEIGHT, allow_inf_nan=False)]
 
 
 class DrawPath(ContractModel):
@@ -238,13 +237,19 @@ def apply_tool_actions(
     actions: Sequence[ToolAction],
     now: datetime,
 ) -> list[AppliedDrawing]:
-    """Write already-validated actions in the caller's transaction (no commit)."""
+    """Write already-validated actions in the caller's transaction (no commit).
+
+    Every action also lands in the durable scene operation log under the turn's move id,
+    so a later tutor-move undo reverses the whole move as one group and the replay feed
+    can rebuild the board in order.
+    """
     applied: list[AppliedDrawing] = []
     for index, action in enumerate(actions):
         if isinstance(action, EraseTutorObject):
             row = repo.db.get(SceneObjectRow, action.target_object_id)
             if row is not None and row.author_role == "tutor" and row.deleted_at is None:
                 row.deleted_at = now
+            log_tutor_erase(repo, session_id, turn_id, index, action.target_object_id, now)
             applied.append(
                 AppliedDrawing(
                     object_id=action.target_object_id, tool=action.tool, semantic_role="erased"
@@ -253,6 +258,7 @@ def apply_tool_actions(
             continue
         object_id = tutor_object_id(turn_id, index)
         kind = action.shape if isinstance(action, DrawShape) else action.tool
+        payload = _payload(action)
         repo.db.add(
             SceneObjectRow(
                 id=object_id,
@@ -262,13 +268,14 @@ def apply_tool_actions(
                 author_role="tutor",
                 semantic_role=action.semantic_role,
                 kind=kind,
-                payload=_payload(action),
+                payload=payload,
                 teaching_step_id=turn_id,
                 provenance="submitted",
                 created_at=now,
                 deleted_at=None,
             )
         )
+        log_tutor_add(repo, session_id, turn_id, index, object_id, payload, now)
         applied.append(
             AppliedDrawing(
                 object_id=object_id, tool=action.tool, semantic_role=action.semantic_role

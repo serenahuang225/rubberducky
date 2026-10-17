@@ -18,6 +18,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Integer,
     MetaData,
+    PrimaryKeyConstraint,
     String,
     UniqueConstraint,
 )
@@ -183,6 +184,9 @@ class SessionRow(Base):
     status: Mapped[str] = mapped_column(String(16))
     goal: Mapped[str | None] = mapped_column(String(200))
     revision: Mapped[int] = mapped_column(Integer, default=0)
+    # Monotonic scene counter, separate from the tutor-turn revision: board edits and
+    # tutor turns are independent command streams with their own optimistic-concurrency CAS.
+    scene_revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     provenance: Mapped[str] = mapped_column(String(32))
     started_at: Mapped[datetime]
     ended_at: Mapped[datetime | None]
@@ -540,6 +544,57 @@ class SceneObjectRow(Base):
     provenance: Mapped[str] = mapped_column(String(32))
     created_at: Mapped[datetime]
     deleted_at: Mapped[datetime | None]
+
+class SceneOperationRow(Base):
+    """One committed scene operation in a session's durable, append-only operation log.
+
+    Every visible board change (student strokes, erases, history moves and tutor teaching
+    moves) is one row with a monotonic per-session ``seq`` equal to the scene revision it
+    produced. The log is the authoritative history; ``scene_objects.deleted_at`` is the
+    materialized visibility maintained in the same transaction. Undo/redo rows reference
+    the operations they reverse or reapply, so a reload replays edits exactly instead of
+    resurrecting erased or undone objects.
+    """
+
+    __tablename__ = "scene_operations"
+    __table_args__ = (
+        # The operation id is client-chosen for student commands, so uniqueness is scoped
+        # per learner: another learner's ids can never collide with or replay these.
+        PrimaryKeyConstraint("learner_id", "id"),
+        UniqueConstraint("learner_id", "session_id", "seq"),
+        _session_fk(),
+        _one_of("author_role", "author_role", ("student", "tutor")),
+        _one_of(
+            "kind",
+            "kind",
+            ("add_object", "erase_object", "undo", "redo", "undo_tutor_move"),
+        ),
+        CheckConstraint("seq >= 1", name="seq_positive"),
+    )
+
+    learner_id: Mapped[str] = mapped_column(ID, index=True)
+    id: Mapped[str] = mapped_column(ID)
+    schema_version: Mapped[str] = mapped_column(String(64))
+    session_id: Mapped[str] = mapped_column(ID, index=True)
+    seq: Mapped[int] = mapped_column(Integer)
+    author_role: Mapped[str] = mapped_column(String(16))
+    kind: Mapped[str] = mapped_column(String(24))
+    # The object this op created/erased (add/erase) or most directly affected (undo/redo).
+    object_id: Mapped[str | None] = mapped_column(ID)
+    # The teaching move (tutor turn id) this op belongs to or, for undo_tutor_move, undoes.
+    move_id: Mapped[str | None] = mapped_column(ID)
+    # For undo: the op it reverses. For redo: the op it reapplies.
+    reverses_op_id: Mapped[str | None] = mapped_column(ID)
+    # For redo: the undo op it consumes.
+    consumes_op_id: Mapped[str | None] = mapped_column(ID)
+    affected_object_ids: Mapped[list[str]] = mapped_column(JSON)
+    # Hash of the canonical request, so a reused operation id with different content
+    # conflicts instead of silently replaying a different edit.
+    request_hash: Mapped[str] = mapped_column(String(64))
+    # The undo op currently reversing this op (NULL while the op is in effect).
+    reversed_by: Mapped[str | None] = mapped_column(ID)
+    created_at: Mapped[datetime]
+
 
 class TutorTurnRow(Base):
     """One reserved tutor turn: idempotency key, revisions, the deterministic plan and result.

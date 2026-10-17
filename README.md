@@ -253,6 +253,35 @@ $CLI tracing readiness --learner bkt-fixture           # qualitative bands, no p
 snapshot. Devices use `GET /tracing/readiness`, which returns only qualitative bands
 (`not_enough_evidence`, `emerging`, `developing`, `strong_so_far`) and a separate
 independent-transfer status. It never returns a mastery score.
+### Whiteboard scene operations and author-safe history
+
+The board is a durable logical-coordinate scene (`1600x1200`, one fixed 3-unit student pen).
+Tutor drawing proposals pass through six validated tools (`draw_path`, `draw_shape` with
+circle/rectangle/line/bracket/arrow, `add_math`, `highlight`, `erase_tutor_object`,
+`focus_region`) with finite bounds, point/payload budgets and tutor ownership checks; one bad
+action rejects the whole turn draft before anything is committed. The student never gets a
+brush or color choice: the server assigns pen width and the locked `student`/`tutor` color
+roles, and every object carries id, author, semantic role, session, UTC time and optional
+teaching step. Tutor objects are board state, never student work or assessment evidence.
+
+Every visible change is one row in a per-session operation log with a monotonic
+`scene_revision`. Clients commit one operation per finished stroke or history action:
+
+- `POST /sessions/{id}/scene/operations` with `{"operation_id", "expected_scene_revision",
+  "action"}`; actions are `add_stroke`, `erase_object` (own objects only), `undo`, `redo`
+  and `undo_tutor_move`. Identical retries replay the stored outcome (`replayed: true`), a
+  reused id with different content is `409 idempotency_conflict`, and a stale expectation is
+  `409 revision_conflict`, so an offline outbox can resync and retry safely.
+- `GET /sessions/{id}/scene` returns the visible objects, current scene revision, board/pen
+  spec and the undo/redo/tutor-move availability flags.
+- `GET /sessions/{id}/scene/operations?after_seq=N` is the replay feed a reconnecting client
+  uses to catch up on missed operations in order.
+
+Histories are author-safe: student undo/redo walk only the student's own strokes and erases,
+while `undo_tutor_move` reverses one whole tutor teaching move (every object from that turn)
+as a group, leaving student objects and the student's history position untouched. Erased or
+undone objects stay hidden after a reload or restart; the operation log is authoritative and
+`scene_objects.deleted_at` is the materialized visibility updated in the same transaction.
 ### iPad over trusted Wi-Fi (Expo Go)
 
 Only do this on a private network you trust. There is no public tunnel.

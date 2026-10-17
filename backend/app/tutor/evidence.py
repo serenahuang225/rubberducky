@@ -40,6 +40,7 @@ from app.schemas.tutor import EligibilityNote, HypothesisView, ProblemView, Work
 from app.tracing.eligibility import classify
 from app.verification import DISTRIBUTION_EXPLANATION_RUBRIC, KeywordExplanationJudge
 from app.verification.explanation import ExplanationJudgment
+from app.whiteboard.scene import log_statement_add
 
 _STATEMENT_NAMESPACE = uuid.UUID("5e7a9c1d-3f48-4b6a-9d2c-1a0b4e6f8c52")
 # Confidence of a deterministic verifier outcome (exact) versus a rubric keyword judgment.
@@ -125,6 +126,7 @@ def ensure_statement_object(
                 deleted_at=None,
             )
         )
+        log_statement_add(repo, session_id, spec.problem_id, object_id, now)
         repo.db.flush()
     return object_id
 
