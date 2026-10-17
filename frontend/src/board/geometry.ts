@@ -11,6 +11,11 @@
 export const BOARD_WIDTH = 1600;
 export const BOARD_HEIGHT = 1200;
 export const PEN_WIDTH = 3;
+/**
+ * How student ink is drawn on the fitted board. The server still stores {@link PEN_WIDTH};
+ * this only makes a finger or pencil readable once the 1600×1200 board is scaled into the view.
+ */
+export const STUDENT_INK_WIDTH = 12;
 export const MAX_PATH_POINTS = 200;
 
 export type LogicalPoint = { x: number; y: number };

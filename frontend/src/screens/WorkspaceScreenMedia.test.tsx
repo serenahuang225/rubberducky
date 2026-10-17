@@ -26,6 +26,15 @@ import {
 import { WorkspaceScreen } from "./WorkspaceScreen";
 
 const SESSION_ID = "s1";
+
+function typedStepInput(
+  view: Pick<ReturnType<typeof render>, "getByTestId" | "queryByTestId">,
+) {
+  if (view.queryByTestId("typed-step-input") == null) {
+    fireEvent.press(view.getByTestId("show-typed-step"));
+  }
+  return view.getByTestId("typed-step-input");
+}
 const PERSONA: TutorConfiguration = {
   schema_version: "tutor-configuration.v1",
   id: "cfg-1",
@@ -364,7 +373,7 @@ describe("WorkspaceScreen optional media", () => {
     );
     expect(fake.calls).toEqual(["mic.request"]);
     expect(view.queryByTestId("indicator-microphone")).toBeNull();
-    fireEvent.changeText(view.getByTestId("typed-step-input"), "2x + 3 = 14");
+    fireEvent.changeText(typedStepInput(view), "2x + 3 = 14");
     fireEvent.press(view.getByTestId("submit-step"));
     await waitFor(() => expect(control.workPosts).toBe(1));
     expect(view.getByTestId("whiteboard")).toBeTruthy();
@@ -493,7 +502,7 @@ describe("WorkspaceScreen optional media", () => {
     });
     await waitFor(() => expect(avatar(view)).toHaveTextContent(/Speaking/));
 
-    fireEvent.changeText(view.getByTestId("typed-step-input"), "x = 4");
+    fireEvent.changeText(typedStepInput(view), "x = 4");
     fireEvent.press(view.getByTestId("submit-step"));
     await waitFor(() => expect(control.workPosts).toBe(1));
     expect(fake.calls).toContain("speech.stop");
@@ -645,7 +654,7 @@ describe("WorkspaceScreen optional media", () => {
         "2x + 6 = 14",
       );
       fireEvent.press(view.getByTestId("voice-final-use"));
-      expect(view.getByTestId("typed-step-input").props.value).toBe(
+      expect(typedStepInput(view).props.value).toBe(
         "2x + 6 = 14",
       );
       expect(control.workPosts).toBe(0);
@@ -671,9 +680,9 @@ describe("WorkspaceScreen optional media", () => {
       expect(
         view.getByTestId("candidate-0-input").props.accessibilityLabel,
       ).toMatch(/uncertain reading.*check and edit/i);
-      expect(view.getByTestId("typed-step-input").props.value).toBe("");
+      expect(typedStepInput(view).props.value).toBe("");
       fireEvent.press(view.getByTestId("candidate-0-use"));
-      expect(view.getByTestId("typed-step-input").props.value).toBe(
+      expect(typedStepInput(view).props.value).toBe(
         "2x + 3 = 14",
       );
       expect(control.workPosts).toBe(0);
@@ -709,7 +718,7 @@ describe("WorkspaceScreen optional media", () => {
         ),
       );
       expect(view.queryByTestId("media-outcome")).toBeNull();
-      fireEvent.changeText(view.getByTestId("typed-step-input"), "x = 4");
+      fireEvent.changeText(typedStepInput(view), "x = 4");
       fireEvent.press(view.getByTestId("submit-step"));
       await waitFor(() => expect(control.workPosts).toBe(1));
     });

@@ -31,6 +31,16 @@ import { WorkspaceScreen } from "./WorkspaceScreen";
 
 const SESSION_ID = "s1";
 
+function typedStepInput(view: {
+  getByTestId: (id: string) => ReturnType<ReturnType<typeof render>["getByTestId"]>;
+  queryByTestId: (id: string) => ReturnType<ReturnType<typeof render>["queryByTestId"]>;
+}) {
+  if (view.queryByTestId("typed-step-input") == null) {
+    fireEvent.press(view.getByTestId("show-typed-step"));
+  }
+  return view.getByTestId("typed-step-input");
+}
+
 const PERSONA: TutorConfiguration = {
   schema_version: "tutor-configuration.v1",
   id: "cfg-1",
@@ -241,7 +251,7 @@ describe("WorkspaceScreen", () => {
       screen.getByTestId("whiteboard").props.accessibilityLabel;
 
     // The learner has an unfinished typed draft and taps Still thinking twice.
-    fireEvent.changeText(screen.getByTestId("typed-step-input"), "2x +");
+    fireEvent.changeText(typedStepInput(screen), "2x +");
     fireEvent.press(screen.getByTestId("still-thinking"));
     fireEvent.press(screen.getByTestId("still-thinking"));
 
@@ -263,7 +273,7 @@ describe("WorkspaceScreen", () => {
       expect(request.body).toBeUndefined();
     }
     // The draft, the posed problem and the board are exactly as before.
-    expect(screen.getByTestId("typed-step-input").props.value).toBe("2x +");
+    expect(typedStepInput(screen).props.value).toBe("2x +");
     expect(textOf(screen.getByTestId("prompt-problem"))).toBe("2(x + 3) = 14");
     expect(screen.getByTestId("whiteboard").props.accessibilityLabel).toBe(
       boardLabel,
@@ -288,7 +298,7 @@ describe("WorkspaceScreen", () => {
       ),
     );
     expect(mutatingRequests(requests)).toHaveLength(1);
-    expect(screen.getByTestId("typed-step-input").props.value).toBe("");
+    expect(typedStepInput(screen).props.value).toBe("");
   });
 
   it("Help me uses /help immediately, not synthesized work, and shows the committed move", async () => {
@@ -322,7 +332,7 @@ describe("WorkspaceScreen", () => {
       expect(screen.getByTestId("prompt-problem")).toBeTruthy(),
     );
     fireEvent.changeText(
-      screen.getByTestId("typed-step-input"),
+      typedStepInput(screen),
       "x = 4 because I multiplied 2 by x but left 3 unchanged",
     );
     fireEvent.press(screen.getByTestId("submit-step"));
@@ -351,7 +361,7 @@ describe("WorkspaceScreen", () => {
     await waitFor(() =>
       expect(screen.getByTestId("prompt-problem")).toBeTruthy(),
     );
-    fireEvent.changeText(screen.getByTestId("typed-step-input"), "2x + 3 = 14");
+    fireEvent.changeText(typedStepInput(screen), "2x + 3 = 14");
     fireEvent.press(screen.getByTestId("submit-step"));
     await waitFor(() =>
       expect(screen.getByTestId("diagnostic-toggle")).toBeTruthy(),

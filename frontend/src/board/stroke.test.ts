@@ -76,11 +76,20 @@ describe('StrokeMachine', () => {
     expect(commits).toEqual([]);
   });
 
+  it('drops jitter closer than the sample gap and still ends at the lift', () => {
+    const { machine, commits } = recorder();
+    machine.begin('a', { x: 0, y: 0 });
+    machine.move('a', { x: 1, y: 0 });
+    machine.move('a', { x: 2, y: 0.5 });
+    machine.end('a', { x: 2.4, y: 0.8 });
+    expect(commits).toEqual([[{ x: 0, y: 0 }, { x: 2.4, y: 0.8 }]]);
+  });
+
   it('caps a stroke at the server point limit without failing', () => {
     const { machine, commits } = recorder();
     machine.begin('a', { x: 0, y: 0 });
     for (let index = 1; index < MAX_PATH_POINTS + 50; index += 1) {
-      machine.move('a', { x: index % 1600, y: index % 50 });
+      machine.move('a', { x: (index * 4) % 1600, y: (index * 4) % 1200 });
     }
     machine.end('a');
     expect(commits[0].length).toBe(MAX_PATH_POINTS);

@@ -20,6 +20,15 @@ import { WorkspaceScreen } from "./WorkspaceScreen";
 
 const SESSION_ID = "s1";
 
+function typedStepInput(
+  view: Pick<ReturnType<typeof render>, "getByTestId" | "queryByTestId">,
+) {
+  if (view.queryByTestId("typed-step-input") == null) {
+    fireEvent.press(view.getByTestId("show-typed-step"));
+  }
+  return view.getByTestId("typed-step-input");
+}
+
 const PERSONA: TutorConfiguration = {
   schema_version: "tutor-configuration.v1",
   id: "cfg-1",
@@ -198,17 +207,17 @@ describe("WorkspaceScreen typed step draft", () => {
       expect(screen.getByTestId("prompt-problem")).toBeTruthy(),
     );
 
-    fireEvent.changeText(screen.getByTestId("typed-step-input"), "2x + 6 = 14");
+    fireEvent.changeText(typedStepInput(screen), "2x + 6 = 14");
     fireEvent.press(screen.getByTestId("submit-step"));
     // While the request is out the learner's text is not thrown away.
-    expect(screen.getByTestId("typed-step-input").props.value).toBe(
+    expect(typedStepInput(screen).props.value).toBe(
       "2x + 6 = 14",
     );
 
     await waitFor(() =>
       expect(screen.getByTestId("teaching-context")).toBeTruthy(),
     );
-    expect(screen.getByTestId("typed-step-input").props.value).toBe("");
+    expect(typedStepInput(screen).props.value).toBe("");
     expect(api.calls).toHaveLength(1);
   });
 
@@ -220,12 +229,12 @@ describe("WorkspaceScreen typed step draft", () => {
     );
     api.mode = "drop_before";
 
-    fireEvent.changeText(screen.getByTestId("typed-step-input"), "2x + 6 = 14");
+    fireEvent.changeText(typedStepInput(screen), "2x + 6 = 14");
     fireEvent.press(screen.getByTestId("submit-step"));
     await waitFor(() =>
       expect(screen.getByTestId("workspace-error")).toBeTruthy(),
     );
-    expect(screen.getByTestId("typed-step-input").props.value).toBe(
+    expect(typedStepInput(screen).props.value).toBe(
       "2x + 6 = 14",
     );
     expect(screen.queryByTestId("teaching-context")).toBeNull();
@@ -236,7 +245,7 @@ describe("WorkspaceScreen typed step draft", () => {
     );
     expect(api.calls).toHaveLength(2);
     expect(api.calls[1]).toEqual(api.calls[0]);
-    expect(screen.getByTestId("typed-step-input").props.value).toBe("");
+    expect(typedStepInput(screen).props.value).toBe("");
     expect(screen.queryByTestId("workspace-error")).toBeNull();
   });
 
@@ -248,12 +257,12 @@ describe("WorkspaceScreen typed step draft", () => {
     );
     api.mode = "invalid";
 
-    fireEvent.changeText(screen.getByTestId("typed-step-input"), "???");
+    fireEvent.changeText(typedStepInput(screen), "???");
     fireEvent.press(screen.getByTestId("submit-step"));
     await waitFor(() =>
       expect(screen.getByTestId("workspace-error")).toBeTruthy(),
     );
-    expect(screen.getByTestId("typed-step-input").props.value).toBe("???");
+    expect(typedStepInput(screen).props.value).toBe("???");
   });
 
   it("Stop settles the submitted draft at once, without waiting for the withdrawn reply", async () => {
@@ -264,10 +273,10 @@ describe("WorkspaceScreen typed step draft", () => {
     );
 
     api.mode = "hold";
-    fireEvent.changeText(screen.getByTestId("typed-step-input"), "2x + 6 = 14");
+    fireEvent.changeText(typedStepInput(screen), "2x + 6 = 14");
     fireEvent.press(screen.getByTestId("submit-step"));
     await waitFor(() => expect(screen.getByTestId("stop-reply")).toBeTruthy());
-    expect(screen.getByTestId("typed-step-input").props.value).toBe(
+    expect(typedStepInput(screen).props.value).toBe(
       "2x + 6 = 14",
     );
 
@@ -275,7 +284,7 @@ describe("WorkspaceScreen typed step draft", () => {
       fireEvent.press(screen.getByTestId("stop-reply"));
     });
     await waitFor(() =>
-      expect(screen.getByTestId("typed-step-input").props.value).toBe(""),
+      expect(typedStepInput(screen).props.value).toBe(""),
     );
 
     // The late provider reply of the stopped turn paints nothing.
@@ -295,15 +304,13 @@ describe("WorkspaceScreen typed step draft", () => {
     );
 
     api.mode = "hold";
-    fireEvent.changeText(screen.getByTestId("typed-step-input"), "2x + 6 = 14");
+    fireEvent.changeText(typedStepInput(screen), "2x + 6 = 14");
     fireEvent.press(screen.getByTestId("submit-step"));
     await waitFor(() => expect(api.held).not.toBeNull());
     // The box is locked while sending in this UI, so deliver the newer edit through the
     // input's own handler, as a buffered native keystroke would.
     await act(async () => {
-      screen
-        .getByTestId("typed-step-input")
-        .props.onChangeText("x = 4 and then check");
+      typedStepInput(screen).props.onChangeText?.("x = 4 and then check");
     });
     await act(async () => {
       api.held?.();
@@ -311,7 +318,7 @@ describe("WorkspaceScreen typed step draft", () => {
     await waitFor(() =>
       expect(screen.getByTestId("teaching-context")).toBeTruthy(),
     );
-    expect(screen.getByTestId("typed-step-input").props.value).toBe(
+    expect(typedStepInput(screen).props.value).toBe(
       "x = 4 and then check",
     );
   });

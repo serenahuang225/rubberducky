@@ -12,7 +12,7 @@ import React from 'react';
 import { Circle, Ellipse, G, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 
 import type { LogicalPoint } from '../board/geometry';
-import { PEN_WIDTH } from '../board/geometry';
+import { PEN_WIDTH, STUDENT_INK_WIDTH } from '../board/geometry';
 import { colorForRole, type BoardTheme } from '../board/palette';
 import { DOT_RADIUS, pointsBounds, pointsToPathData, unionBounds, type Bounds } from '../board/pathData';
 import {
@@ -102,10 +102,13 @@ export function SceneObjectView({ object, theme, resolveTarget }: SceneObjectVie
   if (kind === 'path' || kind === 'draw_path') {
     const points = payloadPoints(payload);
     if (points.length === 0) return null;
-    const width =
+    const storedWidth =
       typeof payload.width === 'number' && Number.isFinite(payload.width)
         ? payload.width
         : PEN_WIDTH;
+    // Student ink is drawn heavier than the stored width so a fitted board still
+    // reads as a pen. The server keeps assigning the fixed width.
+    const width = object.author_role === 'student' ? Math.max(storedWidth, STUDENT_INK_WIDTH) : storedWidth;
     if (points.length === 1) {
       // A dot: one tap with no drag.
       return (
@@ -226,12 +229,19 @@ export function LiveStroke({ points, theme }: { points: readonly LogicalPoint[];
   if (points.length === 0) return null;
   const ink = theme.studentInk;
   if (points.length === 1) {
-    return <Circle cx={points[0].x} cy={points[0].y} r={DOT_RADIUS} fill={ink} />;
+    return <Circle cx={points[0].x} cy={points[0].y} r={STUDENT_INK_WIDTH / 2} fill={ink} />;
   }
   const d = pointsToPathData(points);
   if (d === null) return null;
   return (
-    <Path d={d} stroke={ink} strokeWidth={PEN_WIDTH} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    <Path
+      d={d}
+      stroke={ink}
+      strokeWidth={STUDENT_INK_WIDTH}
+      fill="none"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
   );
 }
 
@@ -249,16 +259,16 @@ export function PendingStrokeView({
   return (
     <G opacity={0.45}>
       {points.length === 1 ? (
-        <Circle cx={points[0].x} cy={points[0].y} r={DOT_RADIUS} fill={ink} />
+        <Circle cx={points[0].x} cy={points[0].y} r={STUDENT_INK_WIDTH / 2} fill={ink} />
       ) : (
         <Path
           d={pointsToPathData(points) ?? ''}
           stroke={ink}
-          strokeWidth={PEN_WIDTH}
+          strokeWidth={STUDENT_INK_WIDTH}
           fill="none"
           strokeLinecap="round"
           strokeLinejoin="round"
-          strokeDasharray="10 8"
+          strokeDasharray="14 10"
         />
       )}
     </G>

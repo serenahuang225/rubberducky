@@ -8,7 +8,7 @@
  * exposed to assistive technology through text labels, never through color alone.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 import Svg, { G } from 'react-native-svg';
 
@@ -38,6 +38,17 @@ export type PendingStroke = {
   points: readonly LogicalPoint[];
 };
 
+type LiveInkHandle = {
+  setPoints: (points: readonly LogicalPoint[]) => void;
+};
+
+/** Owns the in-progress stroke so each sample does not redraw the saved scene. */
+const LiveInk = forwardRef<LiveInkHandle, { theme: BoardTheme }>(function LiveInk({ theme }, ref) {
+  const [points, setPoints] = useState<readonly LogicalPoint[]>([]);
+  useImperativeHandle(ref, () => ({ setPoints }), []);
+  return <LiveStroke points={points} theme={theme} />;
+});
+
 export type WhiteboardCanvasProps = {
   objects: readonly SceneObjectRecord[];
   /**
@@ -48,6 +59,8 @@ export type WhiteboardCanvasProps = {
   currentStatementId?: string | null;
   /** Finished strokes held in the durable outbox, painted faded and honestly labeled. */
   pendingStrokes?: readonly PendingStroke[];
+  /** Strokes drawn and still being saved, painted as solid ink so the pen does not flicker. */
+  settlingStrokes?: readonly PendingStroke[];
   theme: BoardTheme;
   mode: BoardInputMode;
   /** Commit a finished student stroke (logical points; a single point is a dot). */
@@ -87,6 +100,7 @@ export function WhiteboardCanvas({
   objects,
   currentStatementId = null,
   pendingStrokes = [],
+  settlingStrokes = [],
   theme,
   mode,
   onStroke,
@@ -99,8 +113,8 @@ export function WhiteboardCanvas({
   // would squash any point into a board corner, so a stroke drawn that early would be
   // garbage. Better to ignore input for a frame than to commit a degenerate mark.
   const [measured, setMeasured] = useState(false);
-  const [livePoints, setLivePoints] = useState<readonly LogicalPoint[]>([]);
   const inputRef = useRef<BoardInputHandle>(null);
+  const liveRef = useRef<LiveInkHandle>(null);
   const objectsRef = useRef(objects);
   useEffect(() => {
     objectsRef.current = objects;
@@ -127,16 +141,20 @@ export function WhiteboardCanvas({
     [],
   );
 
+  const handlePreview = useCallback((points: readonly LogicalPoint[]) => {
+    liveRef.current?.setPoints(points);
+  }, []);
+
   const handleStroke = useCallback(
     (points: readonly LogicalPoint[]) => {
-      setLivePoints([]);
       onStroke(points);
+      liveRef.current?.setPoints([]);
     },
     [onStroke],
   );
 
   const handleCancel = useCallback(() => {
-    setLivePoints([]);
+    liveRef.current?.setPoints([]);
   }, []);
 
   const handleTap = useCallback(
@@ -198,7 +216,7 @@ export function WhiteboardCanvas({
         mode={mode}
         disabled={inputDisabled || !measured}
         getTransform={getTransform}
-        onPreview={setLivePoints}
+        onPreview={handlePreview}
         onStroke={handleStroke}
         onStrokeCancel={handleCancel}
         onTap={handleTap}
@@ -221,7 +239,10 @@ export function WhiteboardCanvas({
           {pendingStrokes.map((stroke) => (
             <PendingStrokeView key={stroke.id} points={stroke.points} theme={theme} />
           ))}
-          <LiveStroke points={livePoints} theme={theme} />
+          {settlingStrokes.map((stroke) => (
+            <LiveStroke key={stroke.id} points={stroke.points} theme={theme} />
+          ))}
+          <LiveInk ref={liveRef} theme={theme} />
         </Svg>
       </BoardInputLayer>
       {/* Color-independent board contents for screen readers. */}

@@ -53,10 +53,11 @@ export function handleTouchEnd(
   if (owner === null) {
     return 'ignored';
   }
-  if (!changedTouches.some((touch) => touch.identifier === owner)) {
+  const sample = changedTouches.find((touch) => touch.identifier === owner);
+  if (sample === undefined) {
     return 'ignored';
   }
-  machine.end(owner);
+  machine.end(owner, { x: sample.x, y: sample.y });
   return 'ended';
 }
 

@@ -82,6 +82,13 @@ export type WorkspaceController = {
   providerIsMock: boolean;
   /** Truthful short status for the prompt bar. */
   busyLabel: string | null;
+  /**
+   * When true the board ignores new ink. Stroke saves leave this false so the pen
+   * stays live while a mark is still reaching the tutor.
+   */
+  penLocked: boolean;
+  /** Finished strokes painted immediately, before the server snapshot replaces them. */
+  settlingStrokes: readonly PendingStrokePreview[];
   errorMessage: string | null;
   /** Finished strokes held in the durable outbox, shown as visibly unsaved. */
   pendingStrokes: readonly PendingStrokePreview[];
@@ -219,9 +226,14 @@ export function useWorkspace(
   const [providerLabel, setProviderLabel] = useState<string | null>(null);
   const [providerIsMock, setProviderIsMock] = useState(false);
   const [busyLabel, setBusyLabel] = useState<string | null>(null);
+  const [penLocked, setPenLocked] = useState(false);
+  const [settlingStrokes, setSettlingStrokes] = useState<
+    readonly PendingStrokePreview[]
+  >([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const busyRef = useRef(false);
+  const strokeQueueRef = useRef(Promise.resolve());
   const sceneRef = useRef<SceneSnapshot | null>(null);
   const flushingRef = useRef(false);
   const pendingOpsRef = useRef<readonly PendingSceneOperation[]>([]);
@@ -277,6 +289,8 @@ export function useWorkspace(
     pendingHelpRef.current = null;
     pendingWorkRef.current = null;
     busyRef.current = false;
+    setPenLocked(false);
+    setSettlingStrokes([]);
     return () => {
       epochRef.current += 1;
     };
@@ -298,12 +312,13 @@ export function useWorkspace(
     return nextState;
   }, [client, sessionId]);
 
-  const guardBusy = useCallback((label: string): boolean => {
+  const guardBusy = useCallback((label: string, lockPen = true): boolean => {
     if (busyRef.current) {
       return false;
     }
     busyRef.current = true;
     setBusyLabel(label);
+    setPenLocked(lockPen);
     setErrorMessage(null);
     setCommandFailed(false);
     return true;
@@ -312,6 +327,13 @@ export function useWorkspace(
   const releaseBusy = useCallback((): void => {
     busyRef.current = false;
     setBusyLabel(null);
+    setPenLocked(false);
+  }, []);
+
+  const clearSettling = useCallback((operationId: string) => {
+    setSettlingStrokes((current) =>
+      current.filter((stroke) => stroke.id !== operationId),
+    );
   }, []);
 
   /**
@@ -736,10 +758,15 @@ export function useWorkspace(
   }, [client, refresh, releaseBusy, sessionId, turnInFlight]);
 
   const commitSceneAction = useCallback(
-    async (action: SceneActionRequest, label: string) => {
+    async (
+      action: SceneActionRequest,
+      label: string,
+      options?: { lockPen?: boolean; operationId?: string },
+    ) => {
       const current = sceneRef.current;
-      if (current === null || !guardBusy(label)) return;
-      const operationId = newId();
+      const lockPen = options?.lockPen !== false;
+      if (current === null || !guardBusy(label, lockPen)) return false;
+      const operationId = options?.operationId ?? newId();
       try {
         const outcome = await commitWithResync(
           sync,
@@ -747,6 +774,7 @@ export function useWorkspace(
           current.scene_revision,
           action,
         );
+        clearSettling(operationId);
         setScene(outcome.scene);
         await saveCachedScene(outcome.scene).catch(() => undefined);
         // A successful save proves connectivity: finish anything still queued.
@@ -766,10 +794,13 @@ export function useWorkspace(
               action,
             };
             try {
-              setPendingOps(await enqueueOperation(entry));
+              const stored = await enqueueOperation(entry);
+              clearSettling(operationId);
+              setPendingOps(stored);
             } catch {
               // Device storage failed too: keep the ink visible and retryable from memory
               // for this session, and say plainly that it is not durable.
+              clearSettling(operationId);
               setMemoryOps([...memoryOpsRef.current, entry]);
               setErrorMessage(MEMORY_ONLY_MESSAGE);
             }
@@ -781,6 +812,7 @@ export function useWorkspace(
           }
         } else {
           // The server answered and refused: show its reason, resync to real state.
+          clearSettling(operationId);
           setCommandFailed(true);
           setErrorMessage(
             error instanceof Error
@@ -792,8 +824,10 @@ export function useWorkspace(
       } finally {
         releaseBusy();
       }
+      return true;
     },
     [
+      clearSettling,
       flushPending,
       guardBusy,
       refresh,
@@ -806,36 +840,79 @@ export function useWorkspace(
   );
 
   const commitStroke = useCallback(
-    async (points: readonly LogicalPoint[]) => {
-      if (points.length === 0) return;
+    (points: readonly LogicalPoint[]) => {
+      if (points.length === 0) return Promise.resolve();
+      const operationId = newId();
+      const epoch = epochRef.current;
+      const copy = points.map((point) => ({ x: point.x, y: point.y }));
+      setSettlingStrokes((current) => [
+        ...current,
+        { id: operationId, points: copy },
+      ]);
+      const job = strokeQueueRef.current.then(async () => {
+        if (epoch !== epochRef.current) {
+          clearSettling(operationId);
+          return;
+        }
+        while (busyRef.current && epoch === epochRef.current) {
+          await new Promise((resolve) => {
+            setTimeout(resolve, 16);
+          });
+        }
+        if (epoch !== epochRef.current) {
+          clearSettling(operationId);
+          return;
+        }
+        try {
+          while (epoch === epochRef.current && sceneRef.current !== null) {
+            while (busyRef.current && epoch === epochRef.current) {
+              await new Promise((resolve) => {
+                setTimeout(resolve, 16);
+              });
+            }
+            if (epoch !== epochRef.current || sceneRef.current === null) {
+              break;
+            }
+            const accepted = await commitSceneAction(
+              { op: "add_stroke", points: copy },
+              "Saving…",
+              { lockPen: false, operationId },
+            );
+            if (accepted !== false) {
+              break;
+            }
+          }
+        } finally {
+          clearSettling(operationId);
+        }
+      });
+      strokeQueueRef.current = job.then(
+        () => undefined,
+        () => undefined,
+      );
+      return job;
+    },
+    [clearSettling, commitSceneAction],
+  );
+
+  const eraseObject = useCallback(
+    async (objectId: string) => {
       await commitSceneAction(
-        { op: "add_stroke", points: points.map((p) => ({ x: p.x, y: p.y })) },
-        "Saving…",
+        { op: "erase_object", target_object_id: objectId },
+        "Erasing…",
       );
     },
     [commitSceneAction],
   );
-
-  const eraseObject = useCallback(
-    (objectId: string) =>
-      commitSceneAction(
-        { op: "erase_object", target_object_id: objectId },
-        "Erasing…",
-      ),
-    [commitSceneAction],
-  );
-  const undo = useCallback(
-    () => commitSceneAction({ op: "undo" }, "Undoing…"),
-    [commitSceneAction],
-  );
-  const redo = useCallback(
-    () => commitSceneAction({ op: "redo" }, "Redoing…"),
-    [commitSceneAction],
-  );
-  const undoTutorMove = useCallback(
-    () => commitSceneAction({ op: "undo_tutor_move" }, "Removing tutor marks…"),
-    [commitSceneAction],
-  );
+  const undo = useCallback(async () => {
+    await commitSceneAction({ op: "undo" }, "Undoing…");
+  }, [commitSceneAction]);
+  const redo = useCallback(async () => {
+    await commitSceneAction({ op: "redo" }, "Redoing…");
+  }, [commitSceneAction]);
+  const undoTutorMove = useCallback(async () => {
+    await commitSceneAction({ op: "undo_tutor_move" }, "Removing tutor marks…");
+  }, [commitSceneAction]);
 
   const lastTurn =
     committed !== null && committed.sessionId === sessionId
@@ -861,6 +938,8 @@ export function useWorkspace(
     providerLabel,
     providerIsMock,
     busyLabel,
+    penLocked,
+    settlingStrokes,
     errorMessage,
     pendingStrokes,
     pendingCount: unsavedOps.length,

@@ -9,14 +9,34 @@ import { PEN_WIDTH, type LogicalPoint } from './geometry';
 
 export type Bounds = { minX: number; minY: number; maxX: number; maxY: number };
 
-/** "M x y L x y ..." for two or more points; null for a dot (rendered as a circle). */
+function fmt(point: LogicalPoint): string {
+  return `${round(point.x)} ${round(point.y)}`;
+}
+
+/**
+ * Smooth SVG path for two or more points; null for a dot (rendered as a circle).
+ *
+ * Two points stay a straight segment. Longer strokes use quadratic segments through
+ * the midpoints, with each sample as the control, so corners round off while the
+ * ink still passes along the samples the server stored.
+ */
 export function pointsToPathData(points: readonly LogicalPoint[]): string | null {
   if (points.length < 2) {
     return null;
   }
-  const [first, ...rest] = points;
-  const segments = rest.map((point) => `L ${round(point.x)} ${round(point.y)}`).join(' ');
-  return `M ${round(first.x)} ${round(first.y)} ${segments}`;
+  if (points.length === 2) {
+    return `M ${fmt(points[0])} L ${fmt(points[1])}`;
+  }
+  const parts = [`M ${fmt(points[0])}`];
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const current = points[index];
+    const next = points[index + 1];
+    const midX = (current.x + next.x) / 2;
+    const midY = (current.y + next.y) / 2;
+    parts.push(`Q ${fmt(current)} ${round(midX)} ${round(midY)}`);
+  }
+  parts.push(`L ${fmt(points[points.length - 1])}`);
+  return parts.join(' ');
 }
 
 /** A dot (single-point stroke) renders as a small filled disc of pen width. */

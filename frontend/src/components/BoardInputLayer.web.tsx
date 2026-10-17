@@ -121,6 +121,17 @@ export const BoardInputLayer = forwardRef<BoardInputHandle, BoardInputLayerProps
           event.preventDefault();
         }
       };
+      const feedMove = (sample: PointerEvent) => {
+        const point = toLogical(
+          propsRef.current.getTransform(),
+          sample.clientX - node.getBoundingClientRect().left,
+          sample.clientY - node.getBoundingClientRect().top,
+        );
+        if (point === null) {
+          return;
+        }
+        handlePointerMove(machine, { ...descriptor(sample), x: point.x, y: point.y });
+      };
       const onPointerMove = (event: PointerEvent) => {
         if (propsRef.current.disabled) {
           handleInterruption(machine);
@@ -129,9 +140,11 @@ export const BoardInputLayer = forwardRef<BoardInputHandle, BoardInputLayerProps
         if (propsRef.current.mode === 'erase') {
           return;
         }
-        const point = logical(event);
-        if (point !== null) {
-          handlePointerMove(machine, { ...descriptor(event), x: point.x, y: point.y });
+        const coalesced =
+          typeof event.getCoalescedEvents === 'function' ? event.getCoalescedEvents() : [];
+        const samples = coalesced.length > 0 ? coalesced : [event];
+        for (const sample of samples) {
+          feedMove(sample);
         }
       };
       const onPointerUp = (event: PointerEvent) => {
@@ -142,7 +155,7 @@ export const BoardInputLayer = forwardRef<BoardInputHandle, BoardInputLayerProps
         if (propsRef.current.mode === 'erase') {
           return;
         }
-        handlePointerUp(machine, descriptor(event));
+        handlePointerUp(machine, descriptor(event), logical(event));
       };
       const onPointerCancel = (event: PointerEvent) => {
         handlePointerCancel(machine, descriptor(event));

@@ -9,6 +9,7 @@
  * - pointercancel / lostpointercapture / window blur cancel without committing.
  */
 
+import type { LogicalPoint } from './geometry';
 import type { StrokeMachine } from './stroke';
 
 export type PointerDescriptor = {
@@ -61,11 +62,12 @@ export function handlePointerMove(
 export function handlePointerUp(
   machine: StrokeMachine,
   event: PointerDescriptor,
+  point?: LogicalPoint | null,
 ): PointerHandling {
   if (machine.activePointerId() !== pointerKey(event.pointerId)) {
     return 'ignored';
   }
-  machine.end(pointerKey(event.pointerId));
+  machine.end(pointerKey(event.pointerId), point);
   return 'ended';
 }
 

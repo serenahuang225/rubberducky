@@ -166,10 +166,16 @@ export const BoardInputLayer = forwardRef<BoardInputHandle, BoardInputLayerProps
           handleTouchCancel(machine);
           return;
         }
-        const changed = toSamples(event.nativeEvent.changedTouches as RawTouch[]);
-        handleTouchEnd(machine, changed);
+        const changed = toSamples(event.nativeEvent.changedTouches as RawTouch[]).map((touch) => {
+          const point = toLogicalPoint(touch.x, touch.y);
+          return point === null ? null : { identifier: touch.identifier, x: point.x, y: point.y };
+        });
+        handleTouchEnd(
+          machine,
+          changed.filter((sample): sample is TouchSample => sample !== null),
+        );
       },
-      [machine],
+      [machine, toLogicalPoint],
     );
 
     const onTouchCancelProp = useCallback(() => {

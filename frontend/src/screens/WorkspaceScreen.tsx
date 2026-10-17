@@ -1,6 +1,7 @@
 /**
  * The primary workspace screen: the shared whiteboard is the main surface, with a small
- * avatar/status chip, a compact prompt bar, the tool rail and a typed-step row. Check-in
+ * avatar/status chip, a compact prompt bar and the tool rail. Writing is done with the
+ * pen. Typing a step is an optional extra, closed until the learner asks for it. Check-in
  * is a short card, not a chat. All work goes through the real API via useWorkspace; waiting
  * (Still thinking, the quiet hint and the wait preference) goes through useWaitAgency and
  * never submits work or speaks on a timer.
@@ -158,6 +159,7 @@ export function WorkspaceScreen({
   const [themeName, setThemeName] = useState<BoardThemeName>("paper");
   const [mode, setMode] = useState<BoardInputMode>("draw");
   const [draft, setDraft] = useState("");
+  const [showTyping, setShowTyping] = useState(false);
   const [ending, setEnding] = useState(false);
   const [endError, setEndError] = useState<string | null>(null);
 
@@ -206,6 +208,7 @@ export function WorkspaceScreen({
     (text: string) => {
       // Offered text only fills the typed-step box; the learner still reviews and submits it.
       setDraft(text);
+      setShowTyping(true);
       wait.clearStillThinkingNote();
     },
     [wait],
@@ -525,9 +528,10 @@ export function WorkspaceScreen({
             workspace.state.current_problem?.statement_object_id ?? null
           }
           pendingStrokes={workspace.pendingStrokes}
+          settlingStrokes={workspace.settlingStrokes}
           theme={theme}
           mode={mode}
-          inputDisabled={workspace.busyLabel !== null}
+          inputDisabled={workspace.penLocked}
           onStroke={(points) => void workspace.commitStroke(points)}
           onEraseAt={(objectId) => {
             setMode("draw");
@@ -552,10 +556,30 @@ export function WorkspaceScreen({
       />
 
       <View style={styles.inputRow}>
+        <Pressable
+          testID="show-typed-step"
+          accessibilityRole="button"
+          accessibilityLabel={showTyping ? "Hide the type-a-step box" : "Type a step"}
+          onPress={() => setShowTyping((open) => !open)}
+          style={[
+            styles.actionButton,
+            {
+              backgroundColor: theme.surface,
+              borderColor: theme.surfaceEdge,
+              borderWidth: 1,
+            },
+          ]}
+        >
+          <Text style={[styles.actionText, { color: theme.labelText }]}>
+            {showTyping ? "Hide typing" : "Type a step"}
+          </Text>
+        </Pressable>
         <TextInput
           testID="typed-step-input"
           accessibilityLabel="Type your next step"
-          placeholder="Type your next step, e.g. 2x + 6 = 14"
+          accessibilityElementsHidden={!showTyping}
+          importantForAccessibility={showTyping ? "yes" : "no-hide-descendants"}
+          placeholder="Optional, e.g. 2x + 6 = 14"
           placeholderTextColor={theme.labelMuted}
           value={draft}
           onChangeText={(text) => {
@@ -566,6 +590,7 @@ export function WorkspaceScreen({
           editable={!workspace.needsCheckIn && workspace.busyLabel === null}
           style={[
             styles.stepInput,
+            !showTyping && styles.stepInputParked,
             {
               backgroundColor: theme.surface,
               borderColor: theme.controlEdge,
@@ -577,11 +602,14 @@ export function WorkspaceScreen({
           testID="submit-step"
           accessibilityRole="button"
           accessibilityLabel="Submit step"
+          accessibilityElementsHidden={!showTyping}
+          importantForAccessibility={showTyping ? "yes" : "no-hide-descendants"}
           accessibilityState={{ disabled: workspace.busyLabel !== null }}
           disabled={workspace.needsCheckIn || workspace.busyLabel !== null}
           onPress={submitDraft}
           style={[
             styles.actionButton,
+            !showTyping && styles.stepInputParked,
             { backgroundColor: theme.controlBackground },
           ]}
         >
@@ -734,6 +762,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     fontSize: 16,
     fontFamily: "monospace",
+  },
+  stepInputParked: {
+    position: "absolute",
+    width: 1,
+    height: 1,
+    opacity: 0,
   },
   stopButton: {
     alignSelf: "flex-start",

@@ -133,7 +133,7 @@ async function openWorkspace() {
   );
   render(<App />);
   await waitFor(() =>
-    expect(screen.getByTestId("typed-step-input")).toBeTruthy(),
+    expect(screen.getByTestId("show-typed-step")).toBeTruthy(),
   );
 }
 
@@ -150,6 +150,7 @@ describe("App navigation", () => {
 
   it("keeps the workspace mounted, with its draft and requests, while settings and memory are open", async () => {
     await openWorkspace();
+    fireEvent.press(screen.getByTestId("show-typed-step"));
     fireEvent.changeText(screen.getByTestId("typed-step-input"), "2x + 6 = 14");
     const stateReads = () =>
       calls.filter((c) => c.url === "/sessions/s1/state").length;
