@@ -37,13 +37,18 @@ runs the project-local Expo CLI through npm.
 From the repository root:
 
 ```sh
-# Backend environment
-python3.12 -m venv .venv
-.venv/bin/python -m pip install --require-hashes -r backend/requirements.lock
+# Backend environment (tutor-owned, separate from the Chalk scaffold's root .venv)
+python3.12 -m venv backend/.venv
+backend/.venv/bin/python -m pip install --require-hashes -r backend/requirements.lock
 
 # Frontend dependencies (with Node 22 on PATH)
 npm --prefix frontend ci
 ```
+
+The tutor backend always uses `backend/.venv`. The root `.venv` belongs to the Chalk scaffold (it is
+managed by uv from the root `pyproject.toml`); do not install tutor packages into it.
+`backend/.venv` may also be a symlink to an existing Python 3.12 environment; it is git-ignored
+either way.
 
 `backend/requirements.lock` pins exact versions and wheel hashes for macOS on Apple silicon. On
 another platform, install from `backend/requirements.in` (same versions, without hashes) or
@@ -78,10 +83,10 @@ Ports: API **3100**, web **3101**, Expo native development server **8081**.
 
 ```sh
 # API on loopback
-PYTHONPATH=backend .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 3100
+PYTHONPATH=backend backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 3100
 
 # Web build of the client on loopback
-cd frontend && npx expo start --web --localhost --port 3101
+cd frontend && EXPO_NO_DOTENV=1 npx expo start --web --localhost --port 3101
 ```
 
 Check the API:
@@ -91,6 +96,9 @@ curl http://127.0.0.1:3100/health        # application liveness
 curl http://127.0.0.1:3100/health/model  # tutor model readiness, reported separately
 ```
 
+Always start Expo from `frontend/` with `EXPO_NO_DOTENV=1`. Expo otherwise loads `.env` files from
+its project root, and the repository-root `.env` is not meant for the client.
+
 `/health/model` only inspects configuration. It never loads a model or contacts a provider.
 
 ### iPad over trusted Wi-Fi (Expo Go)
@@ -98,8 +106,8 @@ curl http://127.0.0.1:3100/health/model  # tutor model readiness, reported separ
 Only do this on a private network you trust. There is no public tunnel.
 
 ```sh
-PYTHONPATH=backend .venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 3100
-cd frontend && npx expo start --lan --port 8081
+PYTHONPATH=backend backend/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 3100
+cd frontend && EXPO_NO_DOTENV=1 npx expo start --lan --port 8081
 ```
 
 Scan the QR code with the iPad camera to open the project in Expo Go. The status screen should say
@@ -112,9 +120,9 @@ compile natively, and Expo Go does not.
 Run from the repository root with Node 22 on `PATH`:
 
 ```sh
-.venv/bin/python -m pytest backend/tests -q && npm --prefix frontend test -- --runInBand
-.venv/bin/python -m mypy --config-file backend/pyproject.toml backend/app && npm --prefix frontend run typecheck
-.venv/bin/python -m ruff check backend && npm --prefix frontend run lint
+backend/.venv/bin/python -m pytest backend/tests -q && npm --prefix frontend test -- --runInBand
+backend/.venv/bin/python -m mypy --config-file backend/pyproject.toml backend/app && npm --prefix frontend run typecheck
+backend/.venv/bin/python -m ruff check backend && npm --prefix frontend run lint
 npm --prefix frontend run build:web
 npm --prefix frontend run check:expo
 ```
