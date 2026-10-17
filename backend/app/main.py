@@ -1,15 +1,18 @@
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from sqlalchemy.exc import SQLAlchemyError
 
 from app import __version__
-from app.api.errors import install_error_handlers
+from app.api.errors import ErrorEnvelope, install_error_handlers
 from app.api.graph import router as graph_router
 from app.api.health import router as health_router
+from app.api.media import router as media_router
 from app.api.memory import router as memory_router
 from app.api.pairing import router as pairing_router
 from app.api.persona import router as persona_router
@@ -21,6 +24,7 @@ from app.api.wait import router as wait_router
 from app.clock import utc_now
 from app.config import Settings, get_settings
 from app.db.database import Database
+from app.redaction import install_log_redaction, register_secrets
 from app.tutor.cancellation import recover_pending_turns
 
 logger = logging.getLogger(__name__)
@@ -28,6 +32,11 @@ logger = logging.getLogger(__name__)
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved = settings if settings is not None else get_settings()
+    install_log_redaction()
+    register_secrets(
+        key.get_secret_value() if key is not None else None
+        for key in (resolved.anthropic_api_key, resolved.tutor_endpoint_api_key)
+    )
     # Creating the engine does not connect; the database is opened on first request.
     database = Database(resolved.database_url)
 
@@ -63,7 +72,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(tutor_router)
     application.include_router(persona_router)
     application.include_router(wait_router)
+    application.include_router(media_router)
+    application.openapi = lambda: _openapi(application)  # type: ignore[method-assign]
     return application
+
+
+def _openapi(application: FastAPI) -> dict[str, Any]:
+    """Document the 422 body as the shared error envelope rather than FastAPI's default."""
+    if application.openapi_schema is not None:
+        return application.openapi_schema
+    schema = get_openapi(
+        title=application.title, version=application.version, routes=application.routes
+    )
+    components = schema.setdefault("components", {}).setdefault("schemas", {})
+    envelope = ErrorEnvelope.model_json_schema(ref_template="#/components/schemas/{model}")
+    for name, definition in envelope.pop("$defs", {}).items():
+        components[name] = definition
+    components["ErrorEnvelope"] = envelope
+    for path_item in schema.get("paths", {}).values():
+        for operation in path_item.values():
+            response = operation.get("responses", {}).get("422")
+            if response is not None:
+                response["description"] = "Request validation failed (error.v1 with fields)"
+                response["content"] = {
+                    "application/json": {"schema": {"$ref": "#/components/schemas/ErrorEnvelope"}}
+                }
+    components.pop("HTTPValidationError", None)
+    components.pop("ValidationError", None)
+    application.openapi_schema = schema
+    return schema
 
 
 app = create_app()

@@ -657,6 +657,42 @@ class SessionWaitSignalRow(Base):
     updated_at: Mapped[datetime]
 
 
+class MediaEventRow(Base):
+    """Metadata of one accepted media event; never raw media, transcript text or recognition.
+
+    The row exists to make events idempotent (``event_id``), to let a final transcript be
+    accepted once per utterance (``final_key``) and to bound counts and rates. It is not
+    evidence and is deleted with its session.
+    """
+
+    __tablename__ = "media_events"
+    __table_args__ = (
+        PrimaryKeyConstraint("learner_id", "event_id"),
+        UniqueConstraint("learner_id", "session_id", "final_key"),
+        _session_fk(),
+        _one_of("kind", "kind", ("image_snapshot", "transcript", "weak_context")),
+        _one_of("source", "source", ("device", "simulated")),
+        CheckConstraint("base_revision >= 0 AND base_epoch >= 0", name="scope_nonnegative"),
+    )
+
+    learner_id: Mapped[str] = mapped_column(ID)
+    event_id: Mapped[str] = mapped_column(ID)
+    session_id: Mapped[str] = mapped_column(ID, index=True)
+    kind: Mapped[str] = mapped_column(String(24))
+    source: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(32))
+    utterance_id: Mapped[str | None] = mapped_column(ID)
+    sequence: Mapped[int | None] = mapped_column(Integer)
+    # Set only on the one accepted final transcript of an utterance (NULLs never collide).
+    final_key: Mapped[str | None] = mapped_column(ID)
+    base_revision: Mapped[int] = mapped_column(Integer)
+    base_epoch: Mapped[int] = mapped_column(Integer)
+    byte_size: Mapped[int | None] = mapped_column(Integer)
+    request_hash: Mapped[str] = mapped_column(String(64))
+    result: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime]
+
+
 class EvidenceCorrectionRow(Base):
     """A learner's correction of one observation's correctness, with the original preserved.
 

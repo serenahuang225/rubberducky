@@ -58,6 +58,9 @@ class Settings(BaseSettings):
     tutor_endpoint_streaming: bool = True
     anthropic_api_key: SecretStr | None = None
     anthropic_model: str | None = None
+    # Deterministic, explicitly "simulated" media events (fake transcripts, synthetic uncertain
+    # recognition) for tests and demos. They never stand in for real recognition.
+    tutor_media_fixtures_enabled: bool = True
     # Lets a device create a new, empty fictional demo learner. Never exposes existing history.
     demo_bootstrap_enabled: bool = True
     pairing_code_ttl_seconds: int = Field(default=600, ge=60, le=3600)

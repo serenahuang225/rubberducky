@@ -1,21 +1,37 @@
-"""Uniform JSON error envelope: ``{"schema_version": "error.v1", "error": {code, message}}``."""
+"""Uniform JSON error envelope: ``{"schema_version": "error.v1", "error": {code, message}}``.
 
-import math
+Every body is built by :func:`error_body`, which runs the shared redaction first, so a
+provider failure, a rejected media event or a synthetic integration error cannot echo a
+secret or raw media. Request-validation failures (422) use the same envelope with
+``error.fields`` carrying safe per-field diagnostics (location, stable type, short message);
+the submitted input itself is never echoed.
+"""
+
 from typing import Any, Literal
 
 from fastapi import FastAPI, Request
-from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.exc import OperationalError
 
 from app.db.repositories import NotInScopeError
+from app.redaction import redact_text, safe_field_message
+
+_MAX_FIELD_ISSUES = 20
+_MAX_LOC_PART_CHARS = 64
+
+
+class FieldIssue(BaseModel):
+    loc: list[str | int]
+    type: str
+    message: str
 
 
 class ErrorDetail(BaseModel):
     code: str
     message: str
+    fields: list[FieldIssue] | None = None
 
 
 class ErrorEnvelope(BaseModel):
@@ -38,11 +54,18 @@ class ApiError(Exception):
         self.headers = headers
 
 
+def error_body(code: str, message: str, fields: list[FieldIssue] | None = None) -> dict[str, Any]:
+    """The documented envelope as a dict, redacted. Also used for integration failures."""
+    envelope = ErrorEnvelope(
+        error=ErrorDetail(code=redact_text(code)[:64], message=redact_text(message), fields=fields)
+    )
+    return envelope.model_dump(exclude_none=True)
+
+
 def _envelope(
     status_code: int, code: str, message: str, headers: dict[str, str] | None = None
 ) -> JSONResponse:
-    body = ErrorEnvelope(error=ErrorDetail(code=code, message=message))
-    return JSONResponse(status_code=status_code, content=body.model_dump(), headers=headers)
+    return JSONResponse(status_code=status_code, content=error_body(code, message), headers=headers)
 
 
 def unauthenticated() -> ApiError:
@@ -78,23 +101,35 @@ async def _database_unavailable(_request: Request, _exc: Exception) -> JSONRespo
     )
 
 
-def _json_safe(value: Any) -> Any:
-    """Replace non-finite floats so a rejected NaN/inf input never breaks the 422 body."""
-    if isinstance(value, float) and not math.isfinite(value):
-        return str(value)
-    if isinstance(value, dict):
-        return {key: _json_safe(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_json_safe(item) for item in value]
-    return value
+def _loc_part(part: Any) -> str | int:
+    if isinstance(part, int):
+        return part
+    return redact_text(str(part))[:_MAX_LOC_PART_CHARS]
+
+
+def field_issues(errors: list[Any]) -> list[FieldIssue]:
+    """Safe diagnostics from pydantic errors: never ``input`` or ``ctx`` (they echo values)."""
+    issues: list[FieldIssue] = []
+    for item in errors[:_MAX_FIELD_ISSUES]:
+        issues.append(
+            FieldIssue(
+                loc=[_loc_part(part) for part in item.get("loc", ())],
+                type=str(item.get("type", "invalid"))[:48],
+                message=safe_field_message(str(item.get("msg", "Invalid value"))),
+            )
+        )
+    return issues
 
 
 async def _request_validation(_request: Request, exc: Exception) -> JSONResponse:
-    # Same {"detail": [...]} shape as FastAPI's default 422, sanitized for JSON compliance.
     assert isinstance(exc, RequestValidationError)  # noqa: S101 - registered for it only
-    return JSONResponse(
-        status_code=422, content=jsonable_encoder({"detail": _json_safe(exc.errors())})
+    content = error_body(
+        "validation_error",
+        "The request was not valid. See error.fields for what to fix; the submitted values "
+        "are not echoed.",
+        field_issues(list(exc.errors())),
     )
+    return JSONResponse(status_code=422, content=content)
 
 
 def install_error_handlers(app: FastAPI) -> None:
