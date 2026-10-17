@@ -1,0 +1,82 @@
+"""Versioned Pydantic data contracts for the tutor's domain records."""
+
+from app.schemas.common import (
+    EVIDENCE_KIND_VALUES,
+    PROVENANCE_VALUES,
+    Confidence,
+    ContractModel,
+    EntityId,
+    EvidenceKind,
+    Provenance,
+    UtcDatetime,
+)
+from app.schemas.curriculum import Concept, LearningObjective, PrerequisiteEdge, Problem
+from app.schemas.evidence import (
+    Assessment,
+    Attempt,
+    Hint,
+    MasteryEstimate,
+    MisconceptionHypothesis,
+    Observation,
+    Step,
+    TransferCheck,
+)
+from app.schemas.learner import (
+    Learner,
+    MemoryEntry,
+    Preference,
+    SceneObject,
+    Session,
+    TutorConfiguration,
+)
+
+ENTITY_CONTRACTS: dict[str, type[ContractModel]] = {
+    "Learner": Learner,
+    "Concept": Concept,
+    "PrerequisiteEdge": PrerequisiteEdge,
+    "LearningObjective": LearningObjective,
+    "Problem": Problem,
+    "Attempt": Attempt,
+    "Step": Step,
+    "Observation": Observation,
+    "Hint": Hint,
+    "Assessment": Assessment,
+    "TransferCheck": TransferCheck,
+    "MisconceptionHypothesis": MisconceptionHypothesis,
+    "MasteryEstimate": MasteryEstimate,
+    "Session": Session,
+    "Preference": Preference,
+    "TutorConfiguration": TutorConfiguration,
+    "MemoryEntry": MemoryEntry,
+    "SceneObject": SceneObject,
+}
+
+__all__ = [
+    "ENTITY_CONTRACTS",
+    "EVIDENCE_KIND_VALUES",
+    "PROVENANCE_VALUES",
+    "Assessment",
+    "Attempt",
+    "Concept",
+    "Confidence",
+    "ContractModel",
+    "EntityId",
+    "EvidenceKind",
+    "Hint",
+    "Learner",
+    "LearningObjective",
+    "MasteryEstimate",
+    "MemoryEntry",
+    "MisconceptionHypothesis",
+    "Observation",
+    "Preference",
+    "PrerequisiteEdge",
+    "Problem",
+    "Provenance",
+    "SceneObject",
+    "Session",
+    "Step",
+    "TransferCheck",
+    "TutorConfiguration",
+    "UtcDatetime",
+]

@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     tutor_local_model_id: str = Field(default=DEFAULT_LOCAL_MODEL_ID, min_length=1)
     tutor_local_model_revision: str = Field(default=DEFAULT_LOCAL_MODEL_REVISION, min_length=1)
     tutor_local_model_load_enabled: bool = False
+    # Lets a device create a new, empty fictional demo learner. Never exposes existing history.
+    demo_bootstrap_enabled: bool = True
+    pairing_code_ttl_seconds: int = Field(default=600, ge=60, le=3600)
 
     @property
     def cors_origins(self) -> tuple[str, ...]:

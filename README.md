@@ -56,7 +56,9 @@ regenerate a lock for that platform. The PyTorch and Transformers wheels are lar
 disk space first. Installing packages does not download any model weights.
 
 `backend/requirements-optional.in` holds the optional PostgreSQL driver. SQLite is the default and
-the only tested database.
+the only tested database. For PostgreSQL, install that driver, set
+`DATABASE_URL=postgresql+psycopg://user:password@host/dbname` and run the same `app.cli migrate`;
+this path is documented but untested.
 
 ## Configuration
 
@@ -71,6 +73,8 @@ the repository-root `.env` file. To load a file, point `TUTOR_ENV_FILE` at it, f
 | `EXTERNAL_INTEGRATIONS_ENABLED` | `false` | Required before any remote provider is used |
 | `DATABASE_URL` | `sqlite:///./data/tutor.db` | SQLAlchemy database URL |
 | `TUTOR_CORS_ORIGINS` | `http://127.0.0.1:3101,http://localhost:3101` | Allowed web origins |
+| `DEMO_BOOTSTRAP_ENABLED` | `true` | Allow `POST /demo/bootstrap` to create new fictional learners |
+| `PAIRING_CODE_TTL_SECONDS` | `600` | Lifetime of one-time pairing codes (60 to 3600) |
 | `TUTOR_LOCAL_MODEL_LOAD_ENABLED` | `false` | Opt-in for lazy local model loading |
 | `TUTOR_LOCAL_MODEL_ID` / `_REVISION` | SmolLM2-135M-Instruct, pinned revision | Local model selection |
 
@@ -101,6 +105,44 @@ its project root, and the repository-root `.env` is not meant for the client.
 
 `/health/model` only inspects configuration. It never loads a model or contacts a provider.
 
+### Database, fictional seeds and pairing
+
+The schema is created only by Alembic migrations (`backend/migrations/`), never `create_all`.
+Run these from the repository root before starting the API (the manifest's API start runs both):
+
+```sh
+PYTHONPATH=backend backend/.venv/bin/python -m app.cli migrate   # upgrade to head; safe to repeat
+PYTHONPATH=backend backend/.venv/bin/python -m app.cli seed      # insert missing fictional records
+```
+
+Seed records are invented demo content with fixed IDs and `provenance: "fictional_seed"`. Events
+created through the running API are `provenance: "submitted"`. Re-seeding inserts nothing new.
+
+Every learner is a labeled fictional demo learner. A device gets a credential in one of two ways:
+
+- `POST /demo/bootstrap` with `{"display_name": "..."}` creates a new, empty fictional learner and
+  returns a bearer token once. It never returns or links existing history. Disable it with
+  `DEMO_BOOTSTRAP_ENABLED=false`.
+- For a seeded learner with fictional history (`ada` or `ben`), issue a one-time code locally and
+  redeem it from the device:
+
+  ```sh
+  PYTHONPATH=backend backend/.venv/bin/python -m app.cli pair --learner ada
+  curl -X POST http://127.0.0.1:3100/pairing/redeem -H 'Content-Type: application/json' \
+    -d '{"code": "<code from the pair command>"}'
+  ```
+
+Send the token as `Authorization: Bearer <token>`. The server stores only its SHA-256 digest.
+Learner scope always comes from the token. No route takes a learner ID, and a record owned by
+another learner returns the same `404 not_found` as a record that does not exist.
+`POST /auth/revoke` revokes the current token; `app.cli revoke --learner <id>` revokes all of a
+learner's tokens. Errors use `{"schema_version": "error.v1", "error": {"code", "message"}}`.
+
+`app.cli history --learner <id|ada|ben>` prints a learner's recent records with provenance. It is
+a local administrative tool: it reads the database file directly with no credential check, so it
+offers nothing beyond file access and is not exposed over HTTP. Devices use `GET /me/history`.
+
+This is a private local prototype, not a production account or authentication system.
 ### iPad over trusted Wi-Fi (Expo Go)
 
 Only do this on a private network you trust. There is no public tunnel.
