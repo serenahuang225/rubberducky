@@ -115,6 +115,12 @@ class ScopedRepository:
     def require_attempt(self, attempt_id: str) -> AttemptRow:
         return self._owned(AttemptRow, attempt_id)
 
+    def require_hypothesis(self, hypothesis_id: str) -> MisconceptionHypothesisRow:
+        return self._owned(MisconceptionHypothesisRow, hypothesis_id)
+
+    def require_observation(self, observation_id: str) -> ObservationRow:
+        return self._owned(ObservationRow, observation_id)
+
     def get_session(self, session_id: str) -> Session:
         return Session.model_validate(self.require_session(session_id))
 

@@ -21,6 +21,7 @@ from app.schemas.evidence import (
     Step,
     TransferCheck,
 )
+from app.schemas.graph import EvidenceLink, EvidencePolarity, GraphContext, GraphContextBounds
 from app.schemas.learner import (
     Learner,
     MemoryEntry,
@@ -43,6 +44,7 @@ ENTITY_CONTRACTS: dict[str, type[ContractModel]] = {
     "Assessment": Assessment,
     "TransferCheck": TransferCheck,
     "MisconceptionHypothesis": MisconceptionHypothesis,
+    "EvidenceLink": EvidenceLink,
     "MasteryEstimate": MasteryEstimate,
     "Session": Session,
     "Preference": Preference,
@@ -62,6 +64,10 @@ __all__ = [
     "ContractModel",
     "EntityId",
     "EvidenceKind",
+    "EvidenceLink",
+    "EvidencePolarity",
+    "GraphContext",
+    "GraphContextBounds",
     "Hint",
     "Learner",
     "LearningObjective",

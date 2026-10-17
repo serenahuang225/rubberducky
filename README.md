@@ -143,6 +143,43 @@ a local administrative tool: it reads the database file directly with no credent
 offers nothing beyond file access and is not exposed over HTTP. Devices use `GET /me/history`.
 
 This is a private local prototype, not a production account or authentication system.
+
+### Concept graph and graph context
+
+The curated algebra curriculum is stored as rows in `concepts` and `prerequisite_edges`:
+multiplication → grouping → distribution → simple linear equations, plus equality operations →
+simple linear equations. Learning objectives include a procedure, a transfer check and a
+concept-explanation objective ("explain why 2(x + 3) equals 2x + 6"). `app/graph/curriculum.py`
+loads these rows into a NetworkX DAG for cycle checks, prerequisite traversal and bounded
+neighborhoods. No language model is involved.
+
+Personal evidence is stored separately in `evidence_links`. Each link says that one of a
+learner's observations `supports` or `contradicts` one of that learner's tentative hypotheses,
+with a strength value. Links have no concept-to-concept fields, so they can never add a
+curriculum prerequisite.
+
+```sh
+CLI="env PYTHONPATH=backend backend/.venv/bin/python -m app.cli"
+$CLI graph validate                                          # DAG check, isolated concepts, order
+$CLI graph prerequisites --concept concept.linear_equations  # all prerequisites with hop counts
+$CLI graph neighborhood --concept concept.distribution --max-hops 1
+$CLI graph add-edge --prerequisite concept.linear_equations --concept concept.grouping
+#   -> rejected: prerequisite cycle; stored edges are unchanged (use --dry-run to only validate)
+$CLI graph context --learner ada --concept concept.distribution --max-evidence 2 --format text
+```
+
+`graph context` selects a bounded context for one learner: the target concept, prerequisites and
+dependents within `--max-hops` (capped by `--max-nodes`), the learner's non-retracted hypotheses
+on those concepts, and recent evidence links (`--max-evidence`, optional `--max-age-days`). The
+evidence budget alternates between supporting and contradicting links, newest first, so a small
+budget keeps both sides. The output lists every selected concept, edge, hypothesis, link,
+observation and underlying source record ID, the confidence and alternatives of each hypothesis,
+and how many candidates the budget left out. `--now` fixes the reference time for reproducible
+output. Like `history`, this is a local administrative command.
+
+Devices use `GET /graph/context?concept_id=...` with the same bounds as query parameters. The
+learner scope comes from the bearer token, so another learner's request returns the same shared
+curriculum and none of the first learner's evidence.
 ### iPad over trusted Wi-Fi (Expo Go)
 
 Only do this on a private network you trust. There is no public tunnel.

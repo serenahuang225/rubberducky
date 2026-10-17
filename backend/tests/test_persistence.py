@@ -29,6 +29,7 @@ from app.main import create_app
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 NOW = datetime(2026, 10, 2, 9, 30, tzinfo=UTC)
 ADA_SESSION = seed_uuid("session:ada:1")
+HEAD = "0002_evidence_links"
 
 
 def run_cli(url: str, *args: str) -> Any:
@@ -54,8 +55,8 @@ def counts(database: Database) -> dict[str, int]:
 
 def test_migration_creates_head_and_repeat_upgrade_is_harmless(tmp_path: Path) -> None:
     url = f"sqlite:///{tmp_path / 'nested' / 'fresh.db'}"
-    assert upgrade_to_head(url) == head_revision(url) == "0001_initial"
-    assert upgrade_to_head(url) == "0001_initial"
+    assert upgrade_to_head(url) == head_revision(url) == HEAD
+    assert upgrade_to_head(url) == HEAD
     database = Database(url)
     try:
         tables = set(inspect(database.engine).get_table_names())
@@ -174,7 +175,7 @@ def test_seeding_is_idempotent(database: Database) -> None:
 
 def test_subprocess_restart_preserves_records_ids_utc_and_provenance(tmp_path: Path) -> None:
     url = f"sqlite:///{tmp_path / 'restart.db'}"
-    assert run_cli(url, "migrate")["database_revision"] == "0001_initial"
+    assert run_cli(url, "migrate")["database_revision"] == HEAD
     first_seed = run_cli(url, "seed")
     assert first_seed["inserted"]["learners"] == 2
 
@@ -187,7 +188,7 @@ def test_subprocess_restart_preserves_records_ids_utc_and_provenance(tmp_path: P
     learner_id = boot["learner"]["id"]
 
     # Restart: fresh interpreter processes re-open the same file.
-    assert run_cli(url, "migrate")["database_revision"] == "0001_initial"
+    assert run_cli(url, "migrate")["database_revision"] == HEAD
     second_seed = run_cli(url, "seed")
     assert second_seed["inserted"] == {}
     assert second_seed["row_counts"]["sessions"] == first_seed["row_counts"]["sessions"] + 1
@@ -204,7 +205,9 @@ def test_subprocess_restart_preserves_records_ids_utc_and_provenance(tmp_path: P
     ada = run_cli(url, "history", "--learner", "ada")
     assert [s["id"] for s in ada["sessions"]] == [ADA_SESSION]
     assert all(s["provenance"] == "fictional_seed" for s in ada["sessions"])
-    observation = ada["observations"][0]
+    observation = next(
+        o for o in ada["observations"] if o["id"] == seed_uuid("observation:ada:1:0")
+    )
     assert observation["latency_ms"] is None
     assert observation["correct"] is False
 

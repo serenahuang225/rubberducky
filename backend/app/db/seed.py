@@ -16,6 +16,7 @@ from app.db.models import (
     AttemptRow,
     Base,
     ConceptRow,
+    EvidenceLinkRow,
     HintRow,
     LearnerRow,
     LearningObjectiveRow,
@@ -34,6 +35,7 @@ from app.schemas import (
     Attempt,
     Concept,
     ContractModel,
+    EvidenceLink,
     Hint,
     Learner,
     LearningObjective,
@@ -245,6 +247,9 @@ def ada_history_records() -> list[ContractModel]:
     step_id = seed_uuid("step:ada:1:0")
     observation_id = seed_uuid("observation:ada:1:0")
     hint_id = seed_uuid("hint:ada:1:0")
+    hypothesis_id = seed_uuid("hypothesis:ada:1")
+    step_after_hint_id = seed_uuid("step:ada:1:1")
+    observation_after_hint_id = seed_uuid("observation:ada:1:1")
     return [
         Session(
             id=session_id,
@@ -294,7 +299,7 @@ def ada_history_records() -> list[ContractModel]:
             provenance=SEED,
         ),
         MisconceptionHypothesis(
-            id=seed_uuid("hypothesis:ada:1"),
+            id=hypothesis_id,
             session_id=session_id,
             concept_id="concept.distribution",
             label="Partial distribution",
@@ -320,7 +325,57 @@ def ada_history_records() -> list[ContractModel]:
             learner_id=DEMO_LEARNER_ADA,
             provenance=SEED,
         ),
-        Assessment(
+        Step(
+            id=step_after_hint_id,
+            session_id=session_id,
+            attempt_id=attempt_id,
+            sequence=1,
+            input_mode="typed",
+            content="2x + 6 = 14",
+            submitted_at=_at(9),
+            learner_id=DEMO_LEARNER_ADA,
+            provenance=SEED,
+        ),
+        # Correct after the level-1 hint, so it is assisted evidence, not independent mastery.
+        Observation(
+            id=observation_after_hint_id,
+            session_id=session_id,
+            source_type="step",
+            source_id=step_after_hint_id,
+            evidence_kind="observed_work",
+            concept_id="concept.distribution",
+            correct=True,
+            latency_ms=None,
+            confidence=0.85,
+            assisted=True,
+            observed_at=_at(9),
+            recorded_at=_at(9),
+            learner_id=DEMO_LEARNER_ADA,
+            provenance=SEED,
+        ),
+        EvidenceLink(
+            id=seed_uuid("evidence-link:ada:1:supports"),
+            hypothesis_id=hypothesis_id,
+            observation_id=observation_id,
+            polarity="supports",
+            strength=0.6,
+            rationale="Multiplied only x by 2 and left the 3 unchanged.",
+            created_at=_at(6),
+            learner_id=DEMO_LEARNER_ADA,
+            provenance=SEED,
+        ),
+        EvidenceLink(
+            id=seed_uuid("evidence-link:ada:1:contradicts"),
+            hypothesis_id=hypothesis_id,
+            observation_id=observation_after_hint_id,
+            polarity="contradicts",
+            # Weak: the learner distributed correctly, but only after a hint.
+            strength=0.3,
+            rationale="Distributed the 2 to both terms after a hint (assisted).",
+            created_at=_at(9),
+            learner_id=DEMO_LEARNER_ADA,
+            provenance=SEED,
+        ),        Assessment(
             id=seed_uuid("assessment:ada:1"),
             session_id=session_id,
             attempt_id=attempt_id,
@@ -362,6 +417,7 @@ _ROW_FOR: dict[type[ContractModel], type[Base]] = {
     Step: StepRow,
     Observation: ObservationRow,
     MisconceptionHypothesis: MisconceptionHypothesisRow,
+    EvidenceLink: EvidenceLinkRow,
     Hint: HintRow,
     Assessment: AssessmentRow,
     MemoryEntry: MemoryEntryRow,

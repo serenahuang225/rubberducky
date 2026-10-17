@@ -25,6 +25,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.db.types import UTCDateTime
 from app.schemas.common import EVIDENCE_KIND_VALUES, PROVENANCE_VALUES
+from app.schemas.graph import EVIDENCE_POLARITY_VALUES
 
 NAMING_CONVENTION = {
     "ix": "ix_%(column_0_label)s",
@@ -226,6 +227,7 @@ class StepRow(Base):
 class ObservationRow(Base):
     __tablename__ = "observations"
     __table_args__ = (
+        UniqueConstraint("id", "learner_id"),
         _session_fk(),
         _provenance(),
         _evidence_kind(),
@@ -296,6 +298,7 @@ class AssessmentRow(Base):
 class MisconceptionHypothesisRow(Base):
     __tablename__ = "misconception_hypotheses"
     __table_args__ = (
+        UniqueConstraint("id", "learner_id"),
         _session_fk(),
         _provenance(),
         _confidence(),
@@ -317,6 +320,42 @@ class MisconceptionHypothesisRow(Base):
     provenance: Mapped[str] = mapped_column(String(32))
     created_at: Mapped[datetime]
     updated_at: Mapped[datetime]
+
+
+class EvidenceLinkRow(Base):
+    """Personal evidence: an observation supporting or contradicting a hypothesis.
+
+    Stored apart from ``prerequisite_edges``; it has no concept-to-concept columns at all.
+    """
+
+    __tablename__ = "evidence_links"
+    __table_args__ = (
+        UniqueConstraint("hypothesis_id", "observation_id"),
+        ForeignKeyConstraint(
+            ["hypothesis_id", "learner_id"],
+            ["misconception_hypotheses.id", "misconception_hypotheses.learner_id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["observation_id", "learner_id"],
+            ["observations.id", "observations.learner_id"],
+            ondelete="CASCADE",
+        ),
+        _provenance(),
+        _one_of("polarity", "polarity", EVIDENCE_POLARITY_VALUES),
+        _confidence("strength"),
+    )
+
+    id: Mapped[str] = mapped_column(ID, primary_key=True)
+    schema_version: Mapped[str] = mapped_column(String(64))
+    learner_id: Mapped[str] = mapped_column(ID, _learner_fk(), index=True)
+    hypothesis_id: Mapped[str] = mapped_column(ID)
+    observation_id: Mapped[str] = mapped_column(ID)
+    polarity: Mapped[str] = mapped_column(String(16))
+    strength: Mapped[float] = mapped_column(Float)
+    rationale: Mapped[str] = mapped_column(String(200))
+    provenance: Mapped[str] = mapped_column(String(32))
+    created_at: Mapped[datetime]
 
 
 class MasteryEstimateRow(Base):
