@@ -52,7 +52,8 @@ class ImageSnapshotEvent(_Event):
     mime: Literal["image/jpeg", "image/png"]
     width: Annotated[int, Field(ge=1, le=16_384)]
     height: Annotated[int, Field(ge=1, le=16_384)]
-    byte_size: Annotated[int, Field(ge=1, le=50_000_000)]
+    # Unknown (None) when the frame stayed in device memory and nothing was read or uploaded.
+    byte_size: Annotated[int, Field(ge=1, le=50_000_000)] | None = None
     image_base64: Annotated[str, Field(max_length=1_500_000)] | None = None
 
 

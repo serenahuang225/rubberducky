@@ -409,6 +409,16 @@ def test_fixtures_can_be_disabled_and_real_sources_stay_honest(
         assert refused.json()["error"]["code"] == "fixtures_disabled"
 
 
+def test_a_frame_that_stayed_on_device_needs_no_byte_size(media_client: TestClient) -> None:
+    _, headers = bootstrap(media_client)
+    session = _start(media_client, headers)
+    body = {**_image("e-nosize-0001"), "source": "device"}
+    del body["byte_size"]
+    response = _event(media_client, headers, session["id"], body)
+    assert response.status_code == 200
+    assert response.json()["status"] == "perception_unavailable"
+
+
 def test_unsupported_shapes_are_422_with_safe_field_diagnostics(
     media_client: TestClient,
 ) -> None:

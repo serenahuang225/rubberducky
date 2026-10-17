@@ -12,6 +12,8 @@ import {
   deletionReceiptSchema,
   errorEnvelopeSchema,
   interruptResultSchema,
+  mediaCapabilitiesSchema,
+  mediaEventResultSchema,
   memoryInspectionSchema,
   meResponseSchema,
   pairingResultSchema,
@@ -33,6 +35,9 @@ import {
   type CorrectionReceipt,
   type DeletionReceipt,
   type InterruptResult,
+  type MediaCapabilities,
+  type MediaEventRequest,
+  type MediaEventResult,
   type MemoryInspection,
   type MeResponse,
   type PairingResult,
@@ -377,6 +382,39 @@ export class ApiClient {
           schema_version: "interrupt-request.v1",
           observed_epoch: observedEpoch,
           reason,
+        },
+      },
+    );
+  }
+
+  /** What optional media can and cannot do on this server, with limits and disclosures. */
+  mediaCapabilities(): Promise<MediaCapabilities> {
+    return this.request("GET", "/media/capabilities", mediaCapabilitiesSchema);
+  }
+
+  /**
+   * One bounded media event (photo metadata, simulated transcript update, weak cue). The
+   * server answers with an uncertain, never-assessed outcome, or 409 when the revision or
+   * cancellation epoch is stale. Raw frames and audio are never sent by this client.
+   */
+  postMediaEvent(
+    sessionId: string,
+    event: MediaEventRequest,
+    scope: { revision: number; epoch: number },
+  ): Promise<MediaEventResult> {
+    return this.request(
+      "POST",
+      `/sessions/${sessionId}/media/events`,
+      mediaEventResultSchema,
+      {
+        body: {
+          schema_version: "media-event-request.v1",
+          expected_revision: scope.revision,
+          observed_epoch: scope.epoch,
+          ...(event.kind === "image_snapshot"
+            ? { trigger: "explicit_capture" }
+            : {}),
+          ...event,
         },
       },
     );

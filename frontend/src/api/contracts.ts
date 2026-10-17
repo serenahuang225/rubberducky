@@ -553,3 +553,113 @@ export const removalReceiptSchema = z
   })
   .loose();
 export type RemovalReceipt = z.infer<typeof removalReceiptSchema>;
+
+// --- Optional media: capabilities, bounded events and their uncertain outcomes ---------------
+
+export const mediaCapabilitiesSchema = z
+  .object({
+    schema_version: z.literal("media-capabilities.v1"),
+    perception: z.object({ status: z.string(), detail: z.string() }).loose(),
+    transcription: z.object({ status: z.string(), detail: z.string() }).loose(),
+    speech_interruption: z
+      .object({
+        supported: z.boolean(),
+        acoustic_barge_in: z.literal(false),
+        detail: z.string(),
+      })
+      .loose(),
+    fixtures: z.object({ enabled: z.boolean(), detail: z.string() }).loose(),
+    limits: z
+      .object({
+        max_image_bytes: z.number(),
+        max_image_edge: z.number(),
+        max_image_events_per_minute: z.number(),
+        max_image_events_per_session: z.number(),
+        max_events_per_minute: z.number(),
+        max_events_per_session: z.number(),
+        max_transcript_chars: z.number(),
+      })
+      .loose(),
+    defaults: z
+      .object({
+        raw_media_stored: z.literal(false),
+        raw_media_logged: z.literal(false),
+        transcripts_retained: z.literal(false),
+        provider_transmission: z.string(),
+      })
+      .loose(),
+    disclosures: z.object({
+      local: z.array(z.string()),
+      transmitted: z.array(z.string()),
+    }),
+  })
+  .loose();
+export type MediaCapabilities = z.infer<typeof mediaCapabilitiesSchema>;
+
+export const MEDIA_STATUSES = [
+  "provisional",
+  "final_accepted",
+  "duplicate_final",
+  "ignored_late",
+  "perception_unavailable",
+  "candidates_uncertain",
+  "clarification_prompt",
+] as const;
+
+export const recognitionCandidateSchema = z
+  .object({
+    text: z.string(),
+    confidence: z.number(),
+    status: z.literal("uncertain"),
+    editable: z.literal(true),
+    synthetic: z.boolean(),
+  })
+  .loose();
+export type RecognitionCandidate = z.infer<typeof recognitionCandidateSchema>;
+
+export const mediaEventResultSchema = z
+  .object({
+    schema_version: z.literal("media-event-result.v1"),
+    event_id: z.string(),
+    kind: z.enum(["image_snapshot", "transcript", "weak_context"]),
+    status: z.enum(MEDIA_STATUSES),
+    simulated: z.boolean(),
+    session_id: z.string(),
+    session_revision: z.number().int(),
+    cancellation_epoch: z.number().int(),
+    replayed: z.boolean().default(false),
+    candidates: z.array(recognitionCandidateSchema).default([]),
+    requires_confirmation: z.boolean().default(false),
+    message: z.string(),
+    assessment_effect: z.literal("none"),
+    evidence_recorded: z.literal(false),
+    raw_media_retained: z.literal(false),
+  })
+  .loose();
+export type MediaEventResult = z.infer<typeof mediaEventResultSchema>;
+
+export type MediaEventRequest =
+  | {
+      kind: "image_snapshot";
+      event_id: string;
+      source: "device" | "simulated";
+      orientation: "student_facing" | "work_facing";
+      mime: "image/jpeg" | "image/png";
+      width: number;
+      height: number;
+    }
+  | {
+      kind: "transcript";
+      event_id: string;
+      source: "simulated";
+      utterance_id: string;
+      sequence: number;
+      phase: "interim" | "final";
+      text: string;
+    }
+  | {
+      kind: "weak_context";
+      event_id: string;
+      source: "simulated";
+      signal: "silence" | "voice_level" | "expression_cue" | "gaze_cue";
+    };

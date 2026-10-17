@@ -26,6 +26,7 @@ import type {
 import { getTheme, type BoardThemeName } from "../board/palette";
 import { loadThemeName, saveThemeName } from "../storage/credentials";
 import type { BoardInputMode } from "../components/BoardInputLayer";
+import { MediaPanel } from "../components/MediaPanel";
 import { PromptBar } from "../components/PromptBar";
 import { TeachingContext } from "../components/TeachingContext";
 import { TutorAvatar } from "../components/TutorAvatar";
@@ -33,6 +34,9 @@ import { ToolRail } from "../components/ToolRail";
 import { WaitControls } from "../components/WaitControls";
 import { WhiteboardCanvas } from "../components/WhiteboardCanvas";
 import { pulseHaptic } from "../feedback/haptics";
+import { defaultMediaServices } from "../media/defaultMediaServices";
+import type { MediaServices } from "../media/mediaServices";
+import { useMedia } from "../media/useMedia";
 import { resolveFeedback, resolveMotion } from "../feedback/preferences";
 import { useSystemReducedMotion } from "../feedback/useSystemReducedMotion";
 import { deriveAvatarStatus } from "../state/avatarStatus";
@@ -56,6 +60,8 @@ export type WorkspaceScreenProps = {
   boardHidden?: boolean;
   onOpenSettings?: () => void;
   onOpenMemory?: () => void;
+  /** Platform capture and speech drivers; the real device drivers unless a test supplies fakes. */
+  media?: MediaServices;
 };
 
 const ENERGY_OPTIONS = [
@@ -84,6 +90,7 @@ export function WorkspaceScreen({
   boardHidden = false,
   onOpenSettings,
   onOpenMemory,
+  media: mediaServices,
 }: WorkspaceScreenProps) {
   const workspace = useWorkspace(client, sessionId);
   const systemReducedMotion = useSystemReducedMotion();
@@ -123,6 +130,31 @@ export function WorkspaceScreen({
     // Real activity (a turn or a stroke) moves these revisions; typing and idling do not.
     activityKey: `${workspace.state?.session.revision ?? "none"}:${workspace.scene?.scene_revision ?? "none"}`,
   });
+  const turn = workspace.lastTurn;
+  const media = useMedia({
+    client,
+    sessionId,
+    services: mediaServices ?? defaultMediaServices(),
+    generation: workspace.turnGeneration,
+    epoch: workspace.state?.session.cancellation_epoch ?? null,
+    revision: workspace.state?.session.revision ?? null,
+    attemptId: workspace.state?.current_problem?.attempt_id ?? null,
+    reply:
+      turn !== null &&
+      turn.status === "committed" &&
+      turn.session_id === sessionId &&
+      (turn.utterance ?? "").trim().length > 0
+        ? {
+            turnId: turn.turn_id,
+            text: turn.utterance ?? "",
+            epoch: turn.cancellation_epoch,
+          }
+        : null,
+    busy: workspace.busyLabel !== null,
+    soundAllowed: feedback.sound,
+    textOnly: feedback.textOnly,
+    boardHidden,
+  });
   const [themeName, setThemeName] = useState<BoardThemeName>("paper");
   const [mode, setMode] = useState<BoardInputMode>("draw");
   const [draft, setDraft] = useState("");
@@ -154,6 +186,7 @@ export function WorkspaceScreen({
     const text = draft.trim();
     if (text.length === 0) return;
     wait.clearStillThinkingNote();
+    media.cancelSpeech("new_work");
     void workspace.submitWork(text).then((outcome) => {
       // Only an authoritative answer for exactly this text removes it; a failed or uncertain
       // send keeps it for retry, and anything the learner typed since stays untouched.
@@ -161,12 +194,22 @@ export function WorkspaceScreen({
         setDraft((current) => (current.trim() === text ? "" : current));
       }
     });
-  }, [draft, wait, workspace]);
+  }, [draft, media, wait, workspace]);
 
   const askHelp = useCallback(() => {
     wait.clearStillThinkingNote();
+    media.cancelSpeech("new_work");
     void workspace.requestHelp();
-  }, [wait, workspace]);
+  }, [media, wait, workspace]);
+
+  const useMediaText = useCallback(
+    (text: string) => {
+      // Offered text only fills the typed-step box; the learner still reviews and submits it.
+      setDraft(text);
+      wait.clearStillThinkingNote();
+    },
+    [wait],
+  );
 
   const markStillThinking = useCallback(() => {
     // Explicit wait metadata only: no work, check-in, help, scene or evidence effect.
@@ -246,7 +289,7 @@ export function WorkspaceScreen({
     unsavedChanges: workspace.pendingCount,
     failed: workspace.commandFailed,
     waiting: wait.stillThinkingStatus === "sent",
-    media: null,
+    media: media.activity,
     mediaAllowed: { listening: !feedback.textOnly, speaking: feedback.sound },
   });
 
@@ -373,7 +416,10 @@ export function WorkspaceScreen({
           accessibilityRole="button"
           accessibilityLabel="Stop reply"
           accessibilityHint="Stops the tutor's reply; your work stays saved"
-          onPress={() => void workspace.interrupt()}
+          onPress={() => {
+            media.cancelSpeech("interrupt");
+            void workspace.interrupt();
+          }}
           style={[
             styles.stopButton,
             { backgroundColor: theme.surface, borderColor: theme.surfaceEdge },
@@ -587,6 +633,15 @@ export function WorkspaceScreen({
           </Text>
         </Pressable>
       </View>
+
+      <MediaPanel
+        theme={theme}
+        media={media}
+        soundAllowed={feedback.sound}
+        textOnly={feedback.textOnly}
+        captionsOn={feedback.captions}
+        onUseText={useMediaText}
+      />
 
       <WaitControls
         theme={theme}

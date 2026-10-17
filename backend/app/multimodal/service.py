@@ -147,7 +147,7 @@ def _check_bounds(
 ) -> None:
     window = now - timedelta(seconds=limits.RATE_WINDOW_SECONDS)
     if isinstance(body, ImageSnapshotEvent):
-        size = body.byte_size
+        size = body.byte_size or 0
         if body.image_base64 is not None:
             size = max(size, _inline_size(body.image_base64))
         if size > limits.MAX_IMAGE_BYTES or max(body.width, body.height) > limits.MAX_IMAGE_EDGE:
