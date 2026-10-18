@@ -80,6 +80,21 @@ class Settings(BaseSettings):
     daytona_create_timeout_seconds: float = Field(default=60.0, gt=0, le=300)
     daytona_exec_timeout_seconds: int = Field(default=30, ge=1, le=120)
     daytona_cleanup_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
+    # Chalk Compute evaluation of tutoring replays. Needs external_integrations_enabled and
+    # this flag; credentials in the environment never activate it, and an ambient `chalk
+    # login` is never used (all three of id, secret and environment must be set here).
+    chalk_evaluations_enabled: bool = False
+    chalk_client_id: SecretStr | None = None
+    chalk_client_secret: SecretStr | None = None
+    chalk_environment: str | None = None
+    # Optional; must be an https chalk.ai host. The SDK default is https://api.chalk.ai.
+    chalk_api_server: str | None = None
+    chalk_max_rows: int = Field(default=40, ge=1, le=200)
+    chalk_run_timeout_seconds: float = Field(default=600.0, gt=0, le=3_600)
+    # A model judge calls a paid model through the Chalk gateway; it also needs
+    # --include-judge on the command and an explicit model name.
+    chalk_judge_enabled: bool = False
+    chalk_judge_model: str | None = None
     # Deterministic, explicitly "simulated" media events (fake transcripts, synthetic uncertain
     # recognition) for tests and demos. They never stand in for real recognition.
     tutor_media_fixtures_enabled: bool = True

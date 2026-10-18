@@ -9,6 +9,7 @@ from app.db.database import Database
 from app.db.migrate import upgrade_to_head
 from app.db.seed import seed_database
 from app.main import create_app
+from tests.chalk_fixtures import world  # noqa: F401 - shared pytest fixture
 from tests.provider_fixtures import no_network  # noqa: F401 - shared pytest fixture
 
 

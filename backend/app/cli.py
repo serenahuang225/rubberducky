@@ -45,6 +45,7 @@ from app.learner.pairing import (
 )
 from app.schemas.graph import MAX_CONTEXT_HOPS, GraphContextBounds
 from app.tracing.cli import add_tracing_parser
+from app.tutoring_eval.cli import add_evaluation_parser
 
 
 def _resolve_learner(database: Database, learner: str) -> str:
@@ -313,6 +314,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_tracing_parser(sub)
     add_memory_parser(sub)
     add_interactives_parser(sub)
+    add_evaluation_parser(sub)
     return parser
 
 
