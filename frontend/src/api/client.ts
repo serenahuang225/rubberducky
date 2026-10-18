@@ -14,6 +14,7 @@ import {
   deletionReceiptSchema,
   errorEnvelopeSchema,
   interruptResultSchema,
+  knowledgeMapSchema,
   mediaCapabilitiesSchema,
   mediaEventResultSchema,
   memoryInspectionSchema,
@@ -42,6 +43,7 @@ import {
   type MediaCapabilities,
   type MediaEventRequest,
   type MediaEventResult,
+  type KnowledgeMap,
   type MemoryInspection,
   type MeResponse,
   type PairingResult,
@@ -309,6 +311,11 @@ export class ApiClient {
       `/sessions/${sessionId}/events?limit=50`,
       z.array(tutorTurnResultSchema),
     );
+  }
+
+  /** Shared concept graph with this learner's estimate and memory labels. */
+  knowledgeMap(): Promise<KnowledgeMap> {
+    return this.request("GET", "/graph/knowledge", knowledgeMapSchema);
   }
 
   /** Honest provider identity/readiness, so the UI can label a mock as a mock. */

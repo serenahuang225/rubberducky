@@ -9,6 +9,7 @@ from app.api.errors import ApiError, ErrorEnvelope
 from app.clock import utc_now
 from app.graph.context import build_graph_context
 from app.graph.curriculum import UnknownConceptError
+from app.graph.knowledge import build_knowledge_map
 from app.schemas.graph import (
     MAX_CONTEXT_EVIDENCE,
     MAX_CONTEXT_HOPS,
@@ -16,6 +17,7 @@ from app.schemas.graph import (
     MAX_CONTEXT_NODES,
     GraphContext,
     GraphContextBounds,
+    KnowledgeMap,
 )
 
 router = APIRouter(prefix="/graph", tags=["graph"])
@@ -25,6 +27,16 @@ _ERRORS: dict[int | str, dict[str, object]] = {
     401: {"model": ErrorEnvelope},
     404: {"model": ErrorEnvelope},
 }
+
+
+@router.get(
+    "/knowledge",
+    response_model=KnowledgeMap,
+    responses={401: {"model": ErrorEnvelope}},
+    summary="Shared concept graph labeled with this learner's estimates and memories",
+)
+def knowledge_map(repo: ScopedRepo) -> KnowledgeMap:
+    return build_knowledge_map(repo, utc_now())
 
 
 @router.get(

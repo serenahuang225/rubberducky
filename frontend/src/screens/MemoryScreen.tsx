@@ -5,12 +5,13 @@
  * second explicit step, and every change is reported from the server's own receipt.
  */
 
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import type { ApiClient } from "../api/client";
-import type { MemoryItem, Session } from "../api/contracts";
+import type { KnowledgeMap, MemoryItem, Session } from "../api/contracts";
 import type { BoardTheme } from "../board/palette";
+import { KnowledgeGraph } from "../components/KnowledgeGraph";
 import { ScreenFrame } from "../components/ScreenFrame";
 import type { ChangeSummary } from "../state/memoryEffects";
 import {
@@ -419,6 +420,24 @@ export function MemoryScreen({
 }: MemoryScreenProps) {
   const view = useMemoryView(client);
   const [confirmProfile, setConfirmProfile] = useState(false);
+  const [knowledge, setKnowledge] = useState<KnowledgeMap | null>(null);
+  const [knowledgeError, setKnowledgeError] = useState<string | null>(null);
+  const loadKnowledge = useCallback(() => {
+    setKnowledgeError(null);
+    void client
+      .knowledgeMap()
+      .then(setKnowledge)
+      .catch((error: unknown) => {
+        setKnowledgeError(
+          error instanceof Error
+            ? error.message
+            : "The concept graph could not be loaded.",
+        );
+      });
+  }, [client]);
+  useEffect(() => {
+    loadKnowledge();
+  }, [loadKnowledge]);
   const palette: Palette = {
     text: { color: theme.labelText },
     muted: { color: theme.labelMuted },
@@ -505,12 +524,25 @@ export function MemoryScreen({
         </View>
       ) : null}
 
+      {knowledge !== null ? (
+        <KnowledgeGraph map={knowledge} theme={theme} />
+      ) : knowledgeError !== null ? (
+        <Text style={[styles.body, palette.danger]}>{knowledgeError}</Text>
+      ) : (
+        <Text style={[styles.body, palette.muted]}>
+          Loading the concept graph…
+        </Text>
+      )}
+
       <View style={styles.actions}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Refresh memory"
           disabled={view.working}
-          onPress={() => void view.reload()}
+          onPress={() => {
+            void view.reload();
+            loadKnowledge();
+          }}
           style={[
             styles.button,
             styles.outline,
