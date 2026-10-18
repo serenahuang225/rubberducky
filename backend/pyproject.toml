@@ -63,6 +63,21 @@ ignore_missing_imports = true
 module = ["sympy", "sympy.*"]
 ignore_missing_imports = true
 
+# Offline experiment imports. Training code typechecks against the installed packages;
+# their public modules are not part of the strict app surface.
+[[tool.mypy.overrides]]
+module = [
+  "transformers",
+  "transformers.*",
+  "peft",
+  "peft.*",
+  "accelerate",
+  "accelerate.*",
+  "safetensors",
+  "safetensors.*",
+]
+ignore_missing_imports = true
+
 [tool.pydantic-mypy]
 init_forbid_extra = true
 init_typed = true
@@ -79,4 +94,4 @@ select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF", "S"]
 "tests/**" = ["S101", "S603"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["app"]
+known-first-party = ["app", "experiments"]
