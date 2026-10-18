@@ -7,7 +7,7 @@ if (status !== "ready") {
   console.log(
     status === "disabled"
       ? "Photon messaging is off. Set PHOTON_MESSAGING_ENABLED=true to connect."
-      : "Photon messaging needs SPECTRUM_PROJECT_ID and SPECTRUM_PROJECT_SECRET.",
+      : "Photon Beta needs PHOTON_API_KEY, PHOTON_PROJECT_ID, PHOTON_AGENT_HANDLE, and PHOTON_TEST_SENDER.",
   );
 } else {
   const base = env.TUTOR_API_BASE_URL ?? "http://127.0.0.1:3100";
