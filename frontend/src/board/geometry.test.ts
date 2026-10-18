@@ -8,13 +8,13 @@ import {
 } from './geometry';
 
 describe('board geometry', () => {
-  it('fits the board uniformly with letterboxing', () => {
-    // Portrait-ish viewport: width-limited.
+  it('fits the board uniformly, starting at the top of the pane', () => {
+    // Portrait-ish viewport: width-limited, extra height sits below the sheet.
     const portrait = computeFitTransform(800, 1000);
     expect(portrait.scale).toBeCloseTo(800 / BOARD_WIDTH);
     expect(portrait.offsetX).toBeCloseTo(0);
-    expect(portrait.offsetY).toBeGreaterThan(0);
-    // Landscape-ish viewport: height-limited.
+    expect(portrait.offsetY).toBeCloseTo(0);
+    // Landscape-ish viewport: height-limited, extra width is centered.
     const landscape = computeFitTransform(1200, 600);
     expect(landscape.scale).toBeCloseTo(600 / BOARD_HEIGHT);
     expect(landscape.offsetX).toBeGreaterThan(0);

@@ -133,7 +133,7 @@ async function openWorkspace() {
   );
   render(<App />);
   await waitFor(() =>
-    expect(screen.getByTestId("show-typed-step")).toBeTruthy(),
+    expect(screen.getByTestId("chat-input")).toBeTruthy(),
   );
 }
 
@@ -150,8 +150,7 @@ describe("App navigation", () => {
 
   it("keeps the workspace mounted, with its draft and requests, while settings and memory are open", async () => {
     await openWorkspace();
-    fireEvent.press(screen.getByTestId("show-typed-step"));
-    fireEvent.changeText(screen.getByTestId("typed-step-input"), "2x + 6 = 14");
+    fireEvent.changeText(screen.getByTestId("chat-input"), "2x + 6 = 14");
     const stateReads = () =>
       calls.filter((c) => c.url === "/sessions/s1/state").length;
     const before = stateReads();
@@ -161,7 +160,7 @@ describe("App navigation", () => {
       expect(screen.getByTestId("settings-screen")).toBeTruthy(),
     );
     // The covered workspace is out of the tab order and accessibility tree.
-    expect(screen.queryByTestId("typed-step-input")).toBeNull();
+    expect(screen.queryByTestId("chat-input")).toBeNull();
     fireEvent.press(
       screen.getByRole("button", { name: "Open private memory" }),
     );
@@ -175,9 +174,9 @@ describe("App navigation", () => {
     fireEvent.press(screen.getByRole("button", { name: "Back to board" }));
 
     await waitFor(() =>
-      expect(screen.getByTestId("typed-step-input")).toBeTruthy(),
+      expect(screen.getByTestId("chat-input")).toBeTruthy(),
     );
-    expect(screen.getByTestId("typed-step-input").props.value).toBe(
+    expect(screen.getByTestId("chat-input").props.value).toBe(
       "2x + 6 = 14",
     );
     expect(stateReads()).toBe(before);
@@ -213,6 +212,6 @@ describe("App navigation", () => {
       /not secure disk, backup or vendor erasure/i,
     );
     expect(await AsyncStorage.getItem("rubberducky.credentials.v1")).toBeNull();
-    expect(screen.queryByTestId("typed-step-input")).toBeNull();
+    expect(screen.queryByTestId("chat-input")).toBeNull();
   });
 });

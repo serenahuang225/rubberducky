@@ -32,6 +32,7 @@ import {
   orderedObjects,
   PendingStrokeView,
   SceneObjectView,
+  wordTotal,
 } from './SceneObjectView';
 
 export type PendingStroke = {
@@ -271,6 +272,37 @@ export function WhiteboardCanvas({
   const [initialIds] = useState(
     () => new Set(objects.map((object) => object.id)),
   );
+  // Newly arrived tutor notes reveal one word at a time. Notes already on the board do not.
+  const [revealedWords, setRevealedWords] = useState<Record<string, number>>({});
+  useEffect(() => {
+    if (!animateTutorMarks) return;
+    const pending = objects.filter(
+      (object) =>
+        object.semantic_role === 'teaching_note' &&
+        object.author_role === 'tutor' &&
+        !initialIds.has(object.id) &&
+        typeof object.payload.text === 'string',
+    );
+    if (pending.length === 0) return;
+    const timer = setInterval(() => {
+      setRevealedWords((current) => {
+        let changed = false;
+        const next = { ...current };
+        for (const object of pending) {
+          const text = object.payload.text;
+          if (typeof text !== 'string') continue;
+          const total = wordTotal(text);
+          const shown = next[object.id] ?? 0;
+          if (shown < total) {
+            next[object.id] = shown + 1;
+            changed = true;
+          }
+        }
+        return changed ? next : current;
+      });
+    }, WORD_MS);
+    return () => clearInterval(timer);
+  }, [animateTutorMarks, initialIds, objects]);
   const ordered = useMemo(() => orderedObjects(objects), [objects]);
   const earlier = useMemo(
     () => earlierWorkIds(objects, currentStatementId),
@@ -298,7 +330,7 @@ export function WhiteboardCanvas({
   return (
     <View
       testID={testID}
-      style={[styles.frame, { backgroundColor: theme.boardGrain }]}
+      style={[styles.frame, { backgroundColor: theme.board }]}
       onLayout={onLayout}
       accessibilityLabel={summary}
       accessibilityRole="image"
@@ -324,8 +356,8 @@ export function WhiteboardCanvas({
             y={0}
             width={BOARD_WIDTH}
             height={BOARD_HEIGHT}
-            fill={theme.name === "paper" ? theme.boardGrain : theme.board}
-            stroke={theme.name === "paper" ? theme.boardGrain : theme.boardEdge}
+            fill={theme.board}
+            stroke={theme.board}
             strokeWidth={1 / transform.scale}
           />
           {ordered.map((object) => {
@@ -333,15 +365,21 @@ export function WhiteboardCanvas({
               animateTutorMarks &&
               object.author_role === 'tutor' &&
               !initialIds.has(object.id);
+            const streaming = arriving && object.semantic_role === 'teaching_note';
             const view = (
-              <SceneObjectView object={object} theme={theme} resolveTarget={resolveTarget} />
+              <SceneObjectView
+                object={object}
+                theme={theme}
+                resolveTarget={resolveTarget}
+                visibleWords={streaming ? (revealedWords[object.id] ?? 0) : undefined}
+              />
             );
             return (
               <G
                 key={object.id}
                 opacity={earlier.has(object.id) ? EARLIER_WORK_OPACITY : 1}
               >
-                {arriving ? <ArrivingInk>{view}</ArrivingInk> : view}
+                {arriving && !streaming ? <ArrivingInk>{view}</ArrivingInk> : view}
               </G>
             );
           })}
@@ -379,6 +417,7 @@ export function WhiteboardCanvas({
 }
 
 const ARRIVE_MS = 180;
+const WORD_MS = 90;
 
 /** Opacity fade for a tutor mark that has just arrived. Starts at 0 on first paint. */
 function ArrivingInk({ children }: { children: React.ReactNode }) {

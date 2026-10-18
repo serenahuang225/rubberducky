@@ -35,10 +35,7 @@ function typedStepInput(view: {
   getByTestId: (id: string) => ReturnType<ReturnType<typeof render>["getByTestId"]>;
   queryByTestId: (id: string) => ReturnType<ReturnType<typeof render>["queryByTestId"]>;
 }) {
-  if (view.queryByTestId("typed-step-input") == null) {
-    fireEvent.press(view.getByTestId("show-typed-step"));
-  }
-  return view.getByTestId("typed-step-input");
+  return view.getByTestId("chat-input");
 }
 
 const PERSONA: TutorConfiguration = {
@@ -335,7 +332,7 @@ describe("WorkspaceScreen", () => {
       typedStepInput(screen),
       "x = 4 because I multiplied 2 by x but left 3 unchanged",
     );
-    fireEvent.press(screen.getByTestId("submit-step"));
+    fireEvent.press(screen.getByTestId("chat-send"));
     await waitFor(() =>
       expect(screen.getByTestId("teaching-context")).toBeTruthy(),
     );
@@ -362,7 +359,7 @@ describe("WorkspaceScreen", () => {
       expect(screen.getByTestId("prompt-problem")).toBeTruthy(),
     );
     fireEvent.changeText(typedStepInput(screen), "2x + 3 = 14");
-    fireEvent.press(screen.getByTestId("submit-step"));
+    fireEvent.press(screen.getByTestId("chat-send"));
     await waitFor(() =>
       expect(screen.getByTestId("diagnostic-toggle")).toBeTruthy(),
     );

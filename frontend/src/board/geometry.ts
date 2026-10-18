@@ -37,7 +37,11 @@ export function isFinitePoint(point: LogicalPoint): boolean {
   return isFiniteNumber(point.x) && isFiniteNumber(point.y);
 }
 
-/** Fit the logical board into a measured viewport without distorting the aspect ratio. */
+/**
+ * Fit the logical board into a measured viewport without distorting the aspect ratio.
+ * The sheet starts at the top. Extra space below stays the paper color, so a tall
+ * pane does not float the writing between two bands.
+ */
 export function computeFitTransform(viewWidth: number, viewHeight: number): ViewTransform {
   const safeWidth = isFiniteNumber(viewWidth) && viewWidth > 0 ? viewWidth : 1;
   const safeHeight = isFiniteNumber(viewHeight) && viewHeight > 0 ? viewHeight : 1;
@@ -45,7 +49,7 @@ export function computeFitTransform(viewWidth: number, viewHeight: number): View
   return {
     scale,
     offsetX: (safeWidth - BOARD_WIDTH * scale) / 2,
-    offsetY: (safeHeight - BOARD_HEIGHT * scale) / 2,
+    offsetY: 0,
     viewWidth: safeWidth,
     viewHeight: safeHeight,
   };

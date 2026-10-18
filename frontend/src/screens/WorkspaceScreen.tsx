@@ -1,8 +1,7 @@
 /**
- * The primary workspace screen: the shared whiteboard is the main surface, with a small
- * avatar/status chip, a compact prompt bar and the tool rail. Writing is done with the
- * pen. Typing a step is an optional extra, closed until the learner asks for it. Check-in
- * is a short card, not a chat. All work goes through the real API via useWorkspace; waiting
+ * The primary workspace screen. The board holds the question and the figure, the chat
+ * holds the conversation and the typed reply, and the header keeps the next step.
+ * Drawing stays on the pen. All work goes through the real API via useWorkspace; waiting
  * (Still thinking, the quiet hint and the wait preference) goes through useWaitAgency and
  * never submits work or speaks on a timer.
  */
@@ -15,9 +14,17 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
+import {
+  Bookmark,
+  CircleHelp,
+  Flag,
+  Hourglass,
+  Moon,
+  Settings,
+  Sun,
+} from "lucide-react-native";
 
 import type { ApiClient } from "../api/client";
 import type {
@@ -35,7 +42,7 @@ import { PromptBar } from "../components/PromptBar";
 import { TutorChat } from "../components/TutorChat";
 import { messagesFromTurns } from "../components/chatMessages";
 import { QuestionIntake } from "../components/QuestionIntake";
-import { MarkIcon, marks, SquareButton } from "../components/SquareButton";
+import { SquareButton } from "../components/SquareButton";
 import { TeachingContext } from "../components/TeachingContext";
 import { TutorAvatar } from "../components/TutorAvatar";
 import { ToolRail } from "../components/ToolRail";
@@ -52,8 +59,7 @@ import { DEFAULT_ACCESSIBILITY } from "../state/useLearnerSettings";
 import { useProgressiveReveal } from "../state/useProgressiveReveal";
 import { useWaitAgency } from "../state/useWaitAgency";
 import { useWorkspace } from "../state/useWorkspace";
-import { type } from "../theme/tokens";
-import { ackProps } from "../theme/webTheme";
+import { radius, type } from "../theme/tokens";
 
 import { APPEARANCE_INFO, PERSONALITY_INFO } from "./OnboardingScreen";
 
@@ -168,7 +174,7 @@ export function WorkspaceScreen({
   const [themeName, setThemeName] = useState<BoardThemeName>("paper");
   const [mode, setMode] = useState<BoardInputMode>("draw");
   const [draft, setDraft] = useState("");
-  const [showTyping, setShowTyping] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [noted, setNoted] = useState(false);
   const [ending, setEnding] = useState(false);
   const [endError, setEndError] = useState<string | null>(null);
@@ -283,7 +289,6 @@ export function WorkspaceScreen({
     (text: string) => {
       // Offered text only fills the typed-step box; the learner still reviews and submits it.
       setDraft(text);
-      setShowTyping(true);
       wait.clearStillThinkingNote();
     },
     [wait],
@@ -400,34 +405,48 @@ export function WorkspaceScreen({
                 : "Working with"}{" "}
               {displayName}
             </Text>
-            {workspace.providerLabel !== null ? (
-              <Text
-                testID="provider-label"
-                numberOfLines={1}
-                accessibilityLabel={
-                  workspace.providerIsMock
-                    ? `Demo mode: ${workspace.providerLabel}`
-                    : `Tutor provider: ${workspace.providerLabel}`
-                }
-                style={[styles.providerLabel, { color: theme.labelMuted }]}
-              >
-                {workspace.providerIsMock
-                  ? `Demo mode: ${workspace.providerLabel}`
-                  : workspace.providerLabel}
-              </Text>
-            ) : null}
           </View>
         </View>
         <PromptBar
           theme={theme}
-          problemStatement={workspace.state.current_problem?.statement ?? null}
-          tutorMessage={workspace.lastUtterance}
           expectedAction={workspace.lastExpectedAction}
           status={
             workspace.busyLabel ??
             stillThinkingStatusText(wait.stillThinkingStatus)
           }
         />
+        <Pressable
+          testID="workspace-menu"
+          accessibilityRole="button"
+          accessibilityLabel={menuOpen ? "Close more" : "More"}
+          accessibilityState={{ expanded: menuOpen }}
+          onPress={() => setMenuOpen((open) => !open)}
+          style={[styles.more, { borderColor: theme.controlEdge }]}
+        >
+          <Text style={[styles.moreText, { color: theme.labelText }]}>
+            {menuOpen ? "Close" : "More"}
+          </Text>
+        </Pressable>
+      </View>
+      <View
+        style={[styles.menu, !menuOpen && styles.menuClosed]}
+      >
+        {workspace.providerLabel !== null ? (
+          <Text
+            testID="provider-label"
+            numberOfLines={1}
+            accessibilityLabel={
+              workspace.providerIsMock
+                ? `Demo mode: ${workspace.providerLabel}`
+                : `Tutor provider: ${workspace.providerLabel}`
+            }
+            style={[styles.providerLabel, { color: theme.labelMuted }]}
+          >
+            {workspace.providerIsMock
+              ? `Demo mode: ${workspace.providerLabel}`
+              : workspace.providerLabel}
+          </Text>
+        ) : null}
         <SquareButton
           testID="help-me"
           theme={theme}
@@ -439,66 +458,15 @@ export function WorkspaceScreen({
           }
           disabled={workspace.needsCheckIn || workspace.busyLabel !== null}
           onPress={askHelp}
-          icon={<MarkIcon color={theme.labelText} d={marks.help} />}
+          icon={<CircleHelp color={theme.labelText} size={18} strokeWidth={2.4} />}
         />
-        <SquareButton
-          testID="show-typed-step"
-          theme={theme}
-          label={showTyping ? "Hide the type-a-step box" : "Type a step"}
-          onPress={() => setShowTyping((open) => !open)}
-          icon={<MarkIcon color={theme.labelText} d={marks.type} />}
-        />
-        {showTyping ? (
-          <TextInput
-            testID="typed-step-input"
-            accessibilityLabel="Type your next step"
-            placeholder="Optional, e.g. 2x + 6 = 14"
-            placeholderTextColor={theme.labelMuted}
-            value={draft}
-            onChangeText={(text) => {
-              setDraft(text);
-              wait.clearStillThinkingNote();
-            }}
-            onSubmitEditing={submitDraft}
-            editable={!workspace.needsCheckIn && workspace.busyLabel === null}
-            style={[
-              styles.stepInput,
-              {
-                backgroundColor: theme.surface,
-                borderColor: theme.controlEdge,
-                color: theme.labelText,
-              },
-            ]}
-          />
-        ) : null}
-        {showTyping ? (
-          <SquareButton
-            testID="submit-step"
-            theme={theme}
-            label="Submit step"
-            disabled={workspace.needsCheckIn || workspace.busyLabel !== null}
-            onPress={submitDraft}
-          >
-            Submit
-          </SquareButton>
-        ) : null}
-        {noted ? (
-          <Text
-            testID="step-noted"
-            accessibilityLiveRegion="polite"
-            {...ackProps(motion)}
-            style={[styles.noted, { color: theme.labelMuted }]}
-          >
-            Noted
-          </Text>
-        ) : null}
         <SquareButton
           testID="still-thinking"
           theme={theme}
           label="Still thinking"
           disabled={workspace.needsCheckIn}
           onPress={markStillThinking}
-          icon={<MarkIcon color={theme.labelText} d={marks.wait} />}
+          icon={<Hourglass color={theme.labelText} size={18} strokeWidth={2.4} />}
         />
         <SquareButton
           testID="tool-theme"
@@ -507,11 +475,11 @@ export function WorkspaceScreen({
           hint="Switch the board theme; your colors stay distinct"
           onPress={toggleTheme}
           icon={
-            <MarkIcon
-              color={theme.labelText}
-              filled={themeName === "paper"}
-              d={themeName === "paper" ? marks.moon : marks.sun}
-            />
+            themeName === "paper" ? (
+              <Moon color={theme.labelText} size={18} strokeWidth={2.4} />
+            ) : (
+              <Sun color={theme.labelText} size={18} strokeWidth={2.4} />
+            )
           }
         />
         {onOpenMemory !== undefined ? (
@@ -520,7 +488,7 @@ export function WorkspaceScreen({
             theme={theme}
             label="Open private memory"
             onPress={onOpenMemory}
-            icon={<MarkIcon color={theme.labelText} d={marks.memory} />}
+            icon={<Bookmark color={theme.labelText} size={18} strokeWidth={2.4} />}
           />
         ) : null}
         {onOpenSettings !== undefined ? (
@@ -529,7 +497,7 @@ export function WorkspaceScreen({
             theme={theme}
             label="Open settings"
             onPress={onOpenSettings}
-            icon={<MarkIcon color={theme.labelText} d={marks.settings} />}
+            icon={<Settings color={theme.labelText} size={18} strokeWidth={2.4} />}
           />
         ) : null}
         <SquareButton
@@ -539,7 +507,7 @@ export function WorkspaceScreen({
           hint="Ends this session and returns to the welcome screen"
           disabled={ending || workspace.busyLabel !== null}
           onPress={() => void finishSession()}
-          icon={<MarkIcon color={theme.labelText} d={marks.finish} />}
+          icon={<Flag color={theme.labelText} size={18} strokeWidth={2.4} />}
         />
         <MediaPanel
           theme={theme}
@@ -622,6 +590,11 @@ export function WorkspaceScreen({
 
       <View style={styles.stage}>
       <View style={styles.boardArea}>
+        {workspace.state.current_problem?.statement ? (
+          <Text testID="prompt-problem" style={styles.srOnly}>
+            {workspace.state.current_problem.statement}
+          </Text>
+        ) : null}
         {workspace.canInterrupt ? (
           <SquareButton
             testID="stop-reply"
@@ -682,6 +655,7 @@ export function WorkspaceScreen({
           wait.clearStillThinkingNote();
         }}
         onSend={submitDraft}
+        noted={noted}
       />
       <ToolRail
         theme={theme}
@@ -732,6 +706,7 @@ const styles = StyleSheet.create({
   saveRetryButton: {
     minHeight: 44,
     paddingHorizontal: 16,
+    borderRadius: radius.pill,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -745,7 +720,7 @@ const styles = StyleSheet.create({
   retryText: type.control,
   header: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
     alignItems: "center",
     gap: 8,
     paddingTop: 8,
@@ -755,6 +730,26 @@ const styles = StyleSheet.create({
   headerMeta: { flexDirection: "row", alignItems: "center", gap: 8 },
   tutorName: type.name,
   headerSub: type.small,
+  more: {
+    minHeight: 44,
+    paddingHorizontal: 12,
+    borderWidth: 2,
+    borderRadius: radius.pill,
+    justifyContent: "center",
+  },
+  moreText: type.control,
+  menu: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 8,
+    paddingBottom: 8,
+  },
+  menuClosed: {
+    height: 0,
+    paddingBottom: 0,
+    overflow: "hidden",
+  },
   providerLabel: { ...type.meta, fontWeight: "400", flexShrink: 1 },
   stage: {
     flex: 1,
@@ -763,13 +758,11 @@ const styles = StyleSheet.create({
     alignItems: "stretch",
   },
   boardArea: { flex: 1, minHeight: 0, position: "relative" },
-  stepInput: {
-    ...type.math,
-    flexGrow: 1,
-    minWidth: 180,
-    minHeight: 44,
-    borderWidth: 1,
-    paddingHorizontal: 12,
+  srOnly: {
+    position: "absolute",
+    width: 1,
+    height: 1,
+    overflow: "hidden",
   },
   stopFloat: {
     position: "absolute",
@@ -777,5 +770,4 @@ const styles = StyleSheet.create({
     right: 8,
     zIndex: 2,
   },
-  noted: type.meta,
 });

@@ -30,10 +30,7 @@ const SESSION_ID = "s1";
 function typedStepInput(
   view: Pick<ReturnType<typeof render>, "getByTestId" | "queryByTestId">,
 ) {
-  if (view.queryByTestId("typed-step-input") == null) {
-    fireEvent.press(view.getByTestId("show-typed-step"));
-  }
-  return view.getByTestId("typed-step-input");
+  return view.getByTestId("chat-input");
 }
 const PERSONA: TutorConfiguration = {
   schema_version: "tutor-configuration.v1",
@@ -374,7 +371,7 @@ describe("WorkspaceScreen optional media", () => {
     expect(fake.calls).toEqual(["mic.request"]);
     expect(view.queryByTestId("indicator-microphone")).toBeNull();
     fireEvent.changeText(typedStepInput(view), "2x + 3 = 14");
-    fireEvent.press(view.getByTestId("submit-step"));
+    fireEvent.press(view.getByTestId("chat-send"));
     await waitFor(() => expect(control.workPosts).toBe(1));
     expect(view.getByTestId("whiteboard")).toBeTruthy();
   });
@@ -503,7 +500,7 @@ describe("WorkspaceScreen optional media", () => {
     await waitFor(() => expect(avatar(view)).toHaveTextContent(/Speaking/));
 
     fireEvent.changeText(typedStepInput(view), "x = 4");
-    fireEvent.press(view.getByTestId("submit-step"));
+    fireEvent.press(view.getByTestId("chat-send"));
     await waitFor(() => expect(control.workPosts).toBe(1));
     expect(fake.calls).toContain("speech.stop");
     act(() => {
@@ -719,7 +716,7 @@ describe("WorkspaceScreen optional media", () => {
       );
       expect(view.queryByTestId("media-outcome")).toBeNull();
       fireEvent.changeText(typedStepInput(view), "x = 4");
-      fireEvent.press(view.getByTestId("submit-step"));
+      fireEvent.press(view.getByTestId("chat-send"));
       await waitFor(() => expect(control.workPosts).toBe(1));
     });
 

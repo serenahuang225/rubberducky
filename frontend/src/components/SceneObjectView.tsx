@@ -24,7 +24,9 @@ import {
   type SceneObjectRecord,
 } from '../board/sceneTypes';
 
-const STATEMENT_FONT_SIZE = 52;
+const STATEMENT_FONT_SIZE = 32;
+const STATEMENT_LINE_HEIGHT = 40;
+const STATEMENT_WRAP = 48;
 const MATH_FONT_SIZE = 44;
 const TEACHING_FONT_SIZE = 28;
 const TEACHING_LINE_HEIGHT = 36;
@@ -37,12 +39,7 @@ function textBounds(at: LogicalPoint, text: string, fontSize: number): Bounds {
   return { minX: at.x - 8, minY: at.y - fontSize, maxX: at.x + width + 8, maxY: at.y + 12 };
 }
 
-function teachingLines(payload: Record<string, unknown>, text: string): string[] {
-  const stored = payload.lines;
-  if (Array.isArray(stored) && stored.every((line) => typeof line === 'string' && line.length > 0)) {
-    return stored;
-  }
-  const width = 68;
+function wrapWords(text: string, width = 68, maxLines = 22): string[] {
   const lines: string[] = [];
   let current = '';
   for (const word of text.split(/\s+/)) {
@@ -56,7 +53,33 @@ function teachingLines(payload: Record<string, unknown>, text: string): string[]
     }
   }
   if (current) lines.push(current);
-  return lines.slice(0, 22);
+  return lines.slice(0, maxLines);
+}
+
+/** The first `count` words, used while a tutor note streams in. */
+export function wordsToShow(text: string, count: number): string {
+  const words = text.split(/\s+/).filter((word) => word.length > 0);
+  return words.slice(0, Math.max(0, count)).join(' ');
+}
+
+export function wordTotal(text: string): number {
+  return text.split(/\s+/).filter((word) => word.length > 0).length;
+}
+
+/** The board keeps one sentence. The chat keeps the rest of the reply. */
+function openingLine(text: string): string {
+  const end = text.search(/[.!?](\s|$)/);
+  const sentence = end === -1 ? text : text.slice(0, end + 1);
+  if (sentence.length <= 160) return sentence;
+  return `${sentence.slice(0, 157).trimEnd()}…`;
+}
+
+function teachingLines(payload: Record<string, unknown>, text: string): string[] {
+  const stored = payload.lines;
+  if (Array.isArray(stored) && stored.every((line) => typeof line === 'string' && line.length > 0)) {
+    return stored;
+  }
+  return wrapWords(text);
 }
 
 /** Approximate logical bounds of one object, used by highlight washes. */
@@ -77,6 +100,15 @@ export function objectBounds(object: SceneObjectRecord): Bounds | null {
         minY: y - TEACHING_FONT_SIZE,
         maxX: x + 68 * TEACHING_FONT_SIZE * 0.5,
         maxY: y + Math.max(0, lines.length - 1) * TEACHING_LINE_HEIGHT + 8,
+      };
+    }
+    if (object.semantic_role === 'problem_statement') {
+      const lines = wrapWords(text, STATEMENT_WRAP, 6);
+      return {
+        minX: x,
+        minY: y - STATEMENT_FONT_SIZE,
+        maxX: x + STATEMENT_WRAP * STATEMENT_FONT_SIZE * 0.56,
+        maxY: y + Math.max(0, lines.length - 1) * STATEMENT_LINE_HEIGHT + 8,
       };
     }
     return textBounds({ x, y }, text, STATEMENT_FONT_SIZE);
@@ -127,15 +159,23 @@ export type SceneObjectViewProps = {
   theme: BoardTheme;
   /** Resolve a highlight's target bounds; missing targets render nothing. */
   resolveTarget?: (objectId: string) => SceneObjectRecord | null;
+  /**
+   * When set on a teaching note, only this many words are drawn.
+   * Omit it to show the whole note.
+   */
+  visibleWords?: number;
 };
 
-export function SceneObjectView({ object, theme, resolveTarget }: SceneObjectViewProps) {
+export function SceneObjectView({ object, theme, resolveTarget, visibleWords }: SceneObjectViewProps) {
   const { kind, payload } = object;
   const assigned = colorForRole(theme, payloadRole(payload));
-  // The paper writing surface is yellow, which is also the tutor ink, so tutor
-  // marks use the blue ink there. The chalkboard keeps yellow tutor ink.
+  // Yellow tutor ink does not read on the white paper, so those marks use blue.
+  // The chalkboard keeps yellow tutor ink on the blue sheet.
   const ink =
     theme.name === "paper" && assigned === theme.tutorInk ? theme.studentInk : assigned;
+  // Sentences are the readable ink: blue on paper, white on the chalkboard.
+  // Yellow stays on highlights and on a tutor stroke's accent.
+  const lessonInk = theme.studentInk;
 
   if (kind === 'path' || kind === 'draw_path') {
     const points = payloadPoints(payload);
@@ -155,9 +195,25 @@ export function SceneObjectView({ object, theme, resolveTarget }: SceneObjectVie
     }
     const d = pointsToPathData(points);
     if (d === null) return null;
-    return (
-      <Path d={d} stroke={ink} strokeWidth={width} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    const stroke = (color: string, strokeWidth: number) => (
+      <Path
+        d={d}
+        stroke={color}
+        strokeWidth={strokeWidth}
+        fill="none"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     );
+    if (ink === theme.tutorInk) {
+      return (
+        <G>
+          {stroke(theme.studentInk, width + 4)}
+          {stroke(theme.tutorInk, width)}
+        </G>
+      );
+    }
+    return stroke(ink, width);
   }
 
   if (kind === 'text' && object.semantic_role === 'teaching_note') {
@@ -167,7 +223,9 @@ export function SceneObjectView({ object, theme, resolveTarget }: SceneObjectVie
         ? { x: payload.x, y: payload.y }
         : null;
     if (text === null || at === null) return null;
-    const lines = teachingLines(payload, text);
+    const shown = openingLine(visibleWords === undefined ? text : wordsToShow(text, visibleWords));
+    if (shown.length === 0) return null;
+    const lines = wrapWords(shown);
     return (
       <G>
         {lines.map((line, index) => (
@@ -176,7 +234,33 @@ export function SceneObjectView({ object, theme, resolveTarget }: SceneObjectVie
             x={at.x}
             y={at.y + index * TEACHING_LINE_HEIGHT}
             fontSize={TEACHING_FONT_SIZE}
-            fill={ink}
+            fill={lessonInk}
+            fontFamily={font.sans}
+          >
+            {line}
+          </SvgText>
+        ))}
+      </G>
+    );
+  }
+
+  if (kind === 'text' && object.semantic_role === 'problem_statement') {
+    const text = payloadText(payload, 'text');
+    const at =
+      typeof payload.x === 'number' && typeof payload.y === 'number'
+        ? { x: payload.x, y: payload.y }
+        : null;
+    if (text === null || at === null) return null;
+    const lines = wrapWords(text, STATEMENT_WRAP, 6);
+    return (
+      <G>
+        {lines.map((line, index) => (
+          <SvgText
+            key={`${object.id}-statement-${index}`}
+            x={at.x}
+            y={at.y + index * STATEMENT_LINE_HEIGHT}
+            fontSize={STATEMENT_FONT_SIZE}
+            fill={lessonInk}
             fontFamily={font.sans}
           >
             {line}
