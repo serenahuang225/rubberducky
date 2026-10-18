@@ -13,6 +13,7 @@ from app.pedagogy.handhold import (
     followup_system,
     opening_system,
 )
+from app.tutor.brought_question import parse_tutor_display
 from tests.conftest import bootstrap
 from tests.test_tutor_turns import check_in, key, post_turn, start_session
 
@@ -46,6 +47,24 @@ def test_modes_separate_how_much_help_from_when() -> None:
     hinted = followup_system("guided", "give_hint")
     assert "Give me a hint" in hinted
     assert "one small hint" in hinted
+
+
+def test_parse_keeps_the_approach_the_contradiction_and_the_explanation() -> None:
+    parsed = parse_tutor_display(
+        json.dumps(
+            {
+                "statement": "Solve 4x + 1 = 9",
+                "teaching": "How could you check whether subtracting from one side works?",
+                "next_step": "Try a check.",
+                "approach": "subtract from one side only",
+                "contradiction": "the other side stayed the same",
+                "explained_failure": True,
+            }
+        )
+    )
+    assert parsed.approach == "subtract from one side only"
+    assert parsed.contradiction == "the other side stayed the same"
+    assert parsed.explained_failure is True
 
 
 def _claude_settings(database_url: str) -> Settings:
@@ -98,3 +117,74 @@ def test_still_exploring_waits_without_another_model_call(
         assert "neither corrects nor confirms" in body["decision_justification"]
         assert calls["n"] == 1
 
+
+def test_a_wrong_approach_is_kept_with_what_contradicted_it(
+    monkeypatch: pytest.MonkeyPatch, seeded_db_url: str
+) -> None:
+    replies = iter(
+        [
+            json.dumps(
+                {
+                    "statement": "Solve 4x + 1 = 9",
+                    "teaching": "Try your own first step.",
+                    "next_step": "Write a step.",
+                }
+            ),
+            json.dumps(
+                {
+                    "statement": "Solve 4x + 1 = 9",
+                    "teaching": "How could you check whether that works?",
+                    "next_step": "Check both sides.",
+                    "approach": "subtract from one side only",
+                    "contradiction": "the other side stayed the same",
+                    "explained_failure": True,
+                }
+            ),
+        ]
+    )
+
+    seen: list[str] = []
+
+    def fake_complete(settings: Settings, *, system: str, blocks: list[dict[str, object]]) -> str:
+        del settings, blocks
+        seen.append(system)
+        return next(replies)
+
+    monkeypatch.setattr("app.tutor.brought_question.complete_tutoring", fake_complete)
+    with TestClient(create_app(_claude_settings(seeded_db_url))) as client:
+        _, headers = bootstrap(client)
+        session_id = start_session(client, headers)
+        opened = check_in(
+            client,
+            headers,
+            session_id,
+            question_text="Solve 4x + 1 = 9",
+            goal="learner_question",
+        )
+        # The opening call uses the check-in handhold. The follow-up must be hands off.
+        follow = post_turn(
+            client,
+            headers,
+            session_id,
+            "work",
+            {
+                "expected_revision": opened["session_revision"],
+                "text": "4x = 10",
+                "handhold": "hands_off",
+            },
+            key("approach"),
+        )
+        assert follow.status_code == 200, follow.text
+        body = follow.json()
+        assert body["utterance"] == "How could you check whether that works?"
+        assert body["approach_trace"] == {
+            "schema_version": "approach-trace.v1",
+            "approach": "subtract from one side only",
+            "contradiction": "the other side stayed the same",
+            "explained_failure": True,
+        }
+        assert body["hypothesis"]["label"] == "subtract from one side only"
+        assert body["hypothesis"]["status"] == "contradicted"
+        assert body["hypothesis"]["contradicting_source_ids"]
+        assert "Mode: hands off" in seen[1]
+        assert "How could you check whether that works?" in seen[1]

@@ -85,7 +85,10 @@ _FOLLOWUP_JSON = (
     "Respond with ONE JSON object and nothing else, no code fence: "
     '{"statement": "the same question, at most 160 characters", '
     '"teaching": "the note to display, at most 1100 characters", '
-    '"next_step": "one short instruction, at most 140 characters"}'
+    '"next_step": "one short instruction, at most 140 characters", '
+    '"approach": "the approach they are trying, or an empty string", '
+    '"contradiction": "what contradicted that approach, or an empty string", '
+    '"explained_failure": false}'
 )
 
 
@@ -130,6 +133,23 @@ def followup_system(
             "Never treat silence as a sign that they are stuck. "
             "They can say they are still exploring, ask you to ask a question, or ask for a hint. "
             "Do not interrupt because a timer ran out.",
+            "When you can tell which approach they tried, what contradicted it, and whether they "
+            "explained why it failed, put that in the JSON fields. Leave approach and contradiction "
+            "empty when you do not know. explained_failure is true only when they said why it failed.",
             _FOLLOWUP_JSON,
         )
     )
+
+
+def clip_trace(value: object, limit: int = 200) -> str:
+    if not isinstance(value, str):
+        return ""
+    return " ".join(value.split())[:limit]
+
+
+def explained_failure_flag(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"yes", "true", "1"}
+    return False

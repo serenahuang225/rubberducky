@@ -412,6 +412,92 @@ def record_help(
     )
 
 
+def record_approach_trace(
+    repo: ScopedRepository,
+    *,
+    session_id: str,
+    concept_id: str,
+    observation_id: str,
+    approach: str,
+    contradiction: str | None,
+    explained_failure: bool,
+    now: datetime,
+) -> HypothesisView:
+    """Remember the approach, what contradicted it, and whether they explained the failure.
+
+    One hypothesis per approach label. A contradiction or an explanation of the failure
+    argues against it; trying the approach with neither yet is only weak support.
+    """
+    label = approach[:200]
+    description = f"Approach they tried: {label}"
+    if contradiction:
+        description += f" What contradicted it: {contradiction[:180]}"
+    description += (
+        " They explained why it failed."
+        if explained_failure
+        else " They have not yet explained why it failed."
+    )
+    alternatives = [
+        "A different approach",
+        (
+            "They explained why it failed."
+            if explained_failure
+            else "They have not yet said why it failed."
+        ),
+    ]
+    row = repo.db.execute(
+        select(MisconceptionHypothesisRow)
+        .where(
+            MisconceptionHypothesisRow.learner_id == repo.learner_id,
+            MisconceptionHypothesisRow.concept_id == concept_id,
+            MisconceptionHypothesisRow.label == label,
+            MisconceptionHypothesisRow.status != "retracted",
+        )
+        .order_by(MisconceptionHypothesisRow.created_at)
+        .limit(1)
+    ).scalar_one_or_none()
+    if row is None:
+        hypothesis = MisconceptionHypothesis(
+            id=new_id(),
+            learner_id=repo.learner_id,
+            session_id=session_id,
+            concept_id=concept_id,
+            label=label,
+            description=description[:500],
+            confidence=0.5,
+            alternatives=alternatives,
+            status="tentative",
+            source_ids=[observation_id],
+            provenance="submitted",
+            created_at=now,
+            updated_at=now,
+        )
+        row = MisconceptionHypothesisRow(**hypothesis.model_dump())
+        repo.db.add(row)
+        repo.db.flush()
+    else:
+        row.description = description[:500]
+        row.alternatives = alternatives
+    if contradiction or explained_failure:
+        polarity = "contradicts"
+        strength = 0.7 if explained_failure else 0.5
+        rationale = contradiction or "They explained why this approach failed."
+        if contradiction and explained_failure:
+            rationale = f"{contradiction} They explained why it failed."
+    else:
+        polarity = "supports"
+        strength = 0.5
+        rationale = "They are trying this approach."
+    added = _link(repo, row.id, observation_id, polarity, strength, rationale[:200], now)
+    if added:
+        sources = list(row.source_ids)
+        if observation_id not in sources and len(sources) < 20:
+            sources.append(observation_id)
+        row.source_ids = sources
+        _refresh_hypothesis(repo, row, now)
+    return _hypothesis_view(repo, row)
+
+
 def _partial_distribution_hypothesis(
     repo: ScopedRepository,
     session_id: str,

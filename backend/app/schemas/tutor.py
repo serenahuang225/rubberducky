@@ -189,6 +189,19 @@ class TutorDraft(ContractModel):
     # The provider's own reading of the learner's step. It can never override the verifier.
     step_assessment: VerificationStatus | None = None
     decision_justification: Annotated[str, Field(min_length=1, max_length=200)]
+    # What they tried, what argued against it, and whether they said why it failed.
+    approach: Annotated[str, Field(max_length=200)] = ""
+    contradiction: Annotated[str, Field(max_length=200)] = ""
+    explained_failure: bool = False
+
+
+class ApproachTrace(ContractModel):
+    """Richer than whether they reached the answer: the approach and what became of it."""
+
+    schema_version: Literal["approach-trace.v1"] = "approach-trace.v1"
+    approach: Annotated[str, Field(min_length=1, max_length=200)]
+    contradiction: Annotated[str, Field(min_length=1, max_length=200)] | None = None
+    explained_failure: bool = False
 
 
 class ProviderLabel(ContractModel):
@@ -311,6 +324,7 @@ class TutorTurnResult(ContractModel):
     drawings: list[CommittedDrawing] = Field(default_factory=list)
     memory: MemoryUpdateResult | None = None
     decision_justification: Annotated[str, Field(max_length=200)] | None = None
+    approach_trace: ApproachTrace | None = None
     context_source_ids: list[EntityId] = Field(default_factory=list)
     rejections: list[TurnRejection] = Field(default_factory=list)
     replayed: bool = False

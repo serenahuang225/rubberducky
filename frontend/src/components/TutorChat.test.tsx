@@ -28,6 +28,7 @@ function turn(partial: Partial<TutorTurnResult> & Pick<TutorTurnResult, "turn_id
     hypothesis: null,
     hint_level: 0,
     answer_revealed: false,
+    approach_trace: null,
     representation: null,
     support_change: "none",
     decision_justification: null,

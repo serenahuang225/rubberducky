@@ -21,7 +21,12 @@ from app.db.models import AttemptRow, ProblemRow, SceneObjectRow
 from app.db.repositories import ScopedRepository
 from app.inference.errors import ProviderError
 from app.learner.pairing import new_id
-from app.pedagogy.handhold import followup_system, opening_system
+from app.pedagogy.handhold import (
+    clip_trace,
+    explained_failure_flag,
+    followup_system,
+    opening_system,
+)
 from app.pedagogy.problems import (
     LINEAR_EQUATIONS,
     ProblemSpec,
@@ -59,6 +64,9 @@ class BroughtQuestion:
     statement: str
     teaching: str
     next_step: str
+    approach: str = ""
+    contradiction: str = ""
+    explained_failure: bool = False
 
 
 def is_learner_problem(problem_id: str) -> bool:
@@ -113,7 +121,14 @@ def parse_tutor_display(raw: str) -> BroughtQuestion:
         raise BroughtQuestionError(
             "Claude's reply could not be shown. Try sending the question again."
         )
-    return BroughtQuestion(statement=statement, teaching=teaching, next_step=next_step)
+    return BroughtQuestion(
+        statement=statement,
+        teaching=teaching,
+        next_step=next_step,
+        approach=clip_trace(data.get("approach")),
+        contradiction=clip_trace(data.get("contradiction")),
+        explained_failure=explained_failure_flag(data.get("explained_failure")),
+    )
 
 
 def read_brought_question(
@@ -174,7 +189,12 @@ def follow_up_display(
     parsed = parse_tutor_display(raw)
     # Keep the question they already see, even if the model restates it differently.
     return BroughtQuestion(
-        statement=statement, teaching=parsed.teaching, next_step=parsed.next_step
+        statement=statement,
+        teaching=parsed.teaching,
+        next_step=parsed.next_step,
+        approach=parsed.approach,
+        contradiction=parsed.contradiction,
+        explained_failure=parsed.explained_failure,
     )
 
 

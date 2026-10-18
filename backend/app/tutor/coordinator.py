@@ -48,6 +48,7 @@ from app.pedagogy.problems import (
 )
 from app.schemas.memory import MemoryUpdateResult
 from app.schemas.tutor import (
+    ApproachTrace,
     CheckInRequest,
     CommittedDrawing,
     HelpRequest,
@@ -88,6 +89,7 @@ from app.tutor.evidence import (
     ensure_statement_object,
     open_attempt,
     problem_view,
+    record_approach_trace,
     record_check_in,
     record_help,
     record_work,
@@ -693,6 +695,10 @@ def _draft_from_teaching(
     session_revision: int,
     teaching: str,
     next_step: str,
+    *,
+    approach: str = "",
+    contradiction: str = "",
+    explained_failure: bool = False,
 ) -> TutorDraft:
     """Package Claude's displayed note as a draft that matches the stored plan."""
     return TutorDraft(
@@ -709,6 +715,9 @@ def _draft_from_teaching(
         proposed_memory_updates=[],
         step_assessment=plan.step_status,
         decision_justification=plan.decision_justification,
+        approach=approach[:200],
+        contradiction=contradiction[:200],
+        explained_failure=explained_failure,
     )
 
 
@@ -804,6 +813,15 @@ def _infer_brought_question(
         )
         teaching = displayed.teaching
         next_step = displayed.next_step
+        return _draft_from_teaching(
+            plan,
+            reserved.base_revision + 1,
+            teaching,
+            next_step,
+            approach=displayed.approach,
+            contradiction=displayed.contradiction,
+            explained_failure=displayed.explained_failure,
+        )
     return _draft_from_teaching(plan, reserved.base_revision + 1, teaching, next_step)
 
 
@@ -1013,6 +1031,42 @@ def _commit(
         update_status = {u.observation_id: u.status for u in report.updates}
         student_input = _fill_update_status(student_input, update_status)
 
+        approach_trace = None
+        hypothesis = plan.hypothesis if committed else None
+        if committed and draft is not None and draft.approach.strip():
+            approach_trace = ApproachTrace(
+                approach=draft.approach.strip()[:200],
+                contradiction=draft.contradiction.strip()[:200] or None,
+                explained_failure=draft.explained_failure,
+            )
+            observation_id = (
+                student_input.observation_ids[0]
+                if student_input is not None and student_input.observation_ids
+                else None
+            )
+            if observation_id is not None:
+                hypothesis = record_approach_trace(
+                    repo,
+                    session_id=session_id,
+                    concept_id=plan.context_concept_id,
+                    observation_id=observation_id,
+                    approach=approach_trace.approach,
+                    contradiction=approach_trace.contradiction,
+                    explained_failure=approach_trace.explained_failure,
+                    now=now,
+                )
+            plan = plan.model_copy(
+                update={
+                    "message_params": {
+                        **plan.message_params,
+                        "approach": approach_trace.approach,
+                        "contradiction": approach_trace.contradiction or "",
+                        "explained_failure": "yes" if approach_trace.explained_failure else "no",
+                    }
+                }
+            )
+            row.plan = plan.model_dump(mode="json")
+
         result = TutorTurnResult(
             turn_id=row.id,
             session_id=session_id,
@@ -1036,7 +1090,7 @@ def _commit(
             ),
             target_concept_ids=list(plan.target_concept_ids),
             evidence_ids=list(draft.evidence_ids) if committed and draft is not None else [],
-            hypothesis=plan.hypothesis if committed else None,
+            hypothesis=hypothesis,
             hint_id=hint_id,
             hint_level=draft.hint_level if committed and draft is not None else 0,
             answer_revealed=committed and draft is not None and draft.answer_revealed,
@@ -1047,6 +1101,7 @@ def _commit(
             decision_justification=(
                 draft.decision_justification if committed and draft is not None else None
             ),
+            approach_trace=approach_trace,
             context_source_ids=sorted(citable_ids) if committed else [],
             rejections=rejections,
             replayed=False,

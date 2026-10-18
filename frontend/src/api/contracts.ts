@@ -336,6 +336,16 @@ export type HandholdMode = z.infer<typeof handholdModeSchema>;
 export const LEARNER_CONTROLS = ["still_exploring", "ask_question", "give_hint"] as const;
 export type LearnerControl = (typeof LEARNER_CONTROLS)[number];
 
+/** The approach they tried, what contradicted it, and whether they explained the failure. */
+export const approachTraceSchema = z
+  .object({
+    approach: z.string(),
+    contradiction: z.string().nullable(),
+    explained_failure: z.boolean(),
+  })
+  .loose();
+export type ApproachTrace = z.infer<typeof approachTraceSchema>;
+
 export const tutorTurnResultSchema = z
   .object({
     schema_version: z.literal("tutor-turn-result.v1"),
@@ -366,6 +376,7 @@ export const tutorTurnResultSchema = z
     representation: representationSchema.nullable().default(null),
     support_change: z.enum(["none", "reduced"]).default("none"),
     decision_justification: z.string().nullable().default(null),
+    approach_trace: approachTraceSchema.nullable().default(null),
     drawings: z.array(committedDrawingSchema),
     rejections: z
       .array(z.object({ code: z.string(), message: z.string() }).loose())
