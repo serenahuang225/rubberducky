@@ -324,8 +324,8 @@ export function WhiteboardCanvas({
             y={0}
             width={BOARD_WIDTH}
             height={BOARD_HEIGHT}
-            fill={theme.board}
-            stroke={theme.boardEdge}
+            fill={theme.name === "paper" ? theme.boardGrain : theme.board}
+            stroke={theme.name === "paper" ? theme.boardGrain : theme.boardEdge}
             strokeWidth={1 / transform.scale}
           />
           {ordered.map((object) => {

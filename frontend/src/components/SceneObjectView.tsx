@@ -131,7 +131,11 @@ export type SceneObjectViewProps = {
 
 export function SceneObjectView({ object, theme, resolveTarget }: SceneObjectViewProps) {
   const { kind, payload } = object;
-  const ink = colorForRole(theme, payloadRole(payload));
+  const assigned = colorForRole(theme, payloadRole(payload));
+  // The paper writing surface is yellow, which is also the tutor ink, so tutor
+  // marks use the blue ink there. The chalkboard keeps yellow tutor ink.
+  const ink =
+    theme.name === "paper" && assigned === theme.tutorInk ? theme.studentInk : assigned;
 
   if (kind === 'path' || kind === 'draw_path') {
     const points = payloadPoints(payload);
