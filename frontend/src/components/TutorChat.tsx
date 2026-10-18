@@ -3,7 +3,7 @@
  * this panel keeps the thread, including a "Good job!" when the question is solved.
  */
 
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import type { BoardTheme } from "../board/palette";
@@ -44,6 +44,7 @@ export function TutorChat({
   noted = false,
 }: TutorChatProps) {
   const scrollRef = useRef<ScrollView>(null);
+  const [moreAbove, setMoreAbove] = useState(false);
   const canSend = canReply && !busy && draft.trim().length > 0;
   const controlsReady = canReply && !busy;
 
@@ -73,11 +74,16 @@ export function TutorChat({
         ) : null}
       </View>
       <View style={styles.logWrap}>
+      {moreAbove ? (
+        <View pointerEvents="none" style={[styles.moreAbove, { backgroundColor: theme.surface }]} />
+      ) : null}
       <ScrollView
         ref={scrollRef}
         testID="tutor-chat-log"
         style={styles.log}
         contentContainerStyle={styles.logContent}
+        scrollEventThrottle={16}
+        onScroll={(event) => setMoreAbove(event.nativeEvent.contentOffset.y > 12)}
       >
         {messages.length === 0 ? (
           <Text style={[styles.empty, { color: theme.labelMuted }]}>
@@ -99,12 +105,20 @@ export function TutorChat({
                     : undefined
                 }
               >
-                <Text style={[styles.who, { color: theme.labelMuted }]}>
+                <Text
+                  style={[
+                    styles.who,
+                    { color: message.role === "you" ? theme.studentInk : theme.tutorInk },
+                  ]}
+                >
                   {message.role === "you" ? "You" : "Tutor"}
                 </Text>
                 <Text
                   testID={lastTutor ? "prompt-tutor" : undefined}
-                  style={[styles.text, { color: theme.labelText }]}
+                  style={[
+                    styles.text,
+                    { color: message.role === "you" ? theme.studentInk : theme.tutorInk },
+                  ]}
                 >
                   {message.text}
                 </Text>
@@ -227,6 +241,19 @@ const styles = StyleSheet.create({
   },
   hideText: type.small,
   logWrap: { flex: 1, minHeight: 0 },
+  moreAbove: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 28,
+    zIndex: 2,
+    shadowColor: "#1985d0",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 6,
+  },
   controls: {
     flexDirection: "row",
     flexWrap: "nowrap",

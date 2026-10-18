@@ -231,16 +231,16 @@ describe("WorkspaceScreen learner-agency integration", () => {
       accessibility: prefs({ animation: "full" }),
     });
     await ready(view);
-    expect(boardLabel(view)).toBe("Whiteboard: 0 of your marks, 1 tutor marks");
+    expect(boardLabel(view)).toBe("Whiteboard, empty");
 
     fireEvent.press(view.getByTestId("help-me"));
     await waitFor(() => expect(view.getByTestId("prompt-tutor")).toBeTruthy());
     // The mark is committed, but is withheld until its scheduled reveal.
-    expect(boardLabel(view)).toBe("Whiteboard: 0 of your marks, 1 tutor marks");
+    expect(boardLabel(view)).toBe("Whiteboard, empty");
     act(() => {
       jest.advanceTimersByTime(REVEAL_MAX_TOTAL_MS);
     });
-    expect(boardLabel(view)).toBe("Whiteboard: 0 of your marks, 2 tutor marks");
+    expect(boardLabel(view)).toBe("Whiteboard: 0 of your marks, 1 tutor marks");
   });
 
   it("shows the mark at once with reduced motion", async () => {
@@ -253,7 +253,7 @@ describe("WorkspaceScreen learner-agency integration", () => {
     await waitFor(() => expect(view.getByTestId("prompt-tutor")).toBeTruthy());
     await waitFor(() =>
       expect(boardLabel(view)).toBe(
-        "Whiteboard: 0 of your marks, 2 tutor marks",
+        "Whiteboard: 0 of your marks, 1 tutor marks",
       ),
     );
   });
@@ -266,14 +266,14 @@ describe("WorkspaceScreen learner-agency integration", () => {
     await ready(view);
     fireEvent.press(view.getByTestId("help-me"));
     await waitFor(() => expect(view.getByTestId("prompt-tutor")).toBeTruthy());
-    expect(boardLabel(view)).toBe("Whiteboard: 0 of your marks, 1 tutor marks");
+    expect(boardLabel(view)).toBe("Whiteboard, empty");
 
     view.rerenderWith({ boardHidden: true });
-    expect(boardLabel(view)).toBe("Whiteboard: 0 of your marks, 2 tutor marks");
+    expect(boardLabel(view)).toBe("Whiteboard: 0 of your marks, 1 tutor marks");
     act(() => {
       jest.advanceTimersByTime(REVEAL_MAX_TOTAL_MS * 2);
     });
-    expect(boardLabel(view)).toBe("Whiteboard: 0 of your marks, 2 tutor marks");
+    expect(boardLabel(view)).toBe("Whiteboard: 0 of your marks, 1 tutor marks");
   });
 
   it("plays one haptic pulse per reply only when haptics are on", async () => {
@@ -305,16 +305,16 @@ describe("WorkspaceScreen learner-agency integration", () => {
     ).toBe(true);
   });
 
-  it("opens settings and memory from named buttons, and omits them when not wired", async () => {
+  it("opens settings from its button, and keeps private memory off the board", async () => {
     const { fetchImpl } = makeApi();
     const onOpenSettings = jest.fn();
     const onOpenMemory = jest.fn();
     const view = renderWorkspace(fetchImpl, { onOpenSettings, onOpenMemory });
     await ready(view);
     fireEvent.press(view.getByRole("button", { name: "Open settings" }));
-    fireEvent.press(view.getByRole("button", { name: "Open private memory" }));
+    expect(view.queryByRole("button", { name: "Open private memory" })).toBeNull();
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
-    expect(onOpenMemory).toHaveBeenCalledTimes(1);
+    expect(onOpenMemory).not.toHaveBeenCalled();
     view.unmount();
 
     const bare = renderWorkspace(fetchImpl);

@@ -31,14 +31,13 @@ export function TutorAvatar({
     <View style={styles.row}>
       <DuckPortrait
         personality={personality}
-        size={48}
+        size={84}
         label={`${tutorName} avatar: ${status.label}. ${status.description}`}
       />
       <Text
         testID="avatar-status"
         accessibilityLiveRegion="polite"
-        numberOfLines={1}
-        style={[styles.status, { color: theme.labelMuted }]}
+        style={[styles.status, { color: theme.labelText }]}
       >
         {status.label}
       </Text>
@@ -47,6 +46,6 @@ export function TutorAvatar({
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: "row", alignItems: "center", gap: 6 },
+  row: { flexDirection: "column", alignItems: "flex-start", gap: 4 },
   status: type.meta,
 });

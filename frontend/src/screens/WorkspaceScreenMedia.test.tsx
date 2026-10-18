@@ -86,6 +86,10 @@ const CAPABILITIES = (fixtures: boolean) => ({
     detail:
       "Stop interrupts the tutor's reply; the tutor cannot hear you interrupt.",
   },
+  spoken_reply: {
+    status: "unavailable",
+    detail: "Hold to talk is off. The microphone button still uses this browser's speech.",
+  },
   fixtures: { enabled: fixtures, detail: "Deterministic fixtures." },
   limits: {
     max_image_bytes: 262144,
@@ -129,7 +133,7 @@ function result(body: Record<string, unknown>, extra: Record<string, unknown>) {
   };
 }
 
-function makeApi(options: { fixtures?: boolean } = {}) {
+function makeApi(options: { fixtures?: boolean; spoken?: "available" | "unavailable" } = {}) {
   const control = {
     mediaPosts: [] as Record<string, unknown>[],
     workPosts: 0,
@@ -180,7 +184,18 @@ function makeApi(options: { fixtures?: boolean } = {}) {
     if (url.endsWith(`/sessions/${SESSION_ID}/wait`))
       return respond(200, WAIT_STATE);
     if (url.endsWith("/media/capabilities")) {
-      return respond(200, CAPABILITIES(options.fixtures ?? false));
+      const body = CAPABILITIES(options.fixtures ?? false);
+      const spoken = options.spoken ?? "unavailable";
+      return respond(200, {
+        ...body,
+        spoken_reply: {
+          status: spoken,
+          detail:
+            spoken === "available"
+              ? "Hold to talk. xAI transcribes, the tutor replies, and xAI speaks only that reply."
+              : "Hold to talk is off. The microphone button still uses this browser's speech.",
+        },
+      });
     }
     if (
       url.endsWith(`/sessions/${SESSION_ID}/media/events`) &&
@@ -326,6 +341,34 @@ describe("WorkspaceScreen optional media", () => {
       /Photo reading: unavailable/,
     );
     expect(view.queryByTestId("media-fixtures")).toBeNull();
+    expect(view.queryByTestId("hold-to-talk")).toBeNull();
+    expect(view.getByTestId("spoken-reply-status")).toHaveTextContent(
+      /Hold to talk: unavailable/,
+    );
+  });
+
+  it("shows hold to talk only when the server and this browser can record", async () => {
+    const devices = {
+      getUserMedia: jest.fn(async () => ({ getTracks: () => [{ stop: () => undefined }] })),
+    };
+    Object.defineProperty(global.navigator, "mediaDevices", {
+      configurable: true,
+      value: devices,
+    });
+    const { fetchImpl } = makeApi({ spoken: "available" });
+    const fake = fakeMedia();
+    const view = renderWorkspace(fetchImpl, fake);
+    await ready(view);
+    await openPanel(view);
+    expect(view.getByTestId("spoken-reply-status")).toHaveTextContent(
+      /Hold to talk: available/,
+    );
+    fireEvent(view.getByTestId("hold-to-talk"), "pressIn");
+    fireEvent(view.getByTestId("hold-to-talk"), "pressOut");
+    await waitFor(() =>
+      expect(view.getByTestId("talk-note")).toHaveTextContent(/Hold a little longer/),
+    );
+    expect(devices.getUserMedia).toHaveBeenCalled();
   });
 
   it("turns the microphone on only on press, shows an indicator and Stop releases it", async () => {
@@ -376,63 +419,16 @@ describe("WorkspaceScreen optional media", () => {
     expect(view.getByTestId("whiteboard")).toBeTruthy();
   });
 
-  it("reports a missing camera without asking for permission", async () => {
+  it("does not offer a camera in the voice panel", async () => {
     const { fetchImpl } = makeApi();
     const fake = fakeMedia();
-    fake.cameraPresent = false;
     const view = renderWorkspace(fetchImpl, fake);
     await ready(view);
     await openPanel(view);
-    fireEvent.press(view.getByTestId("camera-start-work"));
-    await waitFor(() =>
-      expect(view.getByTestId("capture-note")).toHaveTextContent(
-        /No camera is available/,
-      ),
-    );
+    expect(view.queryByTestId("camera-start-student")).toBeNull();
+    expect(view.queryByTestId("camera-start-work")).toBeNull();
+    expect(view.queryByTestId("take-photo")).toBeNull();
     expect(fake.calls).not.toContain("cam.request");
-  });
-
-  it("opens the chosen camera orientation and sends only size metadata for a photo", async () => {
-    const { fetchImpl, control } = makeApi();
-    const fake = fakeMedia();
-    const view = renderWorkspace(fetchImpl, fake);
-    await ready(view);
-    await openPanel(view);
-    fireEvent.press(view.getByTestId("camera-start-work"));
-    await waitFor(() => expect(view.getByTestId("fake-preview")).toBeTruthy());
-    expect(view.getByTestId("indicator-camera")).toHaveTextContent(
-      /Camera is on, facing your work/,
-    );
-    expect(view.getByTestId("fake-preview").props.accessibilityHint).toBe(
-      "work_facing",
-    );
-    fireEvent.press(view.getByTestId("take-photo"));
-    await waitFor(() => expect(control.mediaPosts).toHaveLength(1));
-    const posted = control.mediaPosts[0];
-    expect(posted).toMatchObject({
-      kind: "image_snapshot",
-      source: "device",
-      orientation: "work_facing",
-      trigger: "explicit_capture",
-      width: 640,
-      height: 480,
-      expected_revision: 1,
-      observed_epoch: 0,
-    });
-    expect(posted).not.toHaveProperty("image_base64");
-    expect(posted).not.toHaveProperty("byte_size");
-    await waitFor(() =>
-      expect(view.getByTestId("media-outcome")).toHaveTextContent(
-        /Photo reading is not configured/,
-      ),
-    );
-    // Unconfigured recognition never produces a canned reading to edit.
-    expect(view.queryByTestId("candidate-0-input")).toBeNull();
-    await act(async () => {
-      fireEvent.press(view.getByTestId("stop-camera"));
-    });
-    await waitFor(() => expect(view.queryByTestId("fake-preview")).toBeNull());
-    expect(fake.calls.at(-1)).toBe("cam.close");
   });
 
   it("blocks capture entirely in text-only mode", async () => {
@@ -528,14 +524,12 @@ describe("WorkspaceScreen optional media", () => {
     expect(avatar(view)).not.toHaveTextContent(/Speaking/);
   });
 
-  it("covering the board stops speech and releases the camera", async () => {
+  it("covering the board stops speech and releases capture", async () => {
     const { fetchImpl } = makeApi();
     const fake = fakeMedia();
     const view = renderWorkspace(fetchImpl, fake);
     await ready(view);
     await openPanel(view);
-    fireEvent.press(view.getByTestId("camera-start-student"));
-    await waitFor(() => expect(view.getByTestId("fake-preview")).toBeTruthy());
     fireEvent.press(view.getByTestId("voice-device"));
     fireEvent.press(view.getByTestId("help-me"));
     await waitFor(() => expect(fake.deviceSpeech).toHaveLength(1));
@@ -546,9 +540,7 @@ describe("WorkspaceScreen optional media", () => {
       view.rerenderWith({ boardHidden: true });
     });
     await waitFor(() => expect(view.queryByTestId("fake-preview")).toBeNull());
-    expect(fake.calls).toEqual(
-      expect.arrayContaining(["speech.stop", "cam.close"]),
-    );
+    expect(fake.calls).toEqual(expect.arrayContaining(["speech.stop"]));
   });
 
   describe("labeled simulated events", () => {

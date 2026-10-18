@@ -6,11 +6,13 @@
 
 import React, { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
+import { Timer } from 'lucide-react-native';
 
 import type { WaitPreference } from '../api/contracts';
 import type { BoardTheme } from '../board/palette';
-import { type } from '../theme/tokens';
+import { radius, type } from '../theme/tokens';
+
+import { HoldPressable } from './HoldPressable';
 
 export const WAIT_STEP_SECONDS = 15;
 
@@ -42,8 +44,10 @@ export function WaitControls({
             A hint is ready whenever you want it.
           </Text>
         ) : null}
-        <Pressable
+        <HoldPressable
           testID="wait-settings-toggle"
+          overview="Sets how long the board stays quiet before a hint is offered. Help me still works right away."
+          theme={theme}
           accessibilityRole="button"
           accessibilityLabel="Waiting time"
           accessibilityState={{ expanded: open, disabled: preference === null }}
@@ -54,17 +58,8 @@ export function WaitControls({
             { backgroundColor: theme.surface, borderColor: theme.surfaceEdge },
           ]}
         >
-          <Svg width={18} height={18} viewBox="0 0 16 16">
-            <Path
-              d="M8 2.2 A5.8 5.8 0 1 0 8 13.8 A5.8 5.8 0 1 0 8 2.2 M8 5 V8 H10.5"
-              fill="none"
-              stroke={theme.labelText}
-              strokeWidth={1.5}
-              strokeLinejoin="miter"
-              strokeLinecap="square"
-            />
-          </Svg>
-        </Pressable>
+          <Timer color={theme.labelText} size={18} strokeWidth={2.4} />
+        </HoldPressable>
       </View>
       <Modal
         visible={open && preference !== null}
@@ -158,7 +153,8 @@ const styles = StyleSheet.create({
     minHeight: 44,
     minWidth: 44,
     paddingHorizontal: 10,
-    borderWidth: 1,
+    borderWidth: 2,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
