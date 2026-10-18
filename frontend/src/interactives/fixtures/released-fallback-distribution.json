@@ -1,0 +1,38 @@
+{
+  "checks": [],
+  "created_at": "2026-10-18T00:03:00.885753Z",
+  "daytona_state": "disabled",
+  "factory_state": "disabled",
+  "fallback_reason": "integration_disabled",
+  "label": "Pre-vetted explanation from the app (not generated for you)",
+  "sandbox_ids_created": [],
+  "sandbox_ids_deleted": [],
+  "schema_version": "released-explanation.v1",
+  "source": "prevetted_fallback",
+  "spec": {
+    "caption": "The big rectangle has the same area as the two smaller rectangles together.",
+    "concept_id": "concept.distribution",
+    "manipulative": {
+      "component": "distribution",
+      "left": {
+        "initial": 4,
+        "max": 8,
+        "min": 1
+      },
+      "outer": {
+        "initial": 3,
+        "max": 6,
+        "min": 1
+      },
+      "right": {
+        "initial": 2,
+        "max": 8,
+        "min": 1
+      }
+    },
+    "prompt": "Change the outside number. What happens to both rectangles?",
+    "schema_version": "explanation-spec.v1",
+    "title": "Share the outside number with both parts"
+  },
+  "spec_digest": "cb0c84bdd9569c93dc1fff4b7e9d5b0ea3e310fce33247bca9868c17e42ed894"
+}

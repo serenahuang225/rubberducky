@@ -58,6 +58,27 @@ class Settings(BaseSettings):
     tutor_endpoint_streaming: bool = True
     anthropic_api_key: SecretStr | None = None
     anthropic_model: str | None = None
+    # Runtime explanation generation through the installed Factory Droid CLI (droid-sdk).
+    # Needs external_integrations_enabled, this flag and an explicit executable path; the
+    # presence of a key in the environment never activates it.
+    factory_interactives_enabled: bool = False
+    factory_droid_executable: str | None = None
+    factory_model: str | None = None
+    factory_reasoning_effort: Literal["off", "low", "medium"] = "low"
+    factory_api_key: SecretStr | None = None
+    factory_timeout_seconds: float = Field(default=60.0, gt=0, le=300)
+    factory_max_prompt_chars: int = Field(default=4_000, ge=200, le=16_000)
+    factory_max_output_chars: int = Field(default=6_000, ge=200, le=32_000)
+    # Credits reported by the finished run; a candidate that cost more is refused.
+    factory_max_credits: float = Field(default=5.0, ge=0, le=1_000)
+    # Trusted candidate checks in a private ephemeral Daytona sandbox.
+    daytona_checks_enabled: bool = False
+    daytona_api_key: SecretStr | None = None
+    daytona_api_url: str = "https://app.daytona.io/api"
+    daytona_target: str = Field(default="us", min_length=1, max_length=32)
+    daytona_create_timeout_seconds: float = Field(default=60.0, gt=0, le=300)
+    daytona_exec_timeout_seconds: int = Field(default=30, ge=1, le=120)
+    daytona_cleanup_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
     # Deterministic, explicitly "simulated" media events (fake transcripts, synthetic uncertain
     # recognition) for tests and demos. They never stand in for real recognition.
     tutor_media_fixtures_enabled: bool = True
