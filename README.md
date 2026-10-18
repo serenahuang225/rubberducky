@@ -470,12 +470,25 @@ The repository also contains a Chalk project scaffold created with `chalk init`:
   [uv](https://docs.astral.sh/uv/). They are separate from the tutor backend's dependencies.
 - `AGENTS.md` gives coding agents Chalk-specific instructions.
 
-The tutor uses Chalk (`chalkcompute`) only for an optional tutoring-evaluation adapter, which is
-disabled by default. Nothing is deployed to Chalk unless you run Chalk commands yourself.
+The tutor does not need a Chalk environment. Learners, sessions, and the whiteboard stay in
+SQLite. Chalk is only an optional cloud copy of the tutoring-evaluation scores (math, diagnosis,
+disclosure, hint specificity, hint usefulness, respect, memory grounding, and latency). Those
+scores grade scripted replies on fictional cases. They do not update a model.
 
-A labeled fictional walkthrough of Chalk, Factory Droid, and Daytona runs entirely on this
-machine. It scores scripted tutor replies, shows an explanation written in the repository, and
-runs the local trusted checks. Nothing is uploaded, and no sandbox is created.
+The same scores already run on this machine, with nothing uploaded:
+
+```sh
+PYTHONPATH=backend backend/.venv/bin/python -m app.cli evaluation status
+PYTHONPATH=backend backend/.venv/bin/python -m app.cli evaluation run --candidate fixture:good
+PYTHONPATH=backend backend/.venv/bin/python -m app.cli evaluation chalk-plan --candidate fixture:good
+```
+
+`evaluation status` reads configuration only. While Chalk is off it reports `disabled`.
+`evaluation run` scores a scripted tutor locally. `evaluation chalk-plan` prints the rows a cloud
+run would upload and does not contact Chalk. Other scripted tutors are `fixture:leaky` and
+`fixture:ungrounded`.
+
+A labeled fictional walkthrough of Chalk, Factory Droid, and Daytona also stays on this machine:
 
 ```sh
 PYTHONPATH=backend backend/.venv/bin/python -m app.cli demo
@@ -483,6 +496,50 @@ PYTHONPATH=backend backend/.venv/bin/python -m app.cli demo
 
 The same walkthrough is `GET /demo/integrations` while demo bootstrap is enabled, and in the
 app under Settings, “Fictional demos”.
+
+### A live Chalk evaluation
+
+Signing in creates the Chalk environment. Install the CLI, then log in and select the environment
+you want. A new account gets a project with a default environment. The dashboard is
+https://chalk.ai/projects.
+
+```sh
+curl -s -L https://api.chalk.ai/install.sh | sh
+chalk login
+chalk environment
+chalk environment <name>
+chalk config --format shell --show-secrets
+```
+
+`chalk config --format shell --show-secrets` prints `CHALK_CLIENT_ID`, `CHALK_CLIENT_SECRET`, and
+`CHALK_ENVIRONMENT`. Put those in the shell that runs the API or the CLI. The backend does not
+load a `.env` file and does not reuse `chalk login` on its own. Also set:
+
+```sh
+export EXTERNAL_INTEGRATIONS_ENABLED=true
+export CHALK_EVALUATIONS_ENABLED=true
+```
+
+`CHALK_API_SERVER` is optional. When set, it must be an `https` host on `chalk.ai`. The SDK
+default is `https://api.chalk.ai`.
+
+Check the settings, preview the upload, then run it. `--confirm-live` is required. That command
+uploads the fictional cases, deploys the scoring functions, and starts a paid Chalk run. Chalk
+must already have Evaluations and the async function queue enabled on that environment, plus an
+active deployment. Leave off `--include-judge` unless `CHALK_JUDGE_ENABLED=true` and
+`CHALK_JUDGE_MODEL` are set. That flag calls a paid model.
+
+```sh
+PYTHONPATH=backend backend/.venv/bin/python -m app.cli evaluation status
+PYTHONPATH=backend backend/.venv/bin/python -m app.cli evaluation chalk-plan --candidate fixture:good
+PYTHONPATH=backend backend/.venv/bin/python -m app.cli evaluation chalk-run \
+  --confirm-live \
+  --candidate fixture:good \
+  --name rubberducky-tutoring-replay-eval
+```
+
+`configured_unverified` means the settings are present. It does not mean a live call has
+succeeded. Without `--confirm-live`, `chalk-run` refuses and exits with code 2.
 
 Docs: https://docs.chalk.ai
 
