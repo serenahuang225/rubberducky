@@ -295,6 +295,18 @@ export function QuestionIntake({ theme, busy, onStart }: QuestionIntakeProps) {
             Use a practice problem
           </Text>
         </Pressable>
+        <Pressable
+          testID="question-calculus"
+          accessibilityRole="button"
+          accessibilityLabel="Practice derivatives, integrals, and a gradient"
+          disabled={busy}
+          onPress={() => onStart({ energy, calculus: true })}
+          style={[styles.button, { backgroundColor: theme.board, borderColor: theme.controlEdge }]}
+        >
+          <Text style={[styles.buttonText, { color: theme.labelText }]}>
+            Practice calculus
+          </Text>
+        </Pressable>
       </View>
     </View>
   );

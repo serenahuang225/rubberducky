@@ -29,6 +29,7 @@ InputReason = Literal[
     "exponent",
     "inequality",
     "nonlinear",
+    "degree_too_high",
     "variable_in_denominator",
     "division_by_zero",
     "unconfirmed_ink",

@@ -6,6 +6,7 @@ then feedback, fading and a fresh independent transfer. Every plan lists the evi
 grounded in, what must not be disclosed yet, and the action expected from the learner.
 """
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
@@ -25,9 +26,12 @@ from app.pedagogy.problems import (
     ProblemSpec,
 )
 from app.pedagogy.scaffolds import (
+    EXPLAIN_LEVEL,
+    ScaffoldMove,
     choose_move,
     representation_drawings,
 )
+from app.verification.calculus import check_derivative, check_gradient, check_integral
 from app.schemas.common import ContractModel, EntityId
 from app.schemas.learner import ComfortOverride, Personality
 from app.schemas.tutor import (
@@ -89,6 +93,100 @@ def classify_help(intent: HelpIntent) -> WorkAnalysis:
     return WorkAnalysis("explain_request" if intent == "explain_request" else "not_sure", None)
 
 
+_CALCULUS_BECAUSE = re.compile(r"\s+(?:because|since|so)\s+", re.IGNORECASE)
+
+
+def _split_calculus_reason(text: str) -> tuple[str, str | None]:
+    from app.verification.calculus import parse_polynomial
+    from app.verification.errors import RejectedInputError
+
+    match = _CALCULUS_BECAUSE.search(text)
+    if match is None:
+        return text.strip(), None
+    claim, rest = text[: match.start()].strip(), text[match.end() :].strip()
+    if not claim or not rest:
+        return text.strip(), None
+    try:
+        parse_polynomial(claim)
+    except RejectedInputError:
+        return text.strip(), None
+    return claim, rest
+
+
+def _calculus_hint(spec: ProblemSpec, *, explain: bool) -> ScaffoldMove:
+    shown = spec.expanded_step or ""
+    if explain:
+        hint = f"The result is {shown}. Type that line back."
+        if spec.family == "integral":
+            hint = (
+                f"The result is {shown}. Adding + C, or any number, is the same answer. "
+                "Type the line back."
+            )
+        return ScaffoldMove(
+            action="explain_on_request",
+            level=EXPLAIN_LEVEL,
+            representation="worked_step",
+            params={"calculus_hint": hint, "source": "explain_request", "trigger": "requested"},
+            expected="Type the result back.",
+            justification="The learner asked to be told, so show the checked result.",
+            concepts=[spec.concept_id],
+            reveals=True,
+        )
+    hints = {
+        "derivative": (
+            "Take each term on its own. For a power, multiply by the exponent and lower "
+            "that exponent by one. A plain x counts as x to the first power. Add the pieces."
+        ),
+        "integral": (
+            "Raise each power by one and divide by the new power. You can add + C, or any "
+            "constant, at the end."
+        ),
+        "gradient": (
+            "Differentiate with respect to x while holding y still, then with respect to y "
+            "while holding x still. Write the two results as a pair."
+        ),
+    }
+    return ScaffoldMove(
+        action="diagnostic_hint",
+        level=1,
+        representation="outside_factor",
+        params={"calculus_hint": hints[spec.family], "source": "not_sure"},
+        expected="Type the result. You can add a few words naming the rule.",
+        justification="A calculus hint names the rule and does not give the result.",
+        concepts=[spec.concept_id],
+        reveals=False,
+    )
+
+
+def _classify_calculus(
+    spec: ProblemSpec, text: str, input_mode: WorkInputMode
+) -> WorkAnalysis:
+    if input_mode == "unconfirmed_ink":
+        return WorkAnalysis("unconfirmed_ink", None)
+    helped = _help_analysis(text)
+    if helped is not None:
+        return helped
+    claim, reasoning = _split_calculus_reason(text)
+    expression = spec.expression or ""
+    variable = spec.variable or "x"
+    if spec.family == "derivative":
+        result = check_derivative(expression, claim, variable)
+    elif spec.family == "integral":
+        result = check_integral(expression, claim, variable)
+    else:
+        result = check_gradient(expression, claim, spec.gradient_variables or ("x", "y"))
+    if result.status == "valid":
+        kind: WorkClassification = (
+            "solution_with_reasoning" if reasoning else "solution_without_reasoning"
+        )
+        return WorkAnalysis(
+            kind, result, result.candidate.normalized, explanation_seen=reasoning
+        )
+    if result.status == "invalid":
+        return WorkAnalysis("wrong_solution", result, result.candidate.normalized)
+    return WorkAnalysis("unsupported", result)
+
+
 def classify_work(
     spec: ProblemSpec, prior_steps: Sequence[str], text: str, input_mode: WorkInputMode
 ) -> WorkAnalysis:
@@ -97,6 +195,8 @@ def classify_work(
     A leading mathematical claim is verified on its own; any words after it only inform
     the pedagogical reasoning reading and never the verifier's outcome.
     """
+    if spec.family != "linear":
+        return _classify_calculus(spec, text, input_mode)
     if spec.kind == "explanation":
         return _help_analysis(text) or WorkAnalysis("explanation", None)
     source = WorkSource(author_role="student", input_mode=input_mode)
@@ -325,21 +425,26 @@ def plan_work(facts: WorkFacts, persona: Persona) -> TurnPlan:
     helping = analysis.classification in ("not_sure", "explain_request")
     move = None
     if helping or analysis.classification == "partial_distribution":
-        move = choose_move(
-            spec,
-            source=(
-                "partial_distribution"
-                if analysis.classification == "partial_distribution"
-                else (
-                    "explain_request"
-                    if analysis.classification == "explain_request"
-                    else "not_sure"
-                )
-            ),
-            levels=facts.attempt_hint_levels,
-            counter_evidence=facts.hypothesis is not None
-            and facts.hypothesis.substantive_counterevidence,
-        )
+        if spec.family != "linear":
+            move = _calculus_hint(
+                spec, explain=analysis.classification == "explain_request"
+            )
+        else:
+            move = choose_move(
+                spec,
+                source=(
+                    "partial_distribution"
+                    if analysis.classification == "partial_distribution"
+                    else (
+                        "explain_request"
+                        if analysis.classification == "explain_request"
+                        else "not_sure"
+                    )
+                ),
+                levels=facts.attempt_hint_levels,
+                counter_evidence=facts.hypothesis is not None
+                and facts.hypothesis.substantive_counterevidence,
+            )
     forbidden = _forbidden(
         spec,
         solution_known=solution_known,
@@ -357,6 +462,8 @@ def plan_work(facts: WorkFacts, persona: Persona) -> TurnPlan:
         )
     status = None if analysis.verification is None else analysis.verification.status
     params: dict[str, str] = {"statement": problem.statement}
+    if spec.family != "linear":
+        params["family"] = spec.family
     hint_level = 0
     tone: Tone = "neutral"
     drawings: list[dict[str, Any]] = []
@@ -378,7 +485,10 @@ def plan_work(facts: WorkFacts, persona: Persona) -> TurnPlan:
             justification = "Raw ink is not recognized with certainty, so ask before assessing."
         case "unsupported":
             action = "ask_rephrase"
-            expected = "Rewrite the step using numbers, a variable, + - * / and =."
+            if spec.family != "linear":
+                expected = "Rewrite it with numbers, letters, ^, and + - * /."
+            else:
+                expected = "Rewrite the step using numbers, a variable, + - * / and =."
             justification = "The verifier could not check this form; it is unknown, not wrong."
         case "valid_step":
             action = "step_feedback"
@@ -431,11 +541,17 @@ def plan_work(facts: WorkFacts, persona: Persona) -> TurnPlan:
         case "solution_without_reasoning":
             action = "reasoning_check"
             params |= {"value": analysis.normalized or facts.text}
+            if spec.family != "linear":
+                params["calculus"] = "yes"
             if analysis.unresolved_step is not None:
                 params["unresolved"] = analysis.unresolved_step
             if analysis.explanation_seen is not None:
                 params["explained"] = "yes"
-            expected = "Type one step that shows how you got this value."
+            expected = (
+                "Add a few words naming the rule you used."
+                if spec.family != "linear"
+                else "Type one step that shows how you got this value."
+            )
             justification = (
                 "Correct value, but no checked reasoning yet, so it is not independent evidence."
             )

@@ -76,11 +76,20 @@ CONCEPT_IDS = (
     "concept.distribution",
     "concept.equality_operations",
     "concept.linear_equations",
+    "concept.polynomials",
+    "concept.derivatives",
+    "concept.integrals",
+    "concept.gradients",
 )
 FIXTURE_PROBLEM_ID = "problem.distribute_2x3_eq_14"
 TRANSFER_PROBLEM_ID = "problem.transfer_3x_minus_2_eq_12"
 STRUCTURAL_TRANSFER_PROBLEM_ID = "problem.transfer_5_eq_2z_minus_3_plus_1"
 EXPLANATION_PROBLEM_ID = "problem.explain_distribution"
+DERIVATIVE_PROBLEM_ID = "problem.derivative_x2_plus_3x"
+DERIVATIVE_TRANSFER_PROBLEM_ID = "problem.derivative_4x3_minus_x"
+INTEGRAL_PROBLEM_ID = "problem.integral_2x"
+INTEGRAL_TRANSFER_PROBLEM_ID = "problem.integral_3x2"
+GRADIENT_PROBLEM_ID = "problem.gradient_x2_plus_y2"
 
 
 def curriculum_records() -> list[ContractModel]:
@@ -116,12 +125,39 @@ def curriculum_records() -> list[ContractModel]:
             description="Solving one-variable linear equations such as 2(x + 3) = 14.",
             created_at=t,
         ),
+        Concept(
+            id="concept.polynomials",
+            name="Polynomials",
+            description="Sums of whole-number powers of a variable, such as x^2 + 3x.",
+            created_at=t,
+        ),
+        Concept(
+            id="concept.derivatives",
+            name="Derivatives of polynomials",
+            description="The derivative of a polynomial, taken term by term.",
+            created_at=t,
+        ),
+        Concept(
+            id="concept.integrals",
+            name="Antiderivatives of polynomials",
+            description="An antiderivative of a polynomial, up to a constant.",
+            created_at=t,
+        ),
+        Concept(
+            id="concept.gradients",
+            name="Gradients of polynomials",
+            description="The pair of partial derivatives of a polynomial in x and y.",
+            created_at=t,
+        ),
     ]
     edge_pairs = [
         ("concept.multiplication", "concept.grouping"),
         ("concept.grouping", "concept.distribution"),
         ("concept.distribution", "concept.linear_equations"),
         ("concept.equality_operations", "concept.linear_equations"),
+        ("concept.polynomials", "concept.derivatives"),
+        ("concept.polynomials", "concept.integrals"),
+        ("concept.derivatives", "concept.gradients"),
     ]
     edges = [
         PrerequisiteEdge(
@@ -161,6 +197,27 @@ def curriculum_records() -> list[ContractModel]:
             description="Solve a structurally different equation without help.",
             created_at=t,
         ),
+        LearningObjective(
+            id="objective.differentiate_polynomial",
+            concept_id="concept.derivatives",
+            kind="procedure",
+            description="Differentiate a polynomial term by term.",
+            created_at=t,
+        ),
+        LearningObjective(
+            id="objective.integrate_polynomial",
+            concept_id="concept.integrals",
+            kind="procedure",
+            description="Find an antiderivative of a polynomial, up to a constant.",
+            created_at=t,
+        ),
+        LearningObjective(
+            id="objective.gradient_polynomial",
+            concept_id="concept.gradients",
+            kind="procedure",
+            description="Write the gradient of a polynomial in x and y.",
+            created_at=t,
+        ),
     ]
     problems = [
         Problem(
@@ -195,6 +252,48 @@ def curriculum_records() -> list[ContractModel]:
             objective_id="objective.explain_distribution",
             statement="Explain why 2(x + 3) equals 2x + 6.",
             kind="explanation",
+            created_at=t,
+        ),
+        Problem(
+            id=DERIVATIVE_PROBLEM_ID,
+            concept_id="concept.derivatives",
+            objective_id="objective.differentiate_polynomial",
+            statement="Find the derivative of x^2 + 3*x",
+            kind="practice",
+            created_at=t,
+        ),
+        Problem(
+            id=DERIVATIVE_TRANSFER_PROBLEM_ID,
+            concept_id="concept.derivatives",
+            objective_id="objective.differentiate_polynomial",
+            statement="Find the derivative of 4*x^3 - x",
+            kind="transfer",
+            variant_of_problem_id=DERIVATIVE_PROBLEM_ID,
+            created_at=t,
+        ),
+        Problem(
+            id=INTEGRAL_PROBLEM_ID,
+            concept_id="concept.integrals",
+            objective_id="objective.integrate_polynomial",
+            statement="Find an antiderivative of 2*x",
+            kind="practice",
+            created_at=t,
+        ),
+        Problem(
+            id=INTEGRAL_TRANSFER_PROBLEM_ID,
+            concept_id="concept.integrals",
+            objective_id="objective.integrate_polynomial",
+            statement="Find an antiderivative of 3*x^2",
+            kind="transfer",
+            variant_of_problem_id=INTEGRAL_PROBLEM_ID,
+            created_at=t,
+        ),
+        Problem(
+            id=GRADIENT_PROBLEM_ID,
+            concept_id="concept.gradients",
+            objective_id="objective.gradient_polynomial",
+            statement="Find the gradient of x^2 + y^2",
+            kind="practice",
             created_at=t,
         ),
     ]

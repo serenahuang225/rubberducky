@@ -12,8 +12,13 @@ from typing import Literal
 import sympy
 
 from app.db.seed import (
+    DERIVATIVE_PROBLEM_ID,
+    DERIVATIVE_TRANSFER_PROBLEM_ID,
     EXPLANATION_PROBLEM_ID,
     FIXTURE_PROBLEM_ID,
+    GRADIENT_PROBLEM_ID,
+    INTEGRAL_PROBLEM_ID,
+    INTEGRAL_TRANSFER_PROBLEM_ID,
     STRUCTURAL_TRANSFER_PROBLEM_ID,
     TRANSFER_PROBLEM_ID,
 )
@@ -21,6 +26,7 @@ from app.verification import assess_input
 from app.verification.parser import ParsedEquation
 
 ProblemKind = Literal["practice", "transfer", "explanation"]
+ProblemFamily = Literal["linear", "derivative", "integral", "gradient"]
 
 DISTRIBUTION = "concept.distribution"
 LINEAR_EQUATIONS = "concept.linear_equations"
@@ -49,6 +55,11 @@ class ProblemSpec:
     expanded_side: str | None = None
     partial_distribution_steps: tuple[str, ...] = field(default_factory=tuple)
     rubric_id: str | None = None
+    # linear keeps the algebra checker. The other families use the polynomial checker.
+    family: ProblemFamily = "linear"
+    # The polynomial a calculus problem asks about. The statement is the sentence shown.
+    expression: str | None = None
+    gradient_variables: tuple[str, str] | None = None
 
     def solution_claims(self) -> tuple[str, ...]:
         if self.variable is None or self.solution is None:
@@ -122,10 +133,77 @@ PROBLEMS: dict[str, ProblemSpec] = {
             step_concept_id=DISTRIBUTION,
             rubric_id="rubric.distribution.explain",
         ),
+        ProblemSpec(
+            problem_id=DERIVATIVE_PROBLEM_ID,
+            statement="Find the derivative of x^2 + 3*x",
+            kind="practice",
+            concept_id="concept.derivatives",
+            step_concept_id="concept.derivatives",
+            variable="x",
+            family="derivative",
+            expression="x^2 + 3*x",
+            expanded_step="2*x + 3",
+            expanded_side="2x + 3",
+        ),
+        ProblemSpec(
+            problem_id=DERIVATIVE_TRANSFER_PROBLEM_ID,
+            statement="Find the derivative of 4*x^3 - x",
+            kind="transfer",
+            concept_id="concept.derivatives",
+            step_concept_id="concept.derivatives",
+            variable="x",
+            family="derivative",
+            expression="4*x^3 - x",
+            expanded_step="12*x^2 - 1",
+            expanded_side="12x^2 - 1",
+        ),
+        ProblemSpec(
+            problem_id=INTEGRAL_PROBLEM_ID,
+            statement="Find an antiderivative of 2*x",
+            kind="practice",
+            concept_id="concept.integrals",
+            step_concept_id="concept.integrals",
+            variable="x",
+            family="integral",
+            expression="2*x",
+            expanded_step="x^2",
+            expanded_side="x^2 + C",
+        ),
+        ProblemSpec(
+            problem_id=INTEGRAL_TRANSFER_PROBLEM_ID,
+            statement="Find an antiderivative of 3*x^2",
+            kind="transfer",
+            concept_id="concept.integrals",
+            step_concept_id="concept.integrals",
+            variable="x",
+            family="integral",
+            expression="3*x^2",
+            expanded_step="x^3",
+            expanded_side="x^3 + C",
+        ),
+        ProblemSpec(
+            problem_id=GRADIENT_PROBLEM_ID,
+            statement="Find the gradient of x^2 + y^2",
+            kind="practice",
+            concept_id="concept.gradients",
+            step_concept_id="concept.gradients",
+            family="gradient",
+            expression="x^2 + y^2",
+            gradient_variables=("x", "y"),
+            expanded_step="(2*x, 2*y)",
+            expanded_side="(2x, 2y)",
+        ),
     )
 }
 
 TRANSFER_ORDER: tuple[str, ...] = (TRANSFER_PROBLEM_ID, STRUCTURAL_TRANSFER_PROBLEM_ID)
+CALCULUS_ORDER: tuple[str, ...] = (
+    DERIVATIVE_PROBLEM_ID,
+    DERIVATIVE_TRANSFER_PROBLEM_ID,
+    INTEGRAL_PROBLEM_ID,
+    INTEGRAL_TRANSFER_PROBLEM_ID,
+    GRADIENT_PROBLEM_ID,
+)
 
 
 class UnknownProblemError(LookupError):

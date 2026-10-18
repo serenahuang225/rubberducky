@@ -60,7 +60,10 @@ LearnerControl = Literal["none", "still_exploring", "ask_question", "give_hint"]
 Pace = Literal["standard", "lighter"]
 Energy = Literal["ready", "a_bit_tired", "tired"]
 GoalChoice = Literal[
-    "solve_equations_with_parentheses", "explain_distribution", "learner_question"
+    "solve_equations_with_parentheses",
+    "explain_distribution",
+    "learner_question",
+    "practice_calculus",
 ]
 QuestionImageType = Literal["image/png", "image/jpeg", "image/webp"]
 WorkInputMode = Literal["typed", "confirmed_ink", "unconfirmed_ink"]

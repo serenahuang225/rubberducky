@@ -95,6 +95,7 @@ export type CheckInInput = {
   questionText?: string;
   image?: QuestionImage | null;
   practice?: boolean;
+  calculus?: boolean;
   handhold?: HandholdMode;
 };
 
@@ -354,6 +355,7 @@ export class ApiClient {
   ): Promise<TutorTurnResult> {
     const question = input.questionText?.trim() ?? "";
     const practice = input.practice === true || (question.length === 0 && input.image == null);
+    const calculus = input.calculus === true;
     return this.request(
       "POST",
       `/sessions/${sessionId}/check-in`,
@@ -362,12 +364,17 @@ export class ApiClient {
         body: {
           schema_version: "check-in-request.v1",
           expected_revision: expectedRevision,
-          goal: practice ? "solve_equations_with_parentheses" : "learner_question",
+          goal: calculus
+            ? "practice_calculus"
+            : practice
+              ? "solve_equations_with_parentheses"
+              : "learner_question",
           energy: input.energy,
-          question_text: practice || question.length === 0 ? null : question,
-          question_image_media_type: practice ? null : (input.image?.mediaType ?? null),
-          question_image_base64: practice ? null : (input.image?.base64 ?? null),
-          use_practice_problem: practice,
+          question_text: practice || calculus || question.length === 0 ? null : question,
+          question_image_media_type:
+            practice || calculus ? null : (input.image?.mediaType ?? null),
+          question_image_base64: practice || calculus ? null : (input.image?.base64 ?? null),
+          use_practice_problem: practice && !calculus,
           ...handholdBody(input.handhold),
         },
         idempotencyKey,

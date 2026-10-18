@@ -6,13 +6,15 @@ Grammar (left-associative, ``*``/``/`` bind tighter than ``+``/``-``)::
     expr      := term ( ("+" | "-") term )*
     term      := unary ( ("*" | "/") unary | implicit )*
     implicit  := VAR | "(" expr ")"          # only after a number, variable or ")"
-    unary     := ("+" | "-") unary | primary
+    unary     := ("+" | "-") unary | power
+    power     := primary ( "^" INTEGER )?   # only when powers are enabled
     primary   := NUM | VAR | "(" expr ")"
 
 Implicit multiplication covers ``2x``, ``2(x + 3)`` and ``(x)(2)``; a number after a variable
-or ``)`` (``x2``) is malformed. The tree is checked for size, depth, linearity and constant
-denominators with exact ``Fraction`` arithmetic before SymPy sees it, so SymPy only constructs
-degree-one polynomials. No string is ever passed to ``sympify``/``parse_expr``/``eval``.
+or ``)`` (``x2``) is malformed. The tree is checked for size, depth, degree and constant
+denominators with exact ``Fraction`` arithmetic before SymPy sees it. The default degree
+limit is 1, so the algebra checker still rejects ``x^2``. A calculus caller can opt into
+``^`` and a higher degree. No string is ever passed to ``sympify``/``parse_expr``/``eval``.
 """
 
 from __future__ import annotations
@@ -69,10 +71,13 @@ Parsed = ParsedExpression | ParsedEquation
 
 
 class _Parser:
-    def __init__(self, tokens: list[Token], bounds: VerificationBounds) -> None:
+    def __init__(
+        self, tokens: list[Token], bounds: VerificationBounds, *, allow_powers: bool
+    ) -> None:
         self._tokens = tokens
         self._pos = 0
         self._bounds = bounds
+        self._allow_powers = allow_powers
         self._nodes = 0
         self._operations = 0
 
@@ -149,7 +154,23 @@ class _Parser:
             if token.text == "+":
                 return operand
             return self._count(Neg(operand))
-        return self._primary(depth)
+        return self._power(depth)
+
+    def _power(self, depth: int) -> Node:
+        base = self._primary(depth)
+        token = self._peek()
+        if token is None or token.kind != "op" or token.text != "^":
+            return base
+        if not self._allow_powers:
+            raise RejectedInputError("unsupported", "exponent", "powers are outside this checker")
+        self._advance()
+        exponent = self._peek()
+        if exponent is None or exponent.kind != "num" or "." in exponent.text:
+            raise RejectedInputError(
+                "unsupported", "exponent", "the exponent must be a whole number"
+            )
+        self._advance()
+        return self._count(BinOp("^", base, Num(Fraction(exponent.text))))
 
     def _primary(self, depth: int) -> Node:
         token = self._peek()
@@ -182,17 +203,48 @@ def _check_size(value: Fraction, bounds: VerificationBounds) -> Fraction:
     return value
 
 
-def _analyze(node: Node, bounds: VerificationBounds) -> tuple[int, Fraction | None]:
+def _too_high(degree: int, max_degree: int) -> None:
+    if degree <= max_degree:
+        return
+    if max_degree == 1:
+        raise RejectedInputError(
+            "unsupported", "nonlinear", "only linear expressions are checked"
+        )
+    raise RejectedInputError(
+        "unsupported",
+        "degree_too_high",
+        f"only polynomials of degree at most {max_degree} are checked",
+    )
+
+
+def _analyze(
+    node: Node, bounds: VerificationBounds, max_degree: int
+) -> tuple[int, Fraction | None]:
     """Return (polynomial degree upper bound, exact value if the subtree is constant)."""
     if isinstance(node, Num):
         return 0, _check_size(node.value, bounds)
     if isinstance(node, Var):
         return 1, None
     if isinstance(node, Neg):
-        degree, value = _analyze(node.operand, bounds)
+        degree, value = _analyze(node.operand, bounds, max_degree)
         return degree, None if value is None else -value
-    left_degree, left_value = _analyze(node.left, bounds)
-    right_degree, right_value = _analyze(node.right, bounds)
+    left_degree, left_value = _analyze(node.left, bounds, max_degree)
+    right_degree, right_value = _analyze(node.right, bounds, max_degree)
+    if node.op == "^":
+        if (
+            right_value is None
+            or right_value.denominator != 1
+            or right_value < 0
+        ):
+            raise RejectedInputError(
+                "unsupported", "exponent", "the exponent must be a whole number"
+            )
+        exponent = int(right_value)
+        if left_value is not None:
+            return 0, _check_size(left_value**exponent, bounds)
+        degree = left_degree * exponent
+        _too_high(degree, max_degree)
+        return degree, None
     if node.op in "+-":
         degree = max(left_degree, right_degree)
         if left_value is None or right_value is None:
@@ -201,10 +253,7 @@ def _analyze(node: Node, bounds: VerificationBounds) -> tuple[int, Fraction | No
         return degree, _check_size(total, bounds)
     if node.op == "*":
         degree = left_degree + right_degree
-        if degree > 1:
-            raise RejectedInputError(
-                "unsupported", "nonlinear", "only linear expressions are checked"
-            )
+        _too_high(degree, max_degree)
         if left_value is None or right_value is None:
             return degree, None
         return degree, _check_size(left_value * right_value, bounds)
@@ -249,6 +298,8 @@ def _build(node: Node, symbols: dict[str, sympy.Symbol]) -> sympy.Expr:
         return sympy.Add(left, sympy.Mul(sympy.Integer(-1), right))
     if node.op == "*":
         return sympy.Mul(left, right)
+    if node.op == "^":
+        return sympy.Pow(left, right)
     return sympy.Mul(left, sympy.Pow(right, sympy.Integer(-1)))
 
 
@@ -260,14 +311,20 @@ def _check_coefficients(expr: sympy.Expr, bounds: VerificationBounds) -> sympy.E
     return expanded
 
 
-def parse_math(raw: str, bounds: VerificationBounds) -> Parsed:
+def parse_math(
+    raw: str,
+    bounds: VerificationBounds,
+    *,
+    max_degree: int = 1,
+    allow_powers: bool = False,
+) -> Parsed:
     """Parse one typed expression or equation, raising ``RejectedInputError`` for anything else."""
-    tokens = tokenize(raw, bounds)
+    tokens = tokenize(raw, bounds, allow_powers=allow_powers)
     equals = sum(1 for token in tokens if token.kind == "eq")
     if equals > 1:
         raise RejectedInputError("malformed", "malformed_equality", "use exactly one '='")
 
-    parser = _Parser(tokens, bounds)
+    parser = _Parser(tokens, bounds, allow_powers=allow_powers)
     sides = [parser.parse_side()]
     if parser._peek_kind("eq"):
         parser._advance()
@@ -280,7 +337,7 @@ def parse_math(raw: str, bounds: VerificationBounds) -> Parsed:
         raise RejectedInputError("malformed", reason, f"unexpected '{leftover.text}'")
 
     for side in sides:
-        _analyze(side, bounds)
+        _analyze(side, bounds, max_degree)
     names: set[str] = set()
     for side in sides:
         _variables(side, names)

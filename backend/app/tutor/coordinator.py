@@ -24,7 +24,7 @@ from app.config import Settings
 from app.db.database import Database
 from app.db.models import AttemptRow, HintRow, SessionRow, TutorTurnRow
 from app.db.repositories import ScopedRepository
-from app.db.seed import EXPLANATION_PROBLEM_ID, FIXTURE_PROBLEM_ID
+from app.db.seed import DERIVATIVE_PROBLEM_ID, EXPLANATION_PROBLEM_ID, FIXTURE_PROBLEM_ID
 from app.inference.cancel import CancelToken
 from app.inference.providers import DraftInputs, TutorProvider, get_provider
 from app.inference.request import (
@@ -40,6 +40,7 @@ from app.pedagogy.persona import effective_personality
 from app.pedagogy.intents import HelpIntent
 from app.pedagogy.policy import Persona, TurnPlan, WorkFacts, plan_check_in, plan_work
 from app.pedagogy.problems import (
+    CALCULUS_ORDER,
     TRANSFER_ORDER,
     ProblemSpec,
     UnknownProblemError,
@@ -179,11 +180,12 @@ def _plan_check_in_turn(
                     "Type a question or attach a picture of it.",
                     422,
                 )
-            problem_id = (
-                EXPLANATION_PROBLEM_ID
-                if body.goal == "explain_distribution"
-                else FIXTURE_PROBLEM_ID
-            )
+            if body.goal == "explain_distribution":
+                problem_id = EXPLANATION_PROBLEM_ID
+            elif body.goal == "practice_calculus":
+                problem_id = DERIVATIVE_PROBLEM_ID
+            else:
+                problem_id = FIXTURE_PROBLEM_ID
             spec = problem_spec(problem_id)
             attempt = ensure_attempt(repo, session.id, problem_id, now)
             statement_id = ensure_statement_object(repo, session.id, spec, now)
@@ -313,6 +315,11 @@ def _hold_plan(
 
 
 def _next_problem_after(problem_id: str) -> str | None:
+    if problem_id in CALCULUS_ORDER:
+        index = CALCULUS_ORDER.index(problem_id)
+        if index + 1 < len(CALCULUS_ORDER):
+            return CALCULUS_ORDER[index + 1]
+        return None
     if problem_id == FIXTURE_PROBLEM_ID:
         return TRANSFER_ORDER[0]
     if problem_id in TRANSFER_ORDER:
@@ -334,6 +341,10 @@ def _fresh_next(spec: ProblemSpec) -> ProblemSpec | None:
     if next_id is None:
         return None
     candidate = problem_spec(next_id)
+    if spec.family != "linear":
+        if candidate.expression == spec.expression:
+            return None
+        return candidate
     if candidate.kind == "transfer" and fresh_variant_reason(spec, candidate) is not None:
         return None
     return candidate

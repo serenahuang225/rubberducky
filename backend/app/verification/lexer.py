@@ -39,7 +39,7 @@ def _normalize(text: str) -> str:
     return "".join(_TYPOGRAPHIC.get(ch, ch) for ch in text)
 
 
-def tokenize(raw: str, bounds: VerificationBounds) -> list[Token]:
+def tokenize(raw: str, bounds: VerificationBounds, *, allow_powers: bool = False) -> list[Token]:
     if len(raw) > bounds.max_chars:
         raise RejectedInputError(
             "excessive", "too_long", f"more than {bounds.max_chars} characters"
@@ -81,7 +81,13 @@ def tokenize(raw: str, bounds: VerificationBounds) -> list[Token]:
             tokens.append(Token("eq", ch, i))
             i += 1
         elif ch == "^":
-            raise RejectedInputError("unsupported", "exponent", "powers are outside this checker")
+            if allow_powers:
+                tokens.append(Token("op", ch, i))
+                i += 1
+            else:
+                raise RejectedInputError(
+                    "unsupported", "exponent", "powers are outside this checker"
+                )
         elif ch in _INEQUALITY:
             raise RejectedInputError("unsupported", "inequality", "only equations and expressions")
         elif ch in _NON_FINITE_SYMBOLS:

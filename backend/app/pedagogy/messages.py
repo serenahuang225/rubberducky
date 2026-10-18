@@ -33,6 +33,8 @@ def _check_in(plan: TurnPlan) -> str:
 def _scaffold(plan: TurnPlan) -> str:
     """A rung of the scaffold ladder, worded from the plan's representation."""
     p = plan.message_params
+    if p.get("calculus_hint") and plan.action_type != "explain_on_request":
+        return p["calculus_hint"]
     factor, group = p.get("factor", ""), p.get("group", "")
     asked_for_help = p.get("source") == "not_sure"
     match p.get("representation"):
@@ -74,6 +76,8 @@ def _scaffold(plan: TurnPlan) -> str:
 
 def _explain(plan: TurnPlan) -> str:
     p = plan.message_params
+    if p.get("calculus_hint"):
+        return p["calculus_hint"]
     lead = (
         "Sure, here it is."
         if p.get("trigger") == "requested"
@@ -103,6 +107,10 @@ def _step_feedback(plan: TurnPlan) -> str:
 
 def _reasoning_check(plan: TurnPlan) -> str:
     p = plan.message_params
+    if p.get("calculus") == "yes":
+        return (
+            f"{p['value']} checks out. Add a few words naming the rule, such as the power rule."
+        )
     if "questionable" in p:
         return (
             f"{p['value']} does work, so the value isn't the question. You mentioned leaving a "
@@ -124,6 +132,10 @@ def _reasoning_check(plan: TurnPlan) -> str:
 
 def _success_praise(plan: TurnPlan) -> str:
     p = plan.message_params
+    if p.get("family"):
+        if p.get("revealed") == "yes":
+            return "You finished it after I showed the result."
+        return "That result checks out."
     if p.get("revealed") == "yes":
         return "You finished it with steps that check out, after I walked through the idea."
     if p.get("assisted") == "yes":
@@ -155,10 +167,22 @@ def render_utterance(plan: TurnPlan) -> str:
                 "confirm it so I can check it."
             )
         case "ask_rephrase":
-            body = (
-                "I can't check that form yet, so I'm not calling it right or wrong. Could you "
-                "write it with numbers, a variable, + - and =?"
-            )
+            if p.get("family") == "gradient":
+                body = (
+                    "I can't check that form, so I'm not calling it right or wrong. Write a "
+                    "pair (x part, y part) using numbers, letters, ^, and + - * /."
+                )
+            elif p.get("family"):
+                body = (
+                    "I can't check that form, so I'm not calling it right or wrong. Use "
+                    "numbers, a letter, ^ for a power, and + - * /. An antiderivative can "
+                    "end with + C."
+                )
+            else:
+                body = (
+                    "I can't check that form yet, so I'm not calling it right or wrong. Could you "
+                    "write it with numbers, a variable, + - and =?"
+                )
         case "step_feedback":
             body = _step_feedback(plan)
         case "diagnostic_hint" | "smaller_scaffold" | "change_representation":
@@ -173,9 +197,16 @@ def render_utterance(plan: TurnPlan) -> str:
         case "reasoning_check":
             body = _reasoning_check(plan)
         case "solution_feedback":
-            body = (
-                f"Let's test it: put {p['claim']} back into {p['statement']}. Do both sides match?"
-            )
+            if p.get("family"):
+                body = (
+                    f"{p.get('claim', 'That')} does not match this problem. Check each term "
+                    "and try again."
+                )
+            else:
+                body = (
+                    f"Let's test it: put {p['claim']} back into {p['statement']}. "
+                    "Do both sides match?"
+                )
         case "feedback_and_transfer":
             body = f"{_success_praise(plan)} Now a fresh one: {p['next_statement']}."
             if p.get("support") == "reduced":
