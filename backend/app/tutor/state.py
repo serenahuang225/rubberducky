@@ -8,13 +8,14 @@ from app.db.models import TutorTurnRow
 from app.db.repositories import NotInScopeError, ScopedRepository
 from app.learner.memory import active_session_context, stale_session_context_count
 from app.pedagogy.persona import APPEARANCES, COMFORT_OVERRIDES, PERSONALITIES
-from app.pedagogy.problems import UnknownProblemError, problem_spec
+from app.pedagogy.problems import UnknownProblemError
 from app.schemas import Session
 from app.schemas.tutor import (
     PersonaOptions,
     SessionState,
     TutorTurnResult,
 )
+from app.tutor.brought_question import spec_for_stored_problem
 from app.tutor.evidence import open_attempt, problem_view, statement_object_id
 
 MAX_TURN_EVENTS = 50
@@ -36,7 +37,7 @@ def session_state(repo: ScopedRepository, session_id: str, now: datetime) -> Ses
     attempt = open_attempt(repo, session_id)
     if attempt is not None:
         try:
-            spec = problem_spec(attempt.problem_id)
+            spec = spec_for_stored_problem(repo, attempt.problem_id)
         except UnknownProblemError:
             spec = None
         if spec is not None:

@@ -30,19 +30,19 @@ export function PromptBar({
 }: PromptBarProps) {
   return (
     <View style={styles.bar} accessibilityLiveRegion="polite">
-      <View style={styles.statusSlot}>
-        {status !== null ? (
-          <Text
-            testID="prompt-status"
-            style={[styles.status, { color: theme.labelMuted }]}
-          >
-            {status}
-          </Text>
-        ) : null}
-      </View>
+      {status !== null ? (
+        <Text
+          testID="prompt-status"
+          numberOfLines={1}
+          style={[styles.status, { color: theme.labelMuted }]}
+        >
+          {status}
+        </Text>
+      ) : null}
       {problemStatement !== null ? (
         <Text
           testID="prompt-problem"
+          numberOfLines={1}
           style={[styles.problem, { color: theme.labelText }]}
         >
           {problemStatement}
@@ -51,7 +51,7 @@ export function PromptBar({
       {tutorMessage !== null ? (
         <Text
           testID="prompt-tutor"
-          numberOfLines={3}
+          numberOfLines={1}
           style={[styles.message, { color: theme.labelText }]}
         >
           {tutorMessage}
@@ -60,6 +60,7 @@ export function PromptBar({
       {expectedAction !== null ? (
         <Text
           testID="prompt-expected"
+          numberOfLines={1}
           style={[styles.expected, { color: theme.labelMuted }]}
         >
           Next: {expectedAction}
@@ -70,11 +71,15 @@ export function PromptBar({
 }
 
 const styles = StyleSheet.create({
-  bar: { gap: 2 },
-  // Always one line, so "Thinking…" and "Redoing…" cannot shrink the board.
-  statusSlot: { minHeight: type.small.lineHeight },
+  bar: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    minWidth: 160,
+  },
   status: type.small,
-  problem: type.prompt,
-  message: type.body,
-  expected: type.small,
+  problem: { ...type.prompt, flexShrink: 1 },
+  message: { ...type.body, flexShrink: 2 },
+  expected: { ...type.small, flexShrink: 1 },
 });

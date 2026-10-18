@@ -49,6 +49,7 @@ from app.schemas.tutor import (
     CheckInRequest,
     CommittedDrawing,
     HelpRequest,
+    Pace,
     ProblemView,
     ProviderLabel,
     StudentInputOutcome,
@@ -59,6 +60,17 @@ from app.schemas.tutor import (
     WorkRequest,
 )
 from app.tracing.replay import replay_learner
+from app.tutor.brought_question import (
+    BroughtQuestion,
+    BroughtQuestionError,
+    follow_up_display,
+    has_brought_question,
+    is_learner_problem,
+    open_learner_problem,
+    place_teaching_note,
+    read_brought_question,
+    spec_for_stored_problem,
+)
 from app.tutor.cancellation import (
     EPOCH_CHANGED,
     INFLIGHT,
@@ -125,9 +137,9 @@ def _persona(repo: ScopedRepository) -> Persona:
     return Persona(personality=config.personality, comfort_override=config.comfort_override)
 
 
-def _spec_for_attempt(attempt: AttemptRow) -> ProblemSpec:
+def _spec_for_attempt(repo: ScopedRepository, attempt: AttemptRow) -> ProblemSpec:
     try:
-        return problem_spec(attempt.problem_id)
+        return spec_for_stored_problem(repo, attempt.problem_id)
     except UnknownProblemError as error:
         raise TurnCommandError(
             "no_active_problem", "The session's current problem is not available."
@@ -140,19 +152,37 @@ def _plan_check_in_turn(
     body: CheckInRequest,
     turn_id: str,
     now: datetime,
+    prepared: BroughtQuestion | None = None,
 ) -> tuple[TurnPlan, StudentInputOutcome]:
     observation_id, note = record_check_in(repo, session.id, turn_id, now)
-    session.goal = body.goal
+    session.goal = "learner_question" if prepared is not None else body.goal
     attempt = open_attempt(repo, session.id)
     if attempt is None:
-        problem_id = (
-            EXPLANATION_PROBLEM_ID if body.goal == "explain_distribution" else FIXTURE_PROBLEM_ID
-        )
-        spec = problem_spec(problem_id)
-        attempt = ensure_attempt(repo, session.id, problem_id, now)
-        statement_id = ensure_statement_object(repo, session.id, spec, now)
+        if prepared is not None:
+            spec, attempt, statement_id = open_learner_problem(repo, session.id, prepared, now)
+        else:
+            if body.goal == "learner_question":
+                raise TurnCommandError(
+                    "question_required",
+                    "Type a question or attach a picture of it.",
+                    422,
+                )
+            problem_id = (
+                EXPLANATION_PROBLEM_ID
+                if body.goal == "explain_distribution"
+                else FIXTURE_PROBLEM_ID
+            )
+            spec = problem_spec(problem_id)
+            attempt = ensure_attempt(repo, session.id, problem_id, now)
+            statement_id = ensure_statement_object(repo, session.id, spec, now)
     else:
-        spec = _spec_for_attempt(attempt)
+        if prepared is not None:
+            raise TurnCommandError(
+                "problem_already_open",
+                "This session already has a question. Finish it or start a new session.",
+                409,
+            )
+        spec = _spec_for_attempt(repo, attempt)
         statement_id = statement_object_id(session.id, spec.problem_id)
     problem = problem_view(spec, attempt.id, statement_id)
     hint_ids = set(
@@ -171,6 +201,21 @@ def _plan_check_in_turn(
         reminder_ids=reminder_ids,
         persona=_persona(repo),
     )
+    if prepared is not None:
+        plan = plan.model_copy(
+            update={
+                "message_params": {
+                    **plan.message_params,
+                    "learner_authored": "yes",
+                    "teaching": prepared.teaching,
+                },
+                "expected_student_action": prepared.next_step,
+                "forbidden_disclosures": [],
+                "decision_justification": (
+                    "Claude read the question and wrote the note shown on the board."
+                ),
+            }
+        )
     student_input = StudentInputOutcome(
         input_mode="check_in",
         text=None,
@@ -180,6 +225,42 @@ def _plan_check_in_turn(
         eligibility=[note],
     )
     return plan, student_input
+
+
+def _learner_reply_plan(
+    *,
+    turn_id: str,
+    spec: ProblemSpec,
+    problem: ProblemView,
+    recorded_ids: list[str],
+    persona: Persona,
+    pace: Pace,
+    attempt_id: str,
+    help_request: bool,
+) -> TurnPlan:
+    """A plan Claude may word, without the built-in algebra ladder or a known answer."""
+    return TurnPlan(
+        turn_id=turn_id,
+        action_type="diagnostic_hint" if help_request else "step_feedback",
+        tone="support",
+        message_params={"statement": problem.statement, "learner_authored": "yes"},
+        target_concept_ids=[spec.concept_id],
+        context_concept_id=spec.step_concept_id,
+        hint_level=1 if help_request else 0,
+        forbidden_disclosures=[],
+        required_evidence_ids=recorded_ids[:12],
+        local_source_ids=[],
+        expected_student_action="Read the note on the board, then try the next step.",
+        drawing_actions=[],
+        memory_hint="none",
+        pace=pace,
+        step_status=None,
+        personality=persona.personality,
+        comfort_override=persona.comfort_override,
+        current_problem=problem,
+        worked_attempt_id=attempt_id,
+        decision_justification="Claude writes the note shown for the learner's own question.",
+    )
 
 
 def _next_problem_after(problem_id: str) -> str | None:
@@ -221,7 +302,7 @@ def _plan_work_turn(
         raise TurnCommandError(
             "no_active_problem", "No problem is currently posed; check in first."
         )
-    spec = _spec_for_attempt(attempt)
+    spec = _spec_for_attempt(repo, attempt)
     input_mode: WorkInputMode | Literal["help_button"]
     if isinstance(body, HelpRequest):
         input_mode = "help_button"
@@ -281,12 +362,25 @@ def _plan_work_turn(
         .order_by(TutorTurnRow.created_at.desc(), TutorTurnRow.id)
         .limit(1)
     ).scalar_one_or_none()
-    pace = "standard"
+    pace: Pace = "standard"
     if latest is not None and latest.result.get("pace") == "lighter":
         pace = "lighter"
-    plan = plan_work(facts, _persona(repo)).model_copy(
-        update={"worked_attempt_id": attempt.id, "pace": pace}
-    )
+    persona = _persona(repo)
+    if is_learner_problem(spec.problem_id):
+        plan = _learner_reply_plan(
+            turn_id=turn_id,
+            spec=spec,
+            problem=problem,
+            recorded_ids=list(recorded.observation_ids),
+            persona=persona,
+            pace=pace,
+            attempt_id=attempt.id,
+            help_request=isinstance(body, HelpRequest),
+        )
+    else:
+        plan = plan_work(facts, persona).model_copy(
+            update={"worked_attempt_id": attempt.id, "pace": pace}
+        )
     student_input = StudentInputOutcome(
         input_mode=input_mode,
         text=learner_text,
@@ -313,11 +407,21 @@ def _reserve(
     idempotency_key: str,
     label: ProviderLabel,
     now: datetime,
+    prepared: BroughtQuestion | None = None,
 ) -> _Reserved | TutorTurnResult:
     withdrawn: list[str] = []
     try:
         outcome = _reserve_in_transaction(
-            database, scope, session_id, kind, body, idempotency_key, label, now, withdrawn
+            database,
+            scope,
+            session_id,
+            kind,
+            body,
+            idempotency_key,
+            label,
+            now,
+            withdrawn,
+            prepared,
         )
     except TurnCommandError as error:
         if error.code != "revision_conflict":
@@ -325,7 +429,16 @@ def _reserve(
         # A simultaneous identical retry may have just reserved this very key; look again so
         # it replays that turn instead of reporting a conflict with itself.
         outcome = _reserve_in_transaction(
-            database, scope, session_id, kind, body, idempotency_key, label, now, withdrawn
+            database,
+            scope,
+            session_id,
+            kind,
+            body,
+            idempotency_key,
+            label,
+            now,
+            withdrawn,
+            prepared,
         )
     # Cooperative provider cancel only after the withdrawal is durable.
     INFLIGHT.cancel(withdrawn, "superseded")
@@ -363,6 +476,7 @@ def _reserve_in_transaction(
     label: ProviderLabel,
     now: datetime,
     withdrawn: list[str],
+    prepared: BroughtQuestion | None = None,
 ) -> _Reserved | TutorTurnResult:
     request_hash = _request_hash(kind, body)
     # A Help press is stored as a work turn: it records learner input for the open problem.
@@ -445,7 +559,9 @@ def _reserve_in_transaction(
         turn_id = new_id()
         if kind == "check_in":
             assert isinstance(body, CheckInRequest)  # noqa: S101 - narrowed by caller
-            plan, student_input = _plan_check_in_turn(repo, session, body, turn_id, now)
+            plan, student_input = _plan_check_in_turn(
+                repo, session, body, turn_id, now, prepared
+            )
         else:
             assert isinstance(body, WorkRequest | HelpRequest)  # noqa: S101 - narrowed by caller
             plan, student_input = _plan_work_turn(repo, session, body, turn_id, now)
@@ -501,10 +617,36 @@ def _reserve_in_transaction(
 
 def _learner_text(body: CheckInRequest | WorkRequest | HelpRequest) -> str:
     if isinstance(body, CheckInRequest):
+        question = (body.question_text or "").strip()
+        if question:
+            return f"Check-in question: {question[:500]}"
+        if body.question_image_base64 is not None:
+            return "Check-in question: a picture of the learner's question."
         return f"Check-in: goal={body.goal}; energy={body.energy or 'not said'}."
     if isinstance(body, HelpRequest):
         return f"[help_button] mode={body.mode}"
     return f"[{body.input_mode}] {body.text}"
+
+
+def _draft_from_teaching(
+    plan: TurnPlan, session_revision: int, teaching: str, next_step: str
+) -> TutorDraft:
+    """Package Claude's displayed note as a draft that matches the stored plan."""
+    return TutorDraft(
+        turn_id=plan.turn_id,
+        session_revision=session_revision,
+        action_type=plan.action_type,
+        utterance=teaching,
+        target_concept_ids=list(plan.target_concept_ids),
+        evidence_ids=list(dict.fromkeys(plan.required_evidence_ids)),
+        hint_level=plan.hint_level,
+        answer_revealed=plan.reveal_allowed,
+        drawing_actions=[dict(action) for action in plan.drawing_actions],
+        expected_student_action=next_step,
+        proposed_memory_updates=[],
+        step_assessment=plan.step_status,
+        decision_justification=plan.decision_justification,
+    )
 
 
 def _infer(
@@ -516,8 +658,13 @@ def _infer(
     provider: TutorProvider,
     now: datetime,
     cancel: CancelToken,
+    settings: Settings,
 ) -> tuple[TutorDraft, list[str]]:
     """Build the bounded context and ask the provider. Holds no transaction open."""
+    if reserved.plan.message_params.get("learner_authored") == "yes":
+        return _infer_brought_question(database, scope, session_id, reserved, body, settings), list(
+            reserved.plan.required_evidence_ids
+        )
     db = database.new_session()
     try:
         repo = ScopedRepository(db, scope)
@@ -545,6 +692,57 @@ def _infer(
         )
     )
     return draft, list(context.citable_ids)
+
+
+def _infer_brought_question(
+    database: Database,
+    scope: LearnerScope,
+    session_id: str,
+    reserved: _Reserved,
+    body: CheckInRequest | WorkRequest | HelpRequest,
+    settings: Settings,
+) -> TutorDraft:
+    """Use the note already written at check-in, or ask Claude for the next one to display."""
+    plan = reserved.plan
+    teaching = plan.message_params.get("teaching")
+    next_step = plan.expected_student_action
+    if not teaching:
+        statement = plan.current_problem.statement if plan.current_problem is not None else ""
+        prior = _latest_utterance(database, scope, session_id)
+        if isinstance(body, HelpRequest):
+            learner_text = "They pressed Help me and want the next idea shown on the board."
+        elif isinstance(body, WorkRequest):
+            learner_text = body.text
+        else:
+            learner_text = (body.question_text or "").strip()
+        displayed = follow_up_display(
+            settings, statement=statement, learner_text=learner_text, prior_note=prior
+        )
+        teaching = displayed.teaching
+        next_step = displayed.next_step
+    return _draft_from_teaching(plan, reserved.base_revision + 1, teaching, next_step)
+
+
+def _latest_utterance(database: Database, scope: LearnerScope, session_id: str) -> str | None:
+    db = database.new_session()
+    try:
+        repo = ScopedRepository(db, scope)
+        latest = repo.db.execute(
+            select(TutorTurnRow)
+            .where(
+                TutorTurnRow.learner_id == scope.learner_id,
+                TutorTurnRow.session_id == session_id,
+                TutorTurnRow.status == "committed",
+            )
+            .order_by(TutorTurnRow.created_at.desc(), TutorTurnRow.id)
+            .limit(1)
+        ).scalar_one_or_none()
+    finally:
+        db.close()
+    if latest is None:
+        return None
+    utterance = latest.result.get("utterance")
+    return utterance if isinstance(utterance, str) and utterance else None
 
 
 def _label(row: TutorTurnRow, provider: TutorProvider) -> ProviderLabel:
@@ -689,6 +887,13 @@ def _commit(
                     )
                     for item in applied
                 ]
+                if plan.message_params.get("learner_authored") == "yes":
+                    note_id = place_teaching_note(repo, session_id, row.id, draft.utterance, now)
+                    drawings.append(
+                        CommittedDrawing(
+                            object_id=note_id, tool="text", semantic_role="teaching_note"
+                        )
+                    )
                 if (
                     plan.worked_attempt_id is not None
                     and plan.current_problem is not None
@@ -738,7 +943,13 @@ def _commit(
             pace=plan.pace,
             action_type=plan.action_type,
             utterance=draft.utterance if committed and draft is not None else None,
-            expected_student_action=plan.expected_student_action,
+            expected_student_action=(
+                draft.expected_student_action
+                if committed
+                and draft is not None
+                and plan.message_params.get("learner_authored") == "yes"
+                else plan.expected_student_action
+            ),
             target_concept_ids=list(plan.target_concept_ids),
             evidence_ids=list(draft.evidence_ids) if committed and draft is not None else [],
             hypothesis=plan.hypothesis if committed else None,
@@ -767,6 +978,29 @@ def _commit(
         return result
 
 
+def _idempotency_known(database: Database, scope: LearnerScope, idempotency_key: str) -> bool:
+    """True when this key already reserved a turn, so a retry must not call Claude again."""
+    with database.transaction() as db:
+        repo = ScopedRepository(db, scope)
+        existing = repo.db.execute(
+            select(TutorTurnRow.id).where(
+                TutorTurnRow.learner_id == scope.learner_id,
+                TutorTurnRow.idempotency_key == idempotency_key,
+            )
+        ).scalar_one_or_none()
+    return existing is not None
+
+
+def _require_claude(settings: Settings) -> None:
+    if settings.tutor_provider != "claude" or not settings.external_integrations_enabled:
+        raise TurnCommandError(
+            "tutor_not_configured",
+            "Showing your own question needs the Claude tutor. "
+            "The server is still on the scripted tutor.",
+            503,
+        )
+
+
 def execute_turn(
     database: Database,
     scope: LearnerScope,
@@ -778,9 +1012,28 @@ def execute_turn(
     now: datetime,
 ) -> TutorTurnResult:
     """Run one tutor command end to end (reserve, infer outside transactions, commit)."""
+    prepared: BroughtQuestion | None = None
+    if (
+        isinstance(body, CheckInRequest)
+        and has_brought_question(body)
+        and not _idempotency_known(database, scope, idempotency_key)
+    ):
+        _require_claude(settings)
+        try:
+            prepared = read_brought_question(settings, body)
+        except BroughtQuestionError as error:
+            raise TurnCommandError("provider_error", error.message, 502) from error
     provider = get_provider(settings)
     reserved = _reserve(
-        database, scope, session_id, kind, body, idempotency_key, provider.label(), now
+        database,
+        scope,
+        session_id,
+        kind,
+        body,
+        idempotency_key,
+        provider.label(),
+        now,
+        prepared,
     )
     if isinstance(reserved, TutorTurnResult):
         return reserved
@@ -790,8 +1043,10 @@ def execute_turn(
     token = INFLIGHT.register(reserved.turn_id)
     try:
         draft, citable_ids = _infer(
-            database, scope, session_id, reserved, body, provider, now, token
+            database, scope, session_id, reserved, body, provider, now, token, settings
         )
+    except BroughtQuestionError as error:
+        draft_error = TurnRejection(code="provider_error", message=error.message[:200])
     except (InsufficientContextError, ProviderBudgetError) as error:
         draft_error = TurnRejection(
             code="context_does_not_fit",

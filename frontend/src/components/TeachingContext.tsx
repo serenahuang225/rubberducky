@@ -147,22 +147,22 @@ export function TeachingContext({ theme, turn }: TeachingContextProps) {
         </View>
       ) : null}
       {insight.disclosure !== null ? (
-        <Text testID="teaching-disclosure" style={[styles.line, text]}>
+        <Text testID="teaching-disclosure" numberOfLines={1} style={[styles.line, text]}>
           {insight.disclosure}
         </Text>
       ) : null}
       {insight.mathJudgment !== null ? (
-        <Text testID="teaching-math" style={[styles.line, text]}>
+        <Text testID="teaching-math" numberOfLines={1} style={[styles.line, text]}>
           {insight.mathJudgment}
         </Text>
       ) : null}
       {insight.reasoningJudgment !== null ? (
-        <Text testID="teaching-reasoning" style={[styles.line, text]}>
+        <Text testID="teaching-reasoning" numberOfLines={1} style={[styles.line, text]}>
           {insight.reasoningJudgment}
         </Text>
       ) : null}
       {insight.independence !== null ? (
-        <Text testID="teaching-independence" style={[styles.line, muted]}>
+        <Text testID="teaching-independence" numberOfLines={1} style={[styles.line, muted]}>
           {insight.independence}
         </Text>
       ) : null}
@@ -186,8 +186,15 @@ export function TeachingContext({ theme, turn }: TeachingContextProps) {
 }
 
 const styles = StyleSheet.create({
-  box: { gap: 6, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  box: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 4,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
   chip: { ...type.meta, paddingVertical: 2 },
   line: type.small,
   toggle: {

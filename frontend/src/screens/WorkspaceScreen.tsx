@@ -29,6 +29,8 @@ import { loadThemeName, saveThemeName } from "../storage/credentials";
 import type { BoardInputMode } from "../components/BoardInputLayer";
 import { MediaPanel } from "../components/MediaPanel";
 import { PromptBar } from "../components/PromptBar";
+import { QuestionIntake } from "../components/QuestionIntake";
+import { MarkIcon, marks, SquareButton } from "../components/SquareButton";
 import { TeachingContext } from "../components/TeachingContext";
 import { TutorAvatar } from "../components/TutorAvatar";
 import { ToolRail } from "../components/ToolRail";
@@ -68,12 +70,6 @@ export type WorkspaceScreenProps = {
   /** Platform capture and speech drivers; the real device drivers unless a test supplies fakes. */
   media?: MediaServices;
 };
-
-const ENERGY_OPTIONS = [
-  { value: "ready" as const, label: "Ready to go" },
-  { value: "a_bit_tired" as const, label: "A bit tired" },
-  { value: "tired" as const, label: "Really tired" },
-];
 
 function stillThinkingStatusText(
   status: "idle" | "sent" | "failed",
@@ -356,88 +352,178 @@ export function WorkspaceScreen({
           status={avatarStatus}
         />
         <View style={styles.headerText}>
-          <Text style={[styles.tutorName, { color: theme.labelText }]}>
+          <Text
+            numberOfLines={1}
+            style={[styles.tutorName, { color: theme.labelText }]}
+          >
             {personaInfo.name} · {styleInfo.name}
           </Text>
-          <Text style={[styles.headerSub, { color: theme.labelMuted }]}>
-            {workspace.state.pace === "lighter"
-              ? "Taking it gently today"
-              : "Working with"}{" "}
-            {displayName}
-          </Text>
-          {workspace.providerLabel !== null ? (
+          <View style={styles.headerMeta}>
             <Text
-              testID="provider-label"
-              accessibilityLabel={
-                workspace.providerIsMock
-                  ? `Demo mode: ${workspace.providerLabel}`
-                  : `Tutor provider: ${workspace.providerLabel}`
-              }
-              style={[styles.providerLabel, { color: theme.labelMuted }]}
+              numberOfLines={1}
+              style={[styles.headerSub, { color: theme.labelMuted }]}
             >
-              {workspace.providerIsMock
-                ? `Demo mode: ${workspace.providerLabel}`
-                : workspace.providerLabel}
+              {workspace.state.pace === "lighter"
+                ? "Taking it gently today"
+                : "Working with"}{" "}
+              {displayName}
             </Text>
-          ) : null}
+            {workspace.providerLabel !== null ? (
+              <Text
+                testID="provider-label"
+                numberOfLines={1}
+                accessibilityLabel={
+                  workspace.providerIsMock
+                    ? `Demo mode: ${workspace.providerLabel}`
+                    : `Tutor provider: ${workspace.providerLabel}`
+                }
+                style={[styles.providerLabel, { color: theme.labelMuted }]}
+              >
+                {workspace.providerIsMock
+                  ? `Demo mode: ${workspace.providerLabel}`
+                  : workspace.providerLabel}
+              </Text>
+            ) : null}
+          </View>
         </View>
-        {onOpenMemory !== undefined ? (
-          <Pressable
-            testID="open-memory"
-            accessibilityRole="button"
-            accessibilityLabel="Open private memory"
-            onPress={onOpenMemory}
+        <PromptBar
+          theme={theme}
+          problemStatement={workspace.state.current_problem?.statement ?? null}
+          tutorMessage={workspace.lastUtterance}
+          expectedAction={workspace.lastExpectedAction}
+          status={
+            workspace.busyLabel ??
+            stillThinkingStatusText(wait.stillThinkingStatus)
+          }
+        />
+        <SquareButton
+          testID="help-me"
+          theme={theme}
+          label="Help me"
+          hint={
+            wait.hintAvailable
+              ? "A hint is ready when you want it"
+              : "Asks for a hint right now"
+          }
+          disabled={workspace.needsCheckIn || workspace.busyLabel !== null}
+          onPress={askHelp}
+          icon={<MarkIcon color={theme.labelText} d={marks.help} />}
+        />
+        <SquareButton
+          testID="show-typed-step"
+          theme={theme}
+          label={showTyping ? "Hide the type-a-step box" : "Type a step"}
+          onPress={() => setShowTyping((open) => !open)}
+          icon={<MarkIcon color={theme.labelText} d={marks.type} />}
+        />
+        {showTyping ? (
+          <TextInput
+            testID="typed-step-input"
+            accessibilityLabel="Type your next step"
+            placeholder="Optional, e.g. 2x + 6 = 14"
+            placeholderTextColor={theme.labelMuted}
+            value={draft}
+            onChangeText={(text) => {
+              setDraft(text);
+              wait.clearStillThinkingNote();
+            }}
+            onSubmitEditing={submitDraft}
+            editable={!workspace.needsCheckIn && workspace.busyLabel === null}
             style={[
-              styles.finishButton,
+              styles.stepInput,
               {
                 backgroundColor: theme.surface,
-                borderColor: theme.surfaceEdge,
+                borderColor: theme.controlEdge,
+                color: theme.labelText,
               },
             ]}
+          />
+        ) : null}
+        {showTyping ? (
+          <SquareButton
+            testID="submit-step"
+            theme={theme}
+            label="Submit step"
+            disabled={workspace.needsCheckIn || workspace.busyLabel !== null}
+            onPress={submitDraft}
           >
-            <Text style={[styles.finishText, { color: theme.labelText }]}>
-              Memory
-            </Text>
-          </Pressable>
+            Submit
+          </SquareButton>
+        ) : null}
+        {noted ? (
+          <Text
+            testID="step-noted"
+            accessibilityLiveRegion="polite"
+            {...ackProps(motion)}
+            style={[styles.noted, { color: theme.labelMuted }]}
+          >
+            Noted
+          </Text>
+        ) : null}
+        <SquareButton
+          testID="still-thinking"
+          theme={theme}
+          label="Still thinking"
+          disabled={workspace.needsCheckIn}
+          onPress={markStillThinking}
+          icon={<MarkIcon color={theme.labelText} d={marks.wait} />}
+        />
+        <SquareButton
+          testID="tool-theme"
+          theme={theme}
+          label={themeName === "paper" ? "Dark mode" : "Light mode"}
+          hint="Switch the board theme; your colors stay distinct"
+          onPress={toggleTheme}
+          icon={
+            <MarkIcon
+              color={theme.labelText}
+              filled={themeName === "paper"}
+              d={themeName === "paper" ? marks.moon : marks.sun}
+            />
+          }
+        />
+        {onOpenMemory !== undefined ? (
+          <SquareButton
+            testID="open-memory"
+            theme={theme}
+            label="Open private memory"
+            onPress={onOpenMemory}
+            icon={<MarkIcon color={theme.labelText} d={marks.memory} />}
+          />
         ) : null}
         {onOpenSettings !== undefined ? (
-          <Pressable
+          <SquareButton
             testID="open-settings"
-            accessibilityRole="button"
-            accessibilityLabel="Open settings"
+            theme={theme}
+            label="Open settings"
             onPress={onOpenSettings}
-            style={[
-              styles.finishButton,
-              {
-                backgroundColor: theme.surface,
-                borderColor: theme.surfaceEdge,
-              },
-            ]}
-          >
-            <Text style={[styles.finishText, { color: theme.labelText }]}>
-              Settings
-            </Text>
-          </Pressable>
+            icon={<MarkIcon color={theme.labelText} d={marks.settings} />}
+          />
         ) : null}
-        <Pressable
+        <SquareButton
           testID="finish-session"
-          accessibilityRole="button"
-          accessibilityLabel="Finish for today"
-          accessibilityHint="Ends this session; a fresh session starts next time"
-          accessibilityState={{
-            disabled: ending || workspace.busyLabel !== null,
-          }}
+          theme={theme}
+          label="Finish for today"
+          hint="Ends this session and returns to the welcome screen"
           disabled={ending || workspace.busyLabel !== null}
           onPress={() => void finishSession()}
-          style={[
-            styles.finishButton,
-            { backgroundColor: theme.surface, borderColor: theme.surfaceEdge },
-          ]}
-        >
-          <Text style={[styles.finishText, { color: theme.labelText }]}>
-            {ending ? "Ending…" : "Finish for today"}
-          </Text>
-        </Pressable>
+          icon={<MarkIcon color={theme.labelText} d={marks.finish} />}
+        />
+        <MediaPanel
+          theme={theme}
+          media={media}
+          soundAllowed={feedback.sound}
+          textOnly={feedback.textOnly}
+          captionsOn={feedback.captions}
+          onUseText={useMediaText}
+        />
+        <WaitControls
+          theme={theme}
+          hintAvailable={wait.hintAvailable}
+          preference={wait.preference}
+          preferenceError={wait.preferenceError}
+          onChangeSeconds={(seconds) => void wait.setWaitSeconds(seconds)}
+        />
       </View>
 
       {endError !== null ? (
@@ -448,17 +534,6 @@ export function WorkspaceScreen({
           {endError}
         </Text>
       ) : null}
-
-      <PromptBar
-        theme={theme}
-        problemStatement={workspace.state.current_problem?.statement ?? null}
-        tutorMessage={workspace.lastUtterance}
-        expectedAction={workspace.lastExpectedAction}
-        status={
-          workspace.busyLabel ??
-          stillThinkingStatusText(wait.stillThinkingStatus)
-        }
-      />
 
       <TeachingContext theme={theme} turn={workspace.lastTurn} />
 
@@ -506,71 +581,29 @@ export function WorkspaceScreen({
       ) : null}
 
       {workspace.needsCheckIn ? (
-        <View
-          style={[
-            styles.checkInCard,
-            { backgroundColor: theme.surface, borderColor: theme.surfaceEdge },
-          ]}
-        >
-          <Text style={[styles.checkInTitle, { color: theme.labelText }]}>
-            Quick check-in before we start
-          </Text>
-          <Text style={[styles.checkInSub, { color: theme.labelMuted }]}>
-            How are you feeling? This only shapes today’s pace.
-          </Text>
-          <View style={styles.checkInRow}>
-            {ENERGY_OPTIONS.map((option) => (
-              <Pressable
-                key={option.value}
-                testID={`checkin-${option.value}`}
-                accessibilityRole="button"
-                accessibilityLabel={option.label}
-                disabled={workspace.busyLabel !== null}
-                onPress={() => void workspace.checkIn(option.value)}
-                style={[
-                  styles.checkInButton,
-                  { backgroundColor: theme.controlBackground },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.checkInButtonText,
-                    { color: theme.controlText },
-                  ]}
-                >
-                  {option.label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
+        <QuestionIntake
+          theme={theme}
+          busy={workspace.busyLabel !== null}
+          onStart={(input) => void workspace.checkIn(input)}
+        />
       ) : null}
 
       <View style={styles.stage}>
       <View style={styles.boardArea}>
         {workspace.canInterrupt ? (
-          <Pressable
+          <SquareButton
             testID="stop-reply"
-            accessibilityRole="button"
-            accessibilityLabel="Stop reply"
-            accessibilityHint="Stops the tutor's reply; your work stays saved"
+            theme={theme}
+            label="Stop reply"
+            hint="Stops the tutor's reply; your work stays saved"
             onPress={() => {
               media.cancelSpeech("interrupt");
               void workspace.interrupt();
             }}
-            style={[
-              styles.stopButton,
-              styles.stopFloat,
-              {
-                backgroundColor: theme.surface,
-                borderColor: theme.surfaceEdge,
-              },
-            ]}
+            style={styles.stopFloat}
           >
-            <Text style={[styles.actionText, { color: theme.labelText }]}>
-              Stop reply
-            </Text>
-          </Pressable>
+            Stop
+          </SquareButton>
         ) : null}
         <WhiteboardCanvas
           testID="whiteboard"
@@ -598,7 +631,6 @@ export function WorkspaceScreen({
       </View>
       <ToolRail
         theme={theme}
-        themeName={themeName}
         mode={mode}
         layout="column"
         undoAvailable={scene.student_undo_available}
@@ -609,141 +641,8 @@ export function WorkspaceScreen({
         onUndo={() => void workspace.undo()}
         onRedo={() => void workspace.redo()}
         onUndoTutorMove={() => void workspace.undoTutorMove()}
-        onToggleTheme={toggleTheme}
       />
       </View>
-
-      <View style={styles.inputRow}>
-        <Pressable
-          testID="show-typed-step"
-          accessibilityRole="button"
-          accessibilityLabel={showTyping ? "Hide the type-a-step box" : "Type a step"}
-          onPress={() => setShowTyping((open) => !open)}
-          style={[
-            styles.actionButton,
-            {
-              backgroundColor: theme.surface,
-              borderColor: theme.surfaceEdge,
-              borderWidth: 1,
-            },
-          ]}
-        >
-          <Text style={[styles.actionText, { color: theme.labelText }]}>
-            {showTyping ? "Hide typing" : "Type a step"}
-          </Text>
-        </Pressable>
-        {showTyping ? (
-          <TextInput
-            testID="typed-step-input"
-            accessibilityLabel="Type your next step"
-            placeholder="Optional, e.g. 2x + 6 = 14"
-            placeholderTextColor={theme.labelMuted}
-            value={draft}
-            onChangeText={(text) => {
-              setDraft(text);
-              wait.clearStillThinkingNote();
-            }}
-            onSubmitEditing={submitDraft}
-            editable={!workspace.needsCheckIn && workspace.busyLabel === null}
-            style={[
-              styles.stepInput,
-              {
-                backgroundColor: theme.surface,
-                borderColor: theme.controlEdge,
-                color: theme.labelText,
-              },
-            ]}
-          />
-        ) : null}
-        {showTyping ? (
-          <Pressable
-            testID="submit-step"
-            accessibilityRole="button"
-            accessibilityLabel="Submit step"
-            accessibilityState={{ disabled: workspace.busyLabel !== null }}
-            disabled={workspace.needsCheckIn || workspace.busyLabel !== null}
-            onPress={submitDraft}
-            style={[
-              styles.actionButton,
-              { backgroundColor: theme.controlBackground },
-            ]}
-          >
-            <Text style={[styles.actionText, { color: theme.controlText }]}>
-              Submit
-            </Text>
-          </Pressable>
-        ) : null}
-        {noted ? (
-          <Text
-            testID="step-noted"
-            accessibilityLiveRegion="polite"
-            {...ackProps(motion)}
-            style={[styles.noted, { color: theme.labelMuted }]}
-          >
-            Noted
-          </Text>
-        ) : null}
-        <Pressable
-          testID="help-me"
-          accessibilityRole="button"
-          accessibilityLabel="Help me"
-          accessibilityHint={
-            wait.hintAvailable
-              ? "A hint is ready when you want it"
-              : "Asks for a hint right now"
-          }
-          disabled={workspace.needsCheckIn || workspace.busyLabel !== null}
-          onPress={askHelp}
-          style={[
-            styles.actionButton,
-            {
-              backgroundColor: theme.surface,
-              borderColor: theme.surfaceEdge,
-              borderWidth: 1,
-            },
-          ]}
-        >
-          <Text style={[styles.actionText, { color: theme.labelText }]}>
-            Help me
-          </Text>
-        </Pressable>
-        <Pressable
-          testID="still-thinking"
-          accessibilityRole="button"
-          accessibilityLabel="Still thinking"
-          disabled={workspace.needsCheckIn}
-          onPress={markStillThinking}
-          style={[
-            styles.actionButton,
-            {
-              backgroundColor: theme.surface,
-              borderColor: theme.surfaceEdge,
-              borderWidth: 1,
-            },
-          ]}
-        >
-          <Text style={[styles.actionText, { color: theme.labelText }]}>
-            Still thinking
-          </Text>
-        </Pressable>
-      </View>
-
-      <MediaPanel
-        theme={theme}
-        media={media}
-        soundAllowed={feedback.sound}
-        textOnly={feedback.textOnly}
-        captionsOn={feedback.captions}
-        onUseText={useMediaText}
-      />
-
-      <WaitControls
-        theme={theme}
-        hintAvailable={wait.hintAvailable}
-        preference={wait.preference}
-        preferenceError={wait.preferenceError}
-        onChangeSeconds={(seconds) => void wait.setWaitSeconds(seconds)}
-      />
     </KeyboardAvoidingView>
   );
 }
@@ -798,35 +697,11 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 4,
   },
-  headerText: { flex: 1, minWidth: 160 },
+  headerText: { maxWidth: 280, flexShrink: 1 },
+  headerMeta: { flexDirection: "row", alignItems: "center", gap: 8 },
   tutorName: type.name,
   headerSub: type.small,
-  providerLabel: { ...type.meta, fontWeight: "400", marginTop: 2 },
-  finishButton: {
-    minHeight: 44,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  finishText: type.meta,
-  checkInCard: {
-    marginHorizontal: 16,
-    marginBottom: 6,
-    paddingVertical: 8,
-    gap: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  checkInTitle: type.heading,
-  checkInSub: type.small,
-  checkInRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  checkInButton: {
-    minHeight: 44,
-    paddingHorizontal: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  checkInButtonText: type.control,
+  providerLabel: { ...type.meta, fontWeight: "400", flexShrink: 1 },
   stage: {
     flex: 1,
     minHeight: 0,
@@ -834,14 +709,6 @@ const styles = StyleSheet.create({
     alignItems: "stretch",
   },
   boardArea: { flex: 1, minHeight: 0, position: "relative" },
-  inputRow: {
-    flexDirection: "row",
-    gap: 8,
-    alignItems: "center",
-    flexWrap: "wrap",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
   stepInput: {
     ...type.math,
     flexGrow: 1,
@@ -850,24 +717,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: 12,
   },
-  stopButton: {
-    minHeight: 44,
-    paddingHorizontal: 12,
-    justifyContent: "center",
-    borderWidth: 1,
-  },
   stopFloat: {
     position: "absolute",
     top: 8,
     right: 8,
     zIndex: 2,
   },
-  actionButton: {
-    minHeight: 44,
-    paddingHorizontal: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  actionText: type.control,
   noted: type.meta,
 });

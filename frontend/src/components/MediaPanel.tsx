@@ -18,6 +18,8 @@ import {
   View,
 } from "react-native";
 
+import Svg, { Path } from "react-native-svg";
+
 import type { BoardTheme } from "../board/palette";
 import { nextScriptStep } from "../media/voiceSession";
 import type { MediaController, VoiceMode } from "../media/useMedia";
@@ -278,11 +280,21 @@ export function MediaPanel({
           if (!open) media.loadCapabilities();
           setOpen((value) => !value);
         }}
-        style={[styles.toggle, { borderColor: theme.surfaceEdge }]}
+        style={[
+          styles.toggle,
+          { backgroundColor: theme.surface, borderColor: theme.surfaceEdge },
+        ]}
       >
-        <Text style={[styles.buttonText, text]}>
-          Voice and camera (optional)
-        </Text>
+        <Svg width={18} height={18} viewBox="0 0 16 16">
+          <Path
+            d="M6 2.5 H10 V8 A2 2 0 0 1 6 8 Z M4 7.5 A4 4 0 0 0 12 7.5 M8 11.5 V14"
+            fill="none"
+            stroke={theme.labelText}
+            strokeWidth={1.5}
+            strokeLinejoin="miter"
+            strokeLinecap="square"
+          />
+        </Svg>
       </Pressable>
 
       {open ? (
@@ -553,31 +565,32 @@ const styles = StyleSheet.create({
     paddingLeft: 12,
     paddingRight: 6,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: 0,
     borderWidth: 1,
     alignSelf: "flex-start",
   },
-  dot: { width: 10, height: 10, borderRadius: 5 },
+  dot: { width: 10, height: 10 },
   chipText: { fontSize: 14, fontWeight: "600" },
   stop: {
     minHeight: 44,
     minWidth: 56,
     paddingHorizontal: 12,
-    borderRadius: 10,
+    borderRadius: 0,
     alignItems: "center",
     justifyContent: "center",
   },
   stopText: { fontSize: 14, fontWeight: "700" },
-  caption: { padding: 10, borderRadius: 10, borderWidth: 1, gap: 2 },
+  caption: { padding: 10, borderRadius: 0, borderWidth: 1, gap: 2 },
   toggle: {
     minHeight: 44,
-    paddingHorizontal: 12,
-    borderRadius: 10,
+    minWidth: 44,
+    paddingHorizontal: 10,
     borderWidth: 1,
+    alignItems: "center",
     justifyContent: "center",
     alignSelf: "flex-start",
   },
-  panelScroll: { maxHeight: 300, borderRadius: 12, borderWidth: 1 },
+  panelScroll: { maxHeight: 300, borderRadius: 0, borderWidth: 1 },
   panel: { gap: 8, padding: 12 },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   cameraRow: {
@@ -589,7 +602,7 @@ const styles = StyleSheet.create({
   button: {
     minHeight: 44,
     paddingHorizontal: 12,
-    borderRadius: 10,
+    borderRadius: 0,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -597,12 +610,12 @@ const styles = StyleSheet.create({
   buttonText: { fontSize: 14, fontWeight: "600" },
   body: { fontSize: 15, lineHeight: 21 },
   small: { fontSize: 13, lineHeight: 18 },
-  outcome: { gap: 8, padding: 10, borderRadius: 10, borderWidth: 1 },
+  outcome: { gap: 8, padding: 10, borderRadius: 0, borderWidth: 1 },
   offer: { gap: 6 },
   input: {
     minHeight: 44,
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: 0,
     paddingHorizontal: 12,
     fontSize: 16,
     fontFamily: "monospace",

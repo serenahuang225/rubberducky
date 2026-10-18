@@ -1,6 +1,6 @@
 /**
- * The compact board tool rail: erase, student undo/redo, grouped tutor-move undo and the
- * theme toggle. There is deliberately no brush-size or color picker — the session palette
+ * The compact board tool rail: pen, erase, student undo/redo, and grouped tutor-move undo.
+ * There is deliberately no brush-size or color picker — the session palette
  * and pen width are fixed. All targets are at least 44pt for comfortable touch.
  */
 
@@ -8,14 +8,13 @@ import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 
-import type { BoardTheme, BoardThemeName } from "../board/palette";
+import type { BoardTheme } from "../board/palette";
 import { font } from "../theme/tokens";
 
 import type { BoardInputMode } from "./BoardInputLayer";
 
 export type ToolRailProps = {
   theme: BoardTheme;
-  themeName: BoardThemeName;
   mode: BoardInputMode;
   undoAvailable: boolean;
   redoAvailable: boolean;
@@ -26,7 +25,6 @@ export type ToolRailProps = {
   onUndo: () => void;
   onRedo: () => void;
   onUndoTutorMove: () => void;
-  onToggleTheme: () => void;
 };
 
 type ToolButtonProps = {
@@ -38,6 +36,7 @@ type ToolButtonProps = {
   theme: BoardTheme;
   icon: React.ReactNode;
   column: boolean;
+  iconsOnly?: boolean;
   onPress: () => void;
   testID?: string;
 };
@@ -74,6 +73,7 @@ function ToolButton({
   theme,
   icon,
   column,
+  iconsOnly = false,
   onPress,
   testID,
 }: ToolButtonProps) {
@@ -97,8 +97,8 @@ function ToolButton({
             ? theme.controlBackground
             : pressed
               ? theme.boardGrain
-              : "transparent",
-          borderColor: active ? theme.controlBackground : "transparent",
+              : theme.surface,
+          borderColor: active ? theme.controlBackground : theme.surfaceEdge,
           opacity: disabled ? 0.45 : 1,
         },
       ]}
@@ -106,23 +106,24 @@ function ToolButton({
       <View accessible={false} importantForAccessibility="no-hide-descendants">
         {icon}
       </View>
-      <Text
-        numberOfLines={column ? 2 : 1}
-        style={[
-          styles.buttonText,
-          column ? styles.buttonTextColumn : null,
-          { color: active ? theme.controlText : theme.labelText },
-        ]}
-      >
-        {label}
-      </Text>
+      {iconsOnly ? null : (
+        <Text
+          numberOfLines={column ? 2 : 1}
+          style={[
+            styles.buttonText,
+            column ? styles.buttonTextColumn : null,
+            { color: active ? theme.controlText : theme.labelText },
+          ]}
+        >
+          {label}
+        </Text>
+      )}
     </Pressable>
   );
 }
 
 export function ToolRail({
   theme,
-  themeName,
   mode,
   undoAvailable,
   redoAvailable,
@@ -133,7 +134,6 @@ export function ToolRail({
   onUndo,
   onRedo,
   onUndoTutorMove,
-  onToggleTheme,
 }: ToolRailProps) {
   const column = layout === "column";
   const ink = (active: boolean) =>
@@ -154,6 +154,7 @@ export function ToolRail({
         active={mode === "draw"}
         theme={theme}
         column={column}
+        iconsOnly={column}
         icon={<ToolIcon color={ink(mode === "draw")} d="M2 14 L5 8 L11 2 L14 5 L8 11 Z M5 8 L8 11" />}
         onPress={() => onModeChange("draw")}
       />
@@ -164,6 +165,7 @@ export function ToolRail({
         active={mode === "erase"}
         theme={theme}
         column={column}
+        iconsOnly={column}
         icon={<ToolIcon color={ink(mode === "erase")} d="M3 3 H13 V13 H3 Z" />}
         onPress={() => onModeChange("erase")}
       />
@@ -174,6 +176,7 @@ export function ToolRail({
         disabled={!undoAvailable || busy}
         theme={theme}
         column={column}
+        iconsOnly={column}
         icon={<ToolIcon color={theme.labelText} d="M7 3 H3 V7 M3 3 C6 8 8 12 13 12" />}
         onPress={onUndo}
       />
@@ -184,6 +187,7 @@ export function ToolRail({
         disabled={!redoAvailable || busy}
         theme={theme}
         column={column}
+        iconsOnly={column}
         icon={<ToolIcon color={theme.labelText} d="M9 3 H13 V7 M13 3 C10 8 8 12 3 12" />}
         onPress={onRedo}
       />
@@ -195,30 +199,9 @@ export function ToolRail({
         disabled={!tutorUndoAvailable || busy}
         theme={theme}
         column={column}
+        iconsOnly={column}
         icon={<ToolIcon color={theme.labelText} d="M3 3 H10 V6 H13 V13 H6 V10 H3 Z" />}
         onPress={onUndoTutorMove}
-      />
-      <ToolButton
-        testID="tool-theme"
-        label={themeName === "paper" ? "Dark mode" : "Light mode"}
-        hint="Switch the board theme; your colors stay distinct"
-        theme={theme}
-        column={column}
-        icon={
-          themeName === "paper" ? (
-            <ToolIcon
-              color={theme.labelText}
-              filled
-              d="M14 1.6 C6.2 2.6 2 5.8 2 8 C2 12.2 6.4 14.8 14 15.2 C9.4 13.4 7.2 10.8 7.2 8 C7.2 5.2 9.6 3.2 14 1.6 Z"
-            />
-          ) : (
-            <ToolIcon
-              color={theme.labelText}
-              d="M8 1.6 V3.4 M8 12.6 V14.4 M1.6 8 H3.4 M12.6 8 H14.4 M3.5 3.5 L4.8 4.8 M11.2 11.2 L12.5 12.5 M12.5 3.5 L11.2 4.8 M4.8 11.2 L3.5 12.5 M8 5.2 A2.8 2.8 0 1 0 8 10.8 A2.8 2.8 0 1 0 8 5.2"
-            />
-          )
-        }
-        onPress={onToggleTheme}
       />
     </View>
   );
@@ -234,7 +217,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   railColumn: {
-    width: 84,
+    width: 52,
     gap: 2,
     alignItems: "stretch",
     paddingVertical: 8,
@@ -243,8 +226,8 @@ const styles = StyleSheet.create({
   button: {
     minHeight: 44,
     minWidth: 44,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderWidth: 1,
     flexDirection: "row",
     alignItems: "center",

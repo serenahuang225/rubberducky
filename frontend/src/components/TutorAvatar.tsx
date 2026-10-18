@@ -37,7 +37,7 @@ export function TutorAvatar({
       <Text
         testID="avatar-status"
         accessibilityLiveRegion="polite"
-        numberOfLines={2}
+        numberOfLines={1}
         style={[styles.status, { color: theme.labelMuted }]}
       >
         {status.label}
@@ -47,6 +47,6 @@ export function TutorAvatar({
 }
 
 const styles = StyleSheet.create({
-  row: { alignItems: "center", gap: 2, width: 148 },
-  status: { ...type.meta, textAlign: "center" },
+  row: { flexDirection: "row", alignItems: "center", gap: 6 },
+  status: type.meta,
 });

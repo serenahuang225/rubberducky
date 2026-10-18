@@ -39,6 +39,7 @@ import type { LogicalPoint } from "../board/geometry";
 import {
   ApiClient,
   ApiClientError,
+  type CheckInInput,
   type SceneActionRequest,
 } from "../api/client";
 import type {
@@ -113,7 +114,7 @@ export type WorkspaceController = {
   retry: () => void;
   /** Retry saving queued changes now (also happens automatically after any success). */
   retryPending: () => Promise<void>;
-  checkIn: (energy: "ready" | "a_bit_tired" | "tired") => Promise<void>;
+  checkIn: (input: CheckInInput) => Promise<void>;
   /**
    * Send typed work. 'resolved': the server recorded it (committed or not), so the caller may
    * clear exactly that text. 'retained': nothing authoritative came back; keep the text.
@@ -559,11 +560,11 @@ export function useWorkspace(
   );
 
   const checkIn = useCallback(
-    async (energy: "ready" | "a_bit_tired" | "tired") => {
+    async (input: CheckInInput) => {
       const current = state;
       if (current === null) return;
       await runTurn("Starting…", () =>
-        client.checkIn(sessionId, newId(), current.session.revision, energy),
+        client.checkIn(sessionId, newId(), current.session.revision, input),
       );
     },
     [client, runTurn, sessionId, state],

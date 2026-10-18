@@ -299,7 +299,14 @@ export default function App() {
               onOpenSettings={() => setPanel("settings")}
               onOpenMemory={() => openMemoryFrom("none")}
               onThemeChange={setLiveTheme}
-              onSessionEnded={() => setAttempt((n) => n + 1)}
+              onSessionEnded={() => {
+                setPanel("none");
+                setBoot((current) =>
+                  current.kind === "workspace"
+                    ? { kind: "onboarding", credentials: current.credentials }
+                    : current,
+                );
+              }}
             />
           </View>
           {panel === "settings" ? (

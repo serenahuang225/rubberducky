@@ -75,6 +75,19 @@ export type SceneActionRequest =
   | { op: "undo_tutor_move" };
 
 const REQUEST_TIMEOUT_MS = 15000;
+const TUTOR_TURN_TIMEOUT_MS = 90000;
+
+export type QuestionImage = {
+  mediaType: "image/png" | "image/jpeg" | "image/webp";
+  base64: string;
+};
+
+export type CheckInInput = {
+  energy: "ready" | "a_bit_tired" | "tired" | null;
+  questionText?: string;
+  image?: QuestionImage | null;
+  practice?: boolean;
+};
 
 export class ApiClient {
   private readonly fetchImpl: typeof fetch;
@@ -304,8 +317,10 @@ export class ApiClient {
     sessionId: string,
     idempotencyKey: string,
     expectedRevision: number,
-    energy: "ready" | "a_bit_tired" | "tired" | null,
+    input: CheckInInput,
   ): Promise<TutorTurnResult> {
+    const question = input.questionText?.trim() ?? "";
+    const practice = input.practice === true || (question.length === 0 && input.image == null);
     return this.request(
       "POST",
       `/sessions/${sessionId}/check-in`,
@@ -314,10 +329,15 @@ export class ApiClient {
         body: {
           schema_version: "check-in-request.v1",
           expected_revision: expectedRevision,
-          goal: "solve_equations_with_parentheses",
-          energy,
+          goal: practice ? "solve_equations_with_parentheses" : "learner_question",
+          energy: input.energy,
+          question_text: practice || question.length === 0 ? null : question,
+          question_image_media_type: practice ? null : (input.image?.mediaType ?? null),
+          question_image_base64: practice ? null : (input.image?.base64 ?? null),
+          use_practice_problem: practice,
         },
         idempotencyKey,
+        timeoutMs: TUTOR_TURN_TIMEOUT_MS,
       },
     );
   }
@@ -341,6 +361,7 @@ export class ApiClient {
           input_mode: inputMode,
         },
         idempotencyKey,
+        timeoutMs: TUTOR_TURN_TIMEOUT_MS,
       },
     );
   }
@@ -363,6 +384,7 @@ export class ApiClient {
           mode,
         },
         idempotencyKey,
+        timeoutMs: TUTOR_TURN_TIMEOUT_MS,
       },
     );
   }
@@ -454,10 +476,14 @@ export class ApiClient {
       body?: unknown;
       idempotencyKey?: string;
       authenticated?: boolean;
+      timeoutMs?: number;
     } = {},
   ): Promise<T> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const timer = setTimeout(
+      () => controller.abort(),
+      options.timeoutMs ?? REQUEST_TIMEOUT_MS,
+    );
     try {
       const headers: Record<string, string> = { Accept: "application/json" };
       if (options.body !== undefined) {

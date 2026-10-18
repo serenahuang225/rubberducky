@@ -6,6 +6,7 @@
 
 import React, { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
 
 import type { WaitPreference } from '../api/contracts';
 import type { BoardTheme } from '../board/palette';
@@ -48,9 +49,21 @@ export function WaitControls({
           accessibilityState={{ expanded: open, disabled: preference === null }}
           disabled={preference === null}
           onPress={() => setOpen((value) => !value)}
-          style={[styles.toggle, { borderColor: theme.controlEdge }]}
+          style={[
+            styles.toggle,
+            { backgroundColor: theme.surface, borderColor: theme.surfaceEdge },
+          ]}
         >
-          <Text style={[styles.toggleText, text]}>Waiting time</Text>
+          <Svg width={18} height={18} viewBox="0 0 16 16">
+            <Path
+              d="M8 2.2 A5.8 5.8 0 1 0 8 13.8 A5.8 5.8 0 1 0 8 2.2 M8 5 V8 H10.5"
+              fill="none"
+              stroke={theme.labelText}
+              strokeWidth={1.5}
+              strokeLinejoin="miter"
+              strokeLinecap="square"
+            />
+          </Svg>
         </Pressable>
       </View>
       <Modal
@@ -143,12 +156,12 @@ const styles = StyleSheet.create({
   hintNote: { ...type.small, flex: 1 },
   toggle: {
     minHeight: 44,
-    paddingHorizontal: 12,
+    minWidth: 44,
+    paddingHorizontal: 10,
     borderWidth: 1,
+    alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 'auto',
   },
-  toggleText: type.meta,
   backdrop: {
     flex: 1,
     alignItems: 'center',

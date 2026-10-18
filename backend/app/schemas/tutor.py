@@ -7,9 +7,9 @@ requested or stored. The draft only proposes; the coordinator validates it again
 deterministic policy plan, the verifier and the bounded context before anything is committed.
 """
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Self
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, model_validator
 
 from app.schemas.common import Confidence, ContractModel, EntityId, ShortText, UtcDatetime
 from app.schemas.learner import (
@@ -55,7 +55,10 @@ SupportChange = Literal["none", "reduced"]
 HelpMode = Literal["hint", "explain"]
 Pace = Literal["standard", "lighter"]
 Energy = Literal["ready", "a_bit_tired", "tired"]
-GoalChoice = Literal["solve_equations_with_parentheses", "explain_distribution"]
+GoalChoice = Literal[
+    "solve_equations_with_parentheses", "explain_distribution", "learner_question"
+]
+QuestionImageType = Literal["image/png", "image/jpeg", "image/webp"]
 WorkInputMode = Literal["typed", "confirmed_ink", "unconfirmed_ink"]
 WorkClassification = Literal[
     "not_sure",
@@ -73,8 +76,11 @@ WorkClassification = Literal[
 ]
 IdempotencyKey = Annotated[str, Field(min_length=8, max_length=128, pattern=r"^[A-Za-z0-9_.:-]+$")]
 
-MAX_UTTERANCE_CHARS = 400
+MAX_UTTERANCE_CHARS = 1_200
 MAX_WORK_CHARS = 500
+MAX_QUESTION_CHARS = 4_000
+# About 1.5 MiB of image bytes, base64-encoded, for one opening screenshot.
+MAX_QUESTION_IMAGE_CHARS = 2_200_000
 
 
 class _Request(ContractModel):
@@ -82,12 +88,30 @@ class _Request(ContractModel):
 
 
 class CheckInRequest(_Request):
-    """A short self-report check-in. It is never assessed as mathematical evidence."""
+    """A short self-report check-in. It is never assessed as mathematical evidence.
+
+    A brought question (typed text and/or one image) is tutored by Claude and shown back
+    on the board. ``use_practice_problem`` keeps the built-in algebra unit.
+    """
 
     schema_version: Literal["check-in-request.v1"] = "check-in-request.v1"
     expected_revision: Annotated[int, Field(ge=0)]
     goal: GoalChoice = "solve_equations_with_parentheses"
     energy: Energy | None = None
+    question_text: Annotated[str, Field(min_length=1, max_length=MAX_QUESTION_CHARS)] | None = None
+    question_image_media_type: QuestionImageType | None = None
+    question_image_base64: (
+        Annotated[str, Field(min_length=1, max_length=MAX_QUESTION_IMAGE_CHARS)] | None
+    ) = None
+    use_practice_problem: bool = False
+
+    @model_validator(mode="after")
+    def _image_parts_together(self) -> Self:
+        has_type = self.question_image_media_type is not None
+        has_bytes = self.question_image_base64 is not None
+        if has_type != has_bytes:
+            raise ValueError("A question image needs both a media type and its data.")
+        return self
 
 
 class WorkRequest(_Request):

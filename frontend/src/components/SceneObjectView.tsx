@@ -26,6 +26,8 @@ import {
 
 const STATEMENT_FONT_SIZE = 52;
 const MATH_FONT_SIZE = 44;
+const TEACHING_FONT_SIZE = 28;
+const TEACHING_LINE_HEIGHT = 36;
 const BRACKET_TICK = 26;
 const ARROW_HEAD = 22;
 
@@ -33,6 +35,28 @@ const ARROW_HEAD = 22;
 function textBounds(at: LogicalPoint, text: string, fontSize: number): Bounds {
   const width = Math.max(1, text.length) * fontSize * 0.56;
   return { minX: at.x - 8, minY: at.y - fontSize, maxX: at.x + width + 8, maxY: at.y + 12 };
+}
+
+function teachingLines(payload: Record<string, unknown>, text: string): string[] {
+  const stored = payload.lines;
+  if (Array.isArray(stored) && stored.every((line) => typeof line === 'string' && line.length > 0)) {
+    return stored;
+  }
+  const width = 68;
+  const lines: string[] = [];
+  let current = '';
+  for (const word of text.split(/\s+/)) {
+    if (word.length === 0) continue;
+    const piece = current ? `${current} ${word}` : word;
+    if (piece.length > width && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = piece;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.slice(0, 22);
 }
 
 /** Approximate logical bounds of one object, used by highlight washes. */
@@ -46,6 +70,15 @@ export function objectBounds(object: SceneObjectRecord): Bounds | null {
     const x = typeof payload.x === 'number' ? payload.x : null;
     const y = typeof payload.y === 'number' ? payload.y : null;
     if (text === null || x === null || y === null) return null;
+    if (object.semantic_role === 'teaching_note') {
+      const lines = teachingLines(payload, text);
+      return {
+        minX: x,
+        minY: y - TEACHING_FONT_SIZE,
+        maxX: x + 68 * TEACHING_FONT_SIZE * 0.5,
+        maxY: y + Math.max(0, lines.length - 1) * TEACHING_LINE_HEIGHT + 8,
+      };
+    }
     return textBounds({ x, y }, text, STATEMENT_FONT_SIZE);
   }
   if (kind === 'add_math') {
@@ -120,6 +153,32 @@ export function SceneObjectView({ object, theme, resolveTarget }: SceneObjectVie
     if (d === null) return null;
     return (
       <Path d={d} stroke={ink} strokeWidth={width} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    );
+  }
+
+  if (kind === 'text' && object.semantic_role === 'teaching_note') {
+    const text = payloadText(payload, 'text');
+    const at =
+      typeof payload.x === 'number' && typeof payload.y === 'number'
+        ? { x: payload.x, y: payload.y }
+        : null;
+    if (text === null || at === null) return null;
+    const lines = teachingLines(payload, text);
+    return (
+      <G>
+        {lines.map((line, index) => (
+          <SvgText
+            key={`${object.id}-${index}`}
+            x={at.x}
+            y={at.y + index * TEACHING_LINE_HEIGHT}
+            fontSize={TEACHING_FONT_SIZE}
+            fill={ink}
+            fontFamily={font.sans}
+          >
+            {line}
+          </SvgText>
+        ))}
+      </G>
     );
   }
 
@@ -296,6 +355,8 @@ export function describeObject(object: SceneObjectRecord): string {
       return 'Tutor focus frame';
     case 'annotation':
       return text !== null ? `Tutor note: "${text}"` : 'Tutor note';
+    case 'teaching_note':
+      return text !== null ? `Tutor explained: "${text}"` : 'Tutor explanation';
     default:
       if (object.kind === 'path') {
         const count = payloadPoints(object.payload).length;
