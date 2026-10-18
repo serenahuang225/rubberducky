@@ -9,7 +9,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import type { BoardTheme } from "../board/palette";
 import type { MotionMode } from "../feedback/preferences";
-import { space, type } from "../theme/tokens";
+import { radius, space, type } from "../theme/tokens";
 import { enterProps } from "../theme/webTheme";
 
 export type ScreenFrameProps = {
@@ -46,7 +46,12 @@ export function ScreenFrame({
       {...enterProps(motion)}
       style={[styles.frame, { backgroundColor: theme.board }]}
     >
-      <View style={[styles.header, { borderBottomColor: theme.surfaceEdge }]}>
+      <View
+        style={[
+          styles.header,
+          { borderBottomColor: theme.surfaceEdge },
+        ]}
+      >
         <View
           ref={headingRef}
           focusable
@@ -82,7 +87,7 @@ export function ScreenFrame({
         style={styles.body}
         contentContainerStyle={styles.bodyContent}
       >
-        {children}
+        <View style={styles.column}>{children}</View>
       </ScrollView>
     </View>
   );
@@ -91,8 +96,7 @@ export function ScreenFrame({
 const styles = StyleSheet.create({
   frame: {
     flex: 1,
-    paddingHorizontal: space.xl,
-    paddingVertical: space.lg,
+    paddingTop: space.lg,
     gap: space.md,
   },
   header: {
@@ -101,21 +105,28 @@ const styles = StyleSheet.create({
     gap: space.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
     paddingBottom: space.sm,
+    paddingHorizontal: space.xl,
   },
   headingBox: { flex: 1, minHeight: 44, justifyContent: "center" },
   title: type.title,
   close: {
     minHeight: 44,
     paddingHorizontal: space.lg,
-    borderWidth: 1,
+    borderWidth: 2,
+    borderRadius: radius.pill,
     alignItems: "center",
     justifyContent: "center",
   },
   closeText: type.control,
-  body: { flex: 1 },
+  body: { flex: 1, alignSelf: "stretch" },
   bodyContent: {
-    gap: space.xl,
+    width: "100%",
+    flexGrow: 1,
     paddingBottom: space.xxl,
+  },
+  column: {
+    gap: space.xl,
+    paddingHorizontal: space.xl,
     maxWidth: 720,
     width: "100%",
     alignSelf: "center",

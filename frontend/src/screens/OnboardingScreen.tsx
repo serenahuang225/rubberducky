@@ -1,10 +1,8 @@
 /**
- * First-run onboarding: choose a companion look and a teaching style, independently.
+ * First-run onboarding: choose which rubber duck teaches.
  *
- * Three original appearances (animal, older adult, younger adult) and five rubber ducks
- * (Vincent, Zeeshan, Tony, Janelle, Mary) are separate axes — every pair is valid, and
- * no appearance is worded or styled as more capable than another. Each duck teaches
- * differently and stays respectful of the learner.
+ * Vincent, Zeeshan, Tony, Janelle, and Mary each teach differently and stay
+ * respectful of the learner. The duck never implies what the learner can do.
  */
 
 import React, { useState } from "react";
@@ -18,13 +16,13 @@ import {
 } from "react-native";
 
 import type { Appearance, Personality } from "../api/contracts";
-import { APPEARANCES, PERSONALITIES } from "../api/contracts";
+import { PERSONALITIES } from "../api/contracts";
 import { getTheme } from "../board/palette";
 
-import { AvatarFigure } from "../components/AvatarFigure";
 import { RadioCard } from "../components/ChoiceControls";
 import { DuckPortrait } from "../components/DuckPortrait";
 
+/** Kept for the board header until that screen stops naming the old companions. */
 export const APPEARANCE_INFO: Record<
   Appearance,
   { name: string; blurb: string }
@@ -77,7 +75,6 @@ export type OnboardingScreenProps = {
   showNameField: boolean;
   onComplete: (choices: {
     displayName: string;
-    appearance: Appearance;
     personality: Personality;
   }) => void;
 };
@@ -91,19 +88,18 @@ export function OnboardingScreen({
   onComplete,
 }: OnboardingScreenProps) {
   const [displayName, setDisplayName] = useState("");
-  const [appearance, setAppearance] = useState<Appearance | null>(null);
   const [personality, setPersonality] = useState<Personality | null>(null);
 
-  const ready = appearance !== null && personality !== null && !submitting;
+  const ready = personality !== null && !submitting;
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.page}>
+      <View style={styles.column}>
       <Text role="heading" style={styles.title}>
         Welcome to Rubberducky
       </Text>
       <Text style={styles.subtitle}>
-        Pick a companion and a rubber duck. They are separate choices, every
-        mix works, and every duck stays respectful of you.
+        Pick a rubber duck. Every duck stays respectful of you.
       </Text>
 
       {showNameField ? (
@@ -129,42 +125,7 @@ export function OnboardingScreen({
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle} accessibilityRole="header">
-          1. Choose a companion
-        </Text>
-        <View
-          style={styles.cardRow}
-          accessibilityRole="radiogroup"
-          accessibilityLabel="Companion appearance"
-        >
-          {APPEARANCES.map((option) => {
-            const info = APPEARANCE_INFO[option];
-            const selected = appearance === option;
-            return (
-              <RadioCard
-                key={option}
-                testID={`appearance-${option}`}
-                label={`${info.name}. ${info.blurb}`}
-                selected={selected}
-                theme={theme}
-                onPress={() => setAppearance(option)}
-                style={styles.card}
-              >
-                <AvatarFigure appearance={option} size={72} label={info.name} />
-                <Text style={[styles.cardTitle, { color: theme.labelText }]}>
-                  {info.name}
-                </Text>
-                <Text style={[styles.cardBlurb, { color: theme.labelMuted }]}>
-                  {info.blurb}
-                </Text>
-              </RadioCard>
-            );
-          })}
-        </View>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle} accessibilityRole="header">
-          2. Choose a rubber duck
+          Choose a rubber duck
         </Text>
         <Text style={styles.sectionNote}>
           Style changes how your tutor talks, never what it thinks you can do.
@@ -218,10 +179,9 @@ export function OnboardingScreen({
         accessibilityState={{ disabled: !ready }}
         disabled={!ready}
         onPress={() => {
-          if (appearance !== null && personality !== null) {
+          if (personality !== null) {
             onComplete({
               displayName: displayName.trim() || "Learner",
-              appearance,
               personality,
             });
           }
@@ -238,13 +198,15 @@ export function OnboardingScreen({
           {submitting ? "Setting up…" : "Start learning"}
         </Text>
       </Pressable>
+      </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: { flex: 1, backgroundColor: theme.board },
-  page: {
+  scroll: { flex: 1, alignSelf: "stretch", backgroundColor: theme.board },
+  page: { width: "100%", flexGrow: 1 },
+  column: {
     padding: 24,
     gap: 20,
     alignItems: "stretch",
@@ -252,11 +214,11 @@ const styles = StyleSheet.create({
     width: "100%",
     alignSelf: "center",
   },
-  title: { fontSize: 30, fontWeight: "700", color: "#1F2937" },
-  subtitle: { fontSize: 16, lineHeight: 23, color: "#52606D" },
+  title: { fontSize: 30, fontWeight: "700", color: theme.labelText },
+  subtitle: { fontSize: 16, lineHeight: 23, color: theme.labelMuted },
   section: { gap: 10 },
-  sectionTitle: { fontSize: 19, fontWeight: "700", color: "#1F2937" },
-  sectionNote: { fontSize: 14, color: "#52606D" },
+  sectionTitle: { fontSize: 19, fontWeight: "700", color: theme.labelText },
+  sectionNote: { fontSize: 14, color: theme.labelMuted },
   cardRow: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   card: {
     width: 180,
@@ -268,8 +230,8 @@ const styles = StyleSheet.create({
   cardBlurb: { fontSize: 14, lineHeight: 20, textAlign: "center" },
   nameInput: {
     minHeight: 48,
-    borderWidth: 1,
-    borderRadius: 10,
+    borderWidth: 2,
+    borderRadius: 28,
     paddingHorizontal: 14,
     fontSize: 16,
     backgroundColor: "#FFFFFF",
@@ -278,7 +240,7 @@ const styles = StyleSheet.create({
   error: { fontSize: 15 },
   startButton: {
     minHeight: 52,
-    borderRadius: 12,
+    borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
     alignSelf: "flex-start",
