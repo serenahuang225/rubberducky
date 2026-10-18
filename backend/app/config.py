@@ -100,6 +100,14 @@ class Settings(BaseSettings):
     # Deterministic, explicitly "simulated" media events (fake transcripts, synthetic uncertain
     # recognition) for tests and demos. They never stand in for real recognition.
     tutor_media_fixtures_enabled: bool = True
+    # In-whiteboard hold-to-talk. A key alone does nothing: both flags must be on.
+    # Audio goes to xAI speech-to-text, the transcript goes through the tutor, and xAI
+    # text-to-speech speaks only the committed learner-facing reply.
+    xai_speech_enabled: bool = False
+    xai_api_key: SecretStr | None = None
+    xai_stt_model: str = Field(default="grok-voice-transcribe-2.0", min_length=1, max_length=80)
+    xai_tts_voice: str = Field(default="luna", min_length=1, max_length=80)
+    xai_tts_language: str = Field(default="en", min_length=2, max_length=16)
     # Lets a device create a new, empty fictional demo learner. Never exposes existing history.
     demo_bootstrap_enabled: bool = True
     pairing_code_ttl_seconds: int = Field(default=600, ge=60, le=3600)

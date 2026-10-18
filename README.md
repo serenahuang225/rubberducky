@@ -101,9 +101,12 @@ Typing and the board always work without media. A denied or missing device, a ba
 Stop, an interruption, new work, a new problem, mute and text-only mode all release the device and
 cancel any speech. A speech or caption callback that arrives after that is ignored.
 
-- `GET /media/capabilities` reports what the server can do. Speech recognition and photo
-  perception are **not configured** in this build, so the app says so and never calls an open
-  microphone "listening". A student-facing or work-facing camera choice is the learner's.
+- `GET /media/capabilities` reports what the server can do. It accepts text from the
+  browser's speech recognizer and does not receive the audio. Photo perception is **not
+  configured**. An open microphone is "listening" only when this browser can actually
+  transcribe (Safari and Chrome). Expo Go has no speech engine, so the microphone can be on
+  there without being called listening. A student-facing or work-facing camera choice is the
+  learner's.
 - `POST /sessions/{id}/media/events` accepts bounded, uncertain events: at most 262144 bytes and
   2048 px per image edge, 500 characters of transcript, 3 image events per minute and 12 per
   session, and 120 events per minute and 500 per session overall. Excess, stale (old session

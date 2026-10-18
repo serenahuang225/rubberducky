@@ -6,9 +6,14 @@
 import React from "react";
 import { View } from "react-native";
 
+import type { MediaEventRequest } from "../api/contracts";
 import type { CaptureDriver, PermissionResult } from "../media/captureTypes";
 import type { MediaServices } from "../media/mediaServices";
 import type { SpeechDriver, SpeechHandlers } from "../media/speechController";
+import type {
+  TranscriptHandlers,
+  TranscriptRecognizer,
+} from "../media/transcriptRecognizer";
 
 export type FakeMedia = {
   services: MediaServices;
@@ -18,6 +23,12 @@ export type FakeMedia = {
   simulatedSpeech: SpeechHandlers[];
   permissions: { microphone: PermissionResult; camera: PermissionResult };
   cameraPresent: boolean;
+  /** When true, turning the microphone on starts this recognizer. */
+  recognizerAvailable: boolean;
+  recognizerHandlers: TranscriptHandlers | null;
+  recognizerStarts: number;
+  recognizerStops: number;
+  mediaPosts: MediaEventRequest[];
 };
 
 export function fakeMedia(): FakeMedia {
@@ -27,6 +38,11 @@ export function fakeMedia(): FakeMedia {
     simulatedSpeech: [],
     permissions: { microphone: "granted", camera: "granted" },
     cameraPresent: true,
+    recognizerAvailable: false,
+    recognizerHandlers: null,
+    recognizerStarts: 0,
+    recognizerStops: 0,
+    mediaPosts: [],
     services: undefined as unknown as MediaServices,
   };
   const capture: CaptureDriver = {
@@ -80,10 +96,23 @@ export function fakeMedia(): FakeMedia {
       fake.calls.push(`${simulated ? "sim" : "speech"}.stop`);
     },
   });
+  const recognizer: TranscriptRecognizer = {
+    available: () => fake.recognizerAvailable,
+    transmission: "none",
+    start: (handlers) => {
+      fake.recognizerStarts += 1;
+      fake.recognizerHandlers = handlers;
+    },
+    stop: () => {
+      fake.recognizerStops += 1;
+      fake.recognizerHandlers = null;
+    },
+  };
   fake.services = {
     capture,
     speech: speechDriver(false, fake.deviceSpeech),
     simulatedSpeech: speechDriver(true, fake.simulatedSpeech),
+    recognizer,
     renderPreview: (props) => (
       <View
         testID="fake-preview"

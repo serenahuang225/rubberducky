@@ -209,4 +209,25 @@ describe("SpeechController cancellation and late callbacks", () => {
     for (let i = 0; i < 40; i += 1) controller.speak(request("old"));
     expect(controller.getSnapshot().events.length).toBeLessThanOrEqual(24);
   });
+
+  it("plays server audio of the tutor reply and Stop speaking ends it", () => {
+    const { controller, calls } = ready();
+    let stopped = false;
+    const outcome = controller.playClip(request(), (handlers) => {
+      handlers.onStart();
+      return () => {
+        stopped = true;
+      };
+    });
+    expect(outcome).toBe("started");
+    expect(controller.getSnapshot()).toMatchObject({
+      phase: "speaking",
+      text: "Try subtracting 6 from both sides.",
+    });
+    expect(calls.filter((call) => call.startsWith("speak:"))).toEqual([]);
+    controller.cancel("user_stop");
+    expect(stopped).toBe(true);
+    expect(controller.getSnapshot().phase).toBe("cancelled");
+    expect(controller.getSnapshot().note).toMatch(/stopped/i);
+  });
 });

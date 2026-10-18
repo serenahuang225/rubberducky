@@ -24,6 +24,11 @@ const loadSimulated = once(() =>
 const loadPreview = once(
   () => (require("./cameraDriver") as typeof import("./cameraDriver")).CameraPreview,
 );
+const loadRecognizer = once(
+  () =>
+    (require("./transcriptRecognizer") as typeof import("./transcriptRecognizer"))
+      .deviceTranscriptRecognizer,
+);
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const capture: CaptureDriver = {
@@ -65,6 +70,14 @@ export function defaultMediaServices(): MediaServices {
     capture,
     speech,
     simulatedSpeech,
+    recognizer: {
+      available: () => loadRecognizer().available(),
+      get transmission() {
+        return loadRecognizer().transmission;
+      },
+      start: (handlers) => loadRecognizer().start(handlers),
+      stop: () => loadRecognizer().stop(),
+    },
     renderPreview: (props) => {
       const Preview = loadPreview();
       return <Preview {...props} />;
