@@ -8,6 +8,7 @@ the same fake account never touched. Transport fixtures only: no Daytona service
 import asyncio
 import inspect
 import json
+import logging
 import time
 from pathlib import Path
 from typing import Any
@@ -240,7 +241,10 @@ def test_create_timeout_finds_and_deletes_the_sandbox_that_was_being_created() -
 
 
 def _cancel_during(mode_field: str, mode: str) -> FakeDaytonaService:
-    service = service_with_decoys()
+    return _run_cancelled(service_with_decoys(), mode_field, mode)
+
+
+def _run_cancelled(service: FakeDaytonaService, mode_field: str, mode: str) -> FakeDaytonaService:
     setattr(service, mode_field, mode)
 
     async def scenario() -> None:
@@ -274,6 +278,30 @@ def test_cancel_during_create_deletes_the_unacknowledged_sandbox_by_its_exact_id
     service = _cancel_during("create_mode", "orphan_hang")
     assert service.created_ids == service.deleted_ids == ["sbx-created-1"]
     assert_decoys_untouched(service)
+
+
+def test_cancellation_with_a_failed_delete_logs_the_exact_ids_before_propagating(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    service = service_with_decoys()
+    service.delete_failures = {"sbx-created-1"}
+    with caplog.at_level(logging.ERROR, logger="app.interactives.daytona_checks"):
+        _run_cancelled(service, "exec_mode", "hang")
+    assert service.created_ids == ["sbx-created-1"] and service.deleted_ids == []
+    assert "sbx-created-1" in service.sandboxes
+    assert_decoys_untouched(service)
+    (record,) = [r for r in caplog.records if r.name == "app.interactives.daytona_checks"]
+    run_label = service.create_params[0].labels[RUN_LABEL]
+    assert record.levelno == logging.ERROR
+    assert record.cleanup_reason == "cleanup_failed"  # type: ignore[attr-defined]
+    assert record.run_label == f"{RUN_LABEL}={run_label}"  # type: ignore[attr-defined]
+    assert record.created_ids == ("sbx-created-1",)  # type: ignore[attr-defined]
+    assert record.deleted_ids == ()  # type: ignore[attr-defined]
+    assert record.remaining_ids == ("sbx-created-1",)  # type: ignore[attr-defined]
+    text = caplog.text + repr([r.__dict__ for r in caplog.records])
+    for leaked in ("delete refused", "FakeDaytonaError", "dtn-test-key", "Traceback"):
+        assert leaked not in text
+    assert "sbx-other-team" not in text and "sbx-same-label-key" not in text
 
 
 def test_a_delete_that_fails_is_a_cleanup_error_not_a_passing_result() -> None:

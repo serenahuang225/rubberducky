@@ -2,10 +2,12 @@
 
 The repository-owned ``trusted_checks.py`` is uploaded verbatim together with the candidate
 spec and run once. The candidate contributes data only: it can neither bring nor replace a
-check. Every sandbox this attempt created is deleted by its exact ID on every exit path
-(pass, failed checks, malformed output, creation error, timeout, cancellation). When the
+check. Deleting every sandbox this attempt created, by exact ID, is attempted on every exit path
+(pass, failed checks, malformed output, creation error, timeout, cancellation); it is not
+guaranteed. A failed delete or label lookup is reported explicitly as ``cleanup_failed`` with
+the exact created/deleted IDs, and is also logged before a cancellation propagates. When the
 create call fails before an ID is known, the sandboxes carrying this attempt's unique run
-label are found and deleted by their exact IDs; nothing else is ever touched.
+label are looked up and deleted by their exact IDs; nothing else is ever touched.
 
 Nothing here runs at import time. The SDK client is built inside ``check``, always with an
 explicit key, validated https ``daytona.io`` URL and target so the SDK never falls back to
@@ -15,6 +17,7 @@ process environment or dotenv files for credentials or the endpoint.
 import asyncio
 import contextlib
 import json
+import logging
 import uuid
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
@@ -34,6 +37,8 @@ from app.schemas.interactives import (
     FallbackReason,
     TrustedCheckReport,
 )
+
+logger = logging.getLogger(__name__)
 
 RUN_LABEL = "rubberducky_check_run"
 SCRIPT_NAME = "trusted_checks.py"
@@ -202,6 +207,9 @@ class DaytonaTrustedChecker:
         finally:
             # Also reached on cancellation: delete before the cancellation propagates.
             deleted, cleanup_complete = await self._cleanup(client, run_id, created, handles)
+            if not cleanup_complete:
+                # The post-finally cleanup_failed error is skipped when this is a cancellation.
+                _log_cleanup_failure(run_id, created, deleted)
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(
                     asyncio.shield(client.close()), timeout=self._config.cleanup_timeout_seconds
@@ -308,6 +316,26 @@ class DaytonaTrustedChecker:
                 continue
             deleted.append(sandbox_id)
         return deleted, complete
+
+
+def _log_cleanup_failure(run_id: str, created: list[str], deleted: list[str]) -> None:
+    """Record exact IDs only; SDK exception text is deliberately never copied."""
+    remaining = tuple(sandbox_id for sandbox_id in created if sandbox_id not in deleted)
+    run_label = f"{RUN_LABEL}={run_id}"
+    logger.error(
+        "daytona cleanup_failed run_label=%s created=%s deleted=%s remaining=%s",
+        run_label,
+        list(created),
+        list(deleted),
+        list(remaining),
+        extra={
+            "cleanup_reason": "cleanup_failed",
+            "run_label": run_label,
+            "created_ids": tuple(created),
+            "deleted_ids": tuple(deleted),
+            "remaining_ids": remaining,
+        },
+    )
 
 
 def _label_query(run_id: str) -> Any:
