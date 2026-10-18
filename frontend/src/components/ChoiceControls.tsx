@@ -19,7 +19,7 @@ import {
 } from "react-native";
 
 import type { BoardTheme } from "../board/palette";
-import { type } from "../theme/tokens";
+import { radius, type } from "../theme/tokens";
 
 type KeyEventLike = { key?: string; preventDefault?: () => void };
 
@@ -73,9 +73,13 @@ export function RadioCard({
       style={[
         styles.card,
         {
-          borderColor: selected ? theme.controlBackground : theme.controlEdge,
-          backgroundColor: selected ? theme.boardGrain : "transparent",
-          borderLeftWidth: selected ? 3 : 1,
+          borderColor: selected ? theme.tutorInk : theme.controlEdge,
+          backgroundColor: selected
+            ? theme.name === "slate"
+              ? theme.surface
+              : theme.tutorInk
+            : "transparent",
+          borderWidth: selected ? 3 : 2,
           opacity: disabled ? 0.55 : 1,
         },
         style,
@@ -165,7 +169,8 @@ const styles = StyleSheet.create({
     minHeight: 44,
     padding: 14,
     gap: 8,
-    borderWidth: 1,
+    borderWidth: 2,
+    borderRadius: radius.lg,
   },
   marker: type.meta,
   toggle: {
@@ -175,7 +180,8 @@ const styles = StyleSheet.create({
     gap: 12,
     flexDirection: "row",
     alignItems: "center",
-    borderWidth: 1,
+    borderWidth: 2,
+    borderRadius: radius.lg,
   },
   toggleText: { flex: 1, gap: 2 },
   toggleLabel: type.control,
@@ -187,6 +193,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 10,
     borderWidth: 1,
+    borderRadius: radius.pill,
     overflow: "hidden",
   },
 });

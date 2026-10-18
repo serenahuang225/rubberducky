@@ -23,6 +23,7 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("GET", "/health"),
         ("GET", "/health/model"),
         ("POST", "/demo/bootstrap"),
+        ("GET", "/demo/integrations"),
         ("POST", "/pairing/redeem"),
     }
 )

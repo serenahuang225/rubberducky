@@ -39,6 +39,8 @@ import {
   type SpeechCancelReason,
   type SpeechSnapshot,
 } from "./speechController";
+import { bytesFromBase64, playReplyBytes } from "./replyAudio";
+import type { TranscriptChunk } from "./transcriptRecognizer";
 import {
   applyTranscriptResult,
   buildTranscriptEvent,
@@ -101,6 +103,14 @@ export type MediaController = {
   nextVoiceEvent: () => void;
   resetVoice: () => void;
   cancelSpeech: (reason: SpeechCancelReason) => void;
+  /** The next committed reply should not also be read by the device voice. */
+  preferRecordedReply: (on: boolean) => void;
+  /** Play server audio of a tutor reply. The text is the caption, not a second script. */
+  playRecordedReply: (playback: {
+    turnId: string;
+    text: string;
+    audioBase64: string;
+  }) => void;
   dismissOutcome: () => void;
   renderPreview: MediaServices["renderPreview"];
 };
@@ -226,10 +236,15 @@ export function useMedia(input: UseMediaInput): MediaController {
   // Speak a newly committed reply once, only if it still belongs to the current epoch. A reply
   // that was already on screen when the learner turned voice on is not read retroactively.
   const spokenRef = useRef<string | null>(reply?.turnId ?? null);
+  const preferRecorded = useRef(false);
   const replyId = reply?.turnId ?? null;
   useEffect(() => {
     if (replyId === null || spokenRef.current === replyId) return;
     spokenRef.current = replyId;
+    if (preferRecorded.current) {
+      preferRecorded.current = false;
+      return;
+    }
     if (reply === null || (epoch !== null && reply.epoch < epoch)) return;
     if (voiceMode === "off") return;
     speech.speak({ turnId: reply.turnId, text: reply.text, scope });
@@ -377,10 +392,64 @@ export function useMedia(input: UseMediaInput): MediaController {
 
   const resetVoice = useCallback(() => setVoice(VOICE_IDLE), []);
 
-  const startMicrophone = useCallback(
-    () => void capture.startMicrophone(),
-    [capture],
-  );
+  const listenGeneration = useRef(0);
+  const armRecognizer = useCallback(() => {
+    if (!services.recognizer.available()) return;
+    if (latest.current.capabilities?.transcription.status === "unavailable") return;
+    const generation = ++listenGeneration.current;
+    let utteranceId = `utt-${newId()}`;
+    let sequence = 0;
+    let lastSentAt = 0;
+    let lastInterim = "";
+    services.recognizer.start({
+      onResult: (chunk: TranscriptChunk) => {
+        if (generation !== listenGeneration.current) return;
+        const text = chunk.text.trim().slice(0, 500);
+        if (text.length === 0) return;
+        const now = Date.now();
+        if (chunk.phase === "interim") {
+          if (text === lastInterim || now - lastSentAt < 800) return;
+          lastInterim = text;
+          lastSentAt = now;
+        }
+        if (
+          speech.getSnapshot().phase === "speaking" ||
+          speech.getSnapshot().phase === "starting"
+        ) {
+          speech.cancel("interrupt");
+        }
+        const request = {
+          kind: "transcript" as const,
+          event_id: `mev-${newId()}`,
+          source: "device" as const,
+          utterance_id: utteranceId,
+          sequence,
+          phase: chunk.phase,
+          text,
+        };
+        sequence += 1;
+        void (async () => {
+          const result = await send(request);
+          if (generation !== listenGeneration.current || result === null) return;
+          setVoice((current) => applyTranscriptResult(current, request, result));
+          if (chunk.phase === "final") {
+            utteranceId = `utt-${newId()}`;
+            sequence = 0;
+            lastInterim = "";
+          }
+        })();
+      },
+      onError: () => {
+        if (generation !== listenGeneration.current) return;
+        setNotice("Speech recognition stopped. Typing and drawing still work.");
+      },
+    });
+  }, [send, services.recognizer, speech]);
+
+  const startMicrophone = useCallback(() => {
+    if (!textOnly) armRecognizer();
+    void capture.startMicrophone();
+  }, [armRecognizer, capture, textOnly]);
   const startCamera = useCallback(
     (orientation: CameraOrientation) => void capture.startCamera(orientation),
     [capture],
@@ -394,6 +463,21 @@ export function useMedia(input: UseMediaInput): MediaController {
     (reason: SpeechCancelReason) => speech.cancel(reason),
     [speech],
   );
+  const preferRecordedReply = useCallback((on: boolean) => {
+    preferRecorded.current = on;
+  }, []);
+  const playRecordedReply = useCallback(
+    (playback: { turnId: string; text: string; audioBase64: string }) => {
+      preferRecorded.current = false;
+      spokenRef.current = playback.turnId;
+      const bytes = bytesFromBase64(playback.audioBase64);
+      speech.playClip(
+        { turnId: playback.turnId, text: playback.text, scope },
+        (handlers) => playReplyBytes(bytes, handlers),
+      );
+    },
+    [scope, speech],
+  );
   const setVoiceMode = useCallback(
     (mode: VoiceMode) => {
       if (mode === "off") speech.cancel("user_stop");
@@ -403,10 +487,20 @@ export function useMedia(input: UseMediaInput): MediaController {
   );
   const dismissOutcome = useCallback(() => setOutcome(null), []);
 
-  // Real transcription is never configured by this build, so a microphone that is on is not
-  // reported as the tutor listening unless the server says a transcriber is available.
+  // Stop the recognizer whenever the microphone is no longer opening or on, including a
+  // permission denial, Stop, backgrounding and text-only. A late result sees the generation
+  // change and is dropped.
+  useEffect(() => {
+    const status = captureSnapshot.microphone.status;
+    if (status === "on" || status === "requesting") return;
+    listenGeneration.current += 1;
+    services.recognizer.stop();
+  }, [captureSnapshot.microphone.status, services.recognizer]);
+
+  // Listening is live only when this device can transcribe and the server accepts the text.
   const transcriptionAvailable =
-    capabilities !== null && capabilities.transcription.status === "available";
+    services.recognizer.available() &&
+    capabilities?.transcription.status === "available";
   const activity = useMemo(
     () =>
       deriveMediaActivity({
@@ -426,7 +520,7 @@ export function useMedia(input: UseMediaInput): MediaController {
     voiceBusy,
     capabilities,
     capabilitiesError,
-    fixturesEnabled: capabilities?.fixtures.enabled === true,
+    fixturesEnabled: capabilities?.fixtures?.enabled === true,
     transcriptionAvailable,
     activity,
     outcome,
@@ -443,6 +537,8 @@ export function useMedia(input: UseMediaInput): MediaController {
     nextVoiceEvent,
     resetVoice,
     cancelSpeech,
+    preferRecordedReply,
+    playRecordedReply,
     dismissOutcome,
     renderPreview: services.renderPreview,
   };

@@ -101,9 +101,12 @@ Typing and the board always work without media. A denied or missing device, a ba
 Stop, an interruption, new work, a new problem, mute and text-only mode all release the device and
 cancel any speech. A speech or caption callback that arrives after that is ignored.
 
-- `GET /media/capabilities` reports what the server can do. Speech recognition and photo
-  perception are **not configured** in this build, so the app says so and never calls an open
-  microphone "listening". A student-facing or work-facing camera choice is the learner's.
+- `GET /media/capabilities` reports what the server can do. It accepts text from the
+  browser's speech recognizer and does not receive the audio. Photo perception is **not
+  configured**. An open microphone is "listening" only when this browser can actually
+  transcribe (Safari and Chrome). Expo Go has no speech engine, so the microphone can be on
+  there without being called listening. A student-facing or work-facing camera choice is the
+  learner's.
 - `POST /sessions/{id}/media/events` accepts bounded, uncertain events: at most 262144 bytes and
   2048 px per image edge, 500 characters of transcript, 3 image events per minute and 12 per
   session, and 120 events per minute and 500 per session overall. Excess, stale (old session
@@ -443,6 +446,21 @@ scaffold and sets `ignore_errors = true`, which would make the check meaningless
 `check:expo` verifies SDK dependency compatibility. `expo-doctor` additionally reports the Xcode
 version limitation described above.
 
+## Photon messaging
+
+`integrations/photon` is an optional Spectrum cloud bridge. It stays off unless
+`PHOTON_MESSAGING_ENABLED=true` and `SPECTRUM_PROJECT_ID` / `SPECTRUM_PROJECT_SECRET` are set.
+With those set, `npm --prefix integrations/photon start` connects to Spectrum cloud iMessage
+and continues a paired learner's session through the tutor API. A first message that is the
+pairing code from `python -m app.cli pair` links that chat. Later texts are submitted as
+typed work. Nothing is sent when the bridge is disabled, and this repository does not
+provision a phone line.
+
+```sh
+npm --prefix integrations/photon ci
+npm --prefix integrations/photon test
+```
+
 ## Chalk
 
 The repository also contains a Chalk project scaffold created with `chalk init`:
@@ -454,6 +472,17 @@ The repository also contains a Chalk project scaffold created with `chalk init`:
 
 The tutor uses Chalk (`chalkcompute`) only for an optional tutoring-evaluation adapter, which is
 disabled by default. Nothing is deployed to Chalk unless you run Chalk commands yourself.
+
+A labeled fictional walkthrough of Chalk, Factory Droid, and Daytona runs entirely on this
+machine. It scores scripted tutor replies, shows an explanation written in the repository, and
+runs the local trusted checks. Nothing is uploaded, and no sandbox is created.
+
+```sh
+PYTHONPATH=backend backend/.venv/bin/python -m app.cli demo
+```
+
+The same walkthrough is `GET /demo/integrations` while demo bootstrap is enabled, and in the
+app under Settings, “Fictional demos”.
 
 Docs: https://docs.chalk.ai
 

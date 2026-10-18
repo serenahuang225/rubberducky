@@ -386,6 +386,19 @@ export const tutorTurnResultSchema = z
   .loose();
 export type TutorTurnResult = z.infer<typeof tutorTurnResultSchema>;
 
+export const voiceTurnSchema = z
+  .object({
+    schema_version: z.literal("voice-turn.v1"),
+    transcript: z.string(),
+    spoken_text: z.string().nullable(),
+    audio_mime: z.literal("audio/mpeg").nullable(),
+    audio_base64: z.string().nullable(),
+    speech_note: z.string().nullable(),
+    turn: tutorTurnResultSchema,
+  })
+  .loose();
+export type VoiceTurnResult = z.infer<typeof voiceTurnSchema>;
+
 export const interruptResultSchema = z
   .object({
     schema_version: z.literal("interrupt-result.v1"),
@@ -587,6 +600,10 @@ export const mediaCapabilitiesSchema = z
         detail: z.string(),
       })
       .loose(),
+    spoken_reply: z
+      .object({ status: z.string(), detail: z.string() })
+      .loose()
+      .optional(),
     fixtures: z.object({ enabled: z.boolean(), detail: z.string() }).loose(),
     limits: z
       .object({
@@ -706,7 +723,7 @@ export type MediaEventRequest =
   | {
       kind: "transcript";
       event_id: string;
-      source: "simulated";
+      source: "device" | "simulated";
       utterance_id: string;
       sequence: number;
       phase: "interim" | "final";

@@ -98,6 +98,7 @@ export function OnboardingScreen({
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.page}>
+      <View style={styles.column}>
       <Text role="heading" style={styles.title}>
         Welcome to Rubberducky
       </Text>
@@ -238,13 +239,15 @@ export function OnboardingScreen({
           {submitting ? "Setting up…" : "Start learning"}
         </Text>
       </Pressable>
+      </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: { flex: 1, backgroundColor: theme.board },
-  page: {
+  scroll: { flex: 1, alignSelf: "stretch", backgroundColor: theme.board },
+  page: { width: "100%", flexGrow: 1 },
+  column: {
     padding: 24,
     gap: 20,
     alignItems: "stretch",
@@ -252,11 +255,11 @@ const styles = StyleSheet.create({
     width: "100%",
     alignSelf: "center",
   },
-  title: { fontSize: 30, fontWeight: "700", color: "#1F2937" },
-  subtitle: { fontSize: 16, lineHeight: 23, color: "#52606D" },
+  title: { fontSize: 30, fontWeight: "700", color: theme.labelText },
+  subtitle: { fontSize: 16, lineHeight: 23, color: theme.labelMuted },
   section: { gap: 10 },
-  sectionTitle: { fontSize: 19, fontWeight: "700", color: "#1F2937" },
-  sectionNote: { fontSize: 14, color: "#52606D" },
+  sectionTitle: { fontSize: 19, fontWeight: "700", color: theme.labelText },
+  sectionNote: { fontSize: 14, color: theme.labelMuted },
   cardRow: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   card: {
     width: 180,
@@ -268,8 +271,8 @@ const styles = StyleSheet.create({
   cardBlurb: { fontSize: 14, lineHeight: 20, textAlign: "center" },
   nameInput: {
     minHeight: 48,
-    borderWidth: 1,
-    borderRadius: 10,
+    borderWidth: 2,
+    borderRadius: 28,
     paddingHorizontal: 14,
     fontSize: 16,
     backgroundColor: "#FFFFFF",
@@ -278,7 +281,7 @@ const styles = StyleSheet.create({
   error: { fontSize: 15 },
   startButton: {
     minHeight: 52,
-    borderRadius: 12,
+    borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
     alignSelf: "flex-start",

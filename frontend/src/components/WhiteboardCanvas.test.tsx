@@ -6,7 +6,7 @@ import { getTheme } from '../board/palette';
 import type { SceneObjectRecord } from '../board/sceneTypes';
 
 import { BoardInputLayer } from './BoardInputLayer';
-import { describeObject, objectBounds, orderedObjects } from './SceneObjectView';
+import { describeObject, objectBounds, orderedObjects, wordsToShow, wordTotal } from './SceneObjectView';
 import { earlierWorkIds, WhiteboardCanvas } from './WhiteboardCanvas';
 
 const theme = getTheme('paper');
@@ -56,6 +56,18 @@ describe('describeObject (color-independent author labels)', () => {
         }),
       ),
     ).toBe('Tutor note: "2x + 6"');
+  });
+});
+
+describe('teaching note streaming', () => {
+  it('reveals the note one word at a time and then the whole sentence', () => {
+    const text = 'Look at the shape of the equation';
+    expect(wordTotal(text)).toBe(7);
+    expect(wordsToShow(text, 0)).toBe('');
+    expect(wordsToShow(text, 1)).toBe('Look');
+    expect(wordsToShow(text, 3)).toBe('Look at the');
+    expect(wordsToShow(text, 7)).toBe(text);
+    expect(wordsToShow(text, 20)).toBe(text);
   });
 });
 

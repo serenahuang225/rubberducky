@@ -29,6 +29,7 @@ import {
   sessionSchema,
   sessionStateSchema,
   tutorTurnResultSchema,
+  voiceTurnSchema,
   waitPreferenceSchema,
   waitStateSchema,
   type AccessibilityPatch,
@@ -56,6 +57,7 @@ import {
   type Session,
   type SessionState,
   type TutorTurnResult,
+  type VoiceTurnResult,
   type WaitPreference,
   type WaitState,
 } from "./contracts";
@@ -400,6 +402,31 @@ export class ApiClient {
     );
   }
 
+  /**
+   * Hold to talk. The recording stays in this request; the server transcribes it, runs the
+   * tutor, and returns audio of the tutor's reply only.
+   */
+  submitVoice(
+    sessionId: string,
+    idempotencyKey: string,
+    expectedRevision: number,
+    observedEpoch: number,
+    clip: { bytes: Blob; mime: string },
+    options: { handhold?: HandholdMode; speak?: boolean } = {},
+  ): Promise<VoiceTurnResult> {
+    const form = new FormData();
+    form.append("expected_revision", String(expectedRevision));
+    form.append("observed_epoch", String(observedEpoch));
+    form.append("handhold", options.handhold ?? "balanced");
+    form.append("speak", options.speak === false ? "false" : "true");
+    form.append("audio", clip.bytes, "clip");
+    return this.request("POST", `/sessions/${sessionId}/voice/turn`, voiceTurnSchema, {
+      body: form,
+      idempotencyKey,
+      timeoutMs: 120000,
+    });
+  }
+
   /** Help me: a hint (or, on request, an explanation) now. Same turn contract as /work. */
   requestHelp(
     sessionId: string,
@@ -523,7 +550,8 @@ export class ApiClient {
     );
     try {
       const headers: Record<string, string> = { Accept: "application/json" };
-      if (options.body !== undefined) {
+      const isForm = typeof FormData !== "undefined" && options.body instanceof FormData;
+      if (options.body !== undefined && !isForm) {
         headers["Content-Type"] = "application/json";
       }
       if (options.idempotencyKey !== undefined) {
@@ -532,11 +560,13 @@ export class ApiClient {
       if (options.authenticated !== false && this.accessToken !== null) {
         headers.Authorization = `Bearer ${this.accessToken}`;
       }
+      let body: BodyInit | undefined;
+      if (options.body instanceof FormData) body = options.body;
+      else if (options.body !== undefined) body = JSON.stringify(options.body);
       const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
         method,
         headers,
-        body:
-          options.body === undefined ? undefined : JSON.stringify(options.body),
+        body,
         signal: controller.signal,
       });
       const payload: unknown = await response.json().catch(() => null);

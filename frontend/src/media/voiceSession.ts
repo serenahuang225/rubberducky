@@ -1,11 +1,12 @@
 /**
  * Transcript text as the learner sees it: provisional until the server accepts a final.
  *
- * Real transcription is not configured, so every transcript here comes from the labeled
- * simulated script below. The server decides what each event means (provisional, final,
- * duplicate, late); this reducer only mirrors that answer, so interim text can never become
- * final work, a duplicate final changes nothing and a late interim cannot reopen an utterance.
- * Final text is an offer: it reaches the tutor only when the learner sends it as typed work.
+ * Live text comes from the device recognizer (`source: "device"`). The labeled script below
+ * is only the simulated fixture. The server decides what each event means (provisional,
+ * final, duplicate, late); this reducer only mirrors that answer, so interim text can never
+ * become final work, a duplicate final changes nothing and a late interim cannot reopen an
+ * utterance. Final text is an offer: it reaches the tutor only when the learner sends it
+ * as typed work.
  */
 
 import type { MediaEventRequest, MediaEventResult } from "../api/contracts";
@@ -19,9 +20,11 @@ export type VoiceState = {
   final: string | null;
   /** Plain explanation of the last event, including ignored duplicates and late updates. */
   note: string | null;
-  /** True between the first interim and the final of one simulated utterance. */
+  /** True between the first interim and the final of one utterance. */
   active: boolean;
   step: number;
+  /** Where the latest accepted transcript came from. */
+  source: "device" | "simulated" | null;
 };
 
 export const VOICE_IDLE: VoiceState = {
@@ -31,6 +34,7 @@ export const VOICE_IDLE: VoiceState = {
   note: null,
   active: false,
   step: 0,
+  source: null,
 };
 
 type TranscriptRequest = Extract<MediaEventRequest, { kind: "transcript" }>;
@@ -81,7 +85,13 @@ export function applyTranscriptResult(
   request: TranscriptRequest,
   result: MediaEventResult,
 ): VoiceState {
-  const base = { ...state, utteranceId: request.utterance_id, step: state.step + 1 };
+  const live = request.source === "device";
+  const base = {
+    ...state,
+    utteranceId: request.utterance_id,
+    step: state.step + 1,
+    source: request.source,
+  };
   switch (result.status) {
     case "provisional":
       return {
@@ -89,7 +99,9 @@ export function applyTranscriptResult(
         provisional: request.text,
         final: null,
         active: true,
-        note: "Simulated interim text. It is provisional and has not been checked.",
+        note: live
+          ? "Live interim text. It is provisional and has not been checked."
+          : "Simulated interim text. It is provisional and has not been checked.",
       };
     case "final_accepted":
       return {
@@ -97,7 +109,9 @@ export function applyTranscriptResult(
         provisional: null,
         final: request.text,
         active: false,
-        note: "Simulated final text. Confirm or edit it before sending; nothing was submitted.",
+        note: live
+          ? "Live text. Confirm or edit it before sending; nothing was submitted."
+          : "Simulated final text. Confirm or edit it before sending; nothing was submitted.",
       };
     case "duplicate_final":
       return { ...base, note: "A repeated final was ignored. It was not counted twice." };

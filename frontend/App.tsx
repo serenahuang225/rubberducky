@@ -16,13 +16,12 @@ import {
 
 import { ApiClient, ApiClientError } from "./src/api/client";
 import type {
-  Appearance,
   HandholdMode,
   Personality,
   Session,
   TutorConfiguration,
 } from "./src/api/contracts";
-import { getTheme, type BoardTheme } from "./src/board/palette";
+import { BRAND, getTheme, type BoardTheme } from "./src/board/palette";
 import { getApiBaseUrl } from "./src/config/apiBaseUrl";
 import { resolveMotion } from "./src/feedback/preferences";
 import { useSystemReducedMotion } from "./src/feedback/useSystemReducedMotion";
@@ -33,6 +32,8 @@ import {
   type StoredCredentials,
 } from "./src/storage/credentials";
 
+import { LogoIntro } from "./src/components/LogoIntro";
+import { IntegrationDemosScreen } from "./src/screens/IntegrationDemosScreen";
 import { MemoryScreen } from "./src/screens/MemoryScreen";
 import { OnboardingScreen } from "./src/screens/OnboardingScreen";
 import { SettingsScreen } from "./src/screens/SettingsScreen";
@@ -56,7 +57,7 @@ type BootState =
       session: Session;
     };
 
-type Panel = "none" | "settings" | "memory";
+type Panel = "none" | "settings" | "memory" | "demos";
 
 /** Reads the learner's chosen board theme each time a panel opens. */
 function ThemedPanel({
@@ -167,7 +168,6 @@ export default function App() {
   const completeOnboarding = useCallback(
     async (choices: {
       displayName: string;
-      appearance: Appearance;
       personality: Personality;
     }) => {
       setSubmitting(true);
@@ -189,7 +189,7 @@ export default function App() {
         }
         const client = new ApiClient(baseUrl, credentials.accessToken);
         const persona = await client.putTutorConfiguration(
-          choices.appearance,
+          "animal",
           choices.personality,
         );
         const sessions = await client.listSessions();
@@ -239,7 +239,7 @@ export default function App() {
     <SafeAreaView style={[styles.safe, { backgroundColor: shellTheme.board }]}>
       {boot.kind === "loading" ? (
         <View style={styles.centered}>
-          <ActivityIndicator color="#1D4ED8" />
+          <ActivityIndicator color={BRAND.blue} />
           <Text style={styles.muted}>Opening your board…</Text>
         </View>
       ) : null}
@@ -321,8 +321,20 @@ export default function App() {
                   motion={motion}
                   onClose={() => setPanel("none")}
                   onOpenMemory={() => openMemoryFrom("settings")}
+                  onOpenDemos={() => setPanel("demos")}
                   handhold={handhold}
                   onChangeHandhold={setHandhold}
+                />
+              )}
+            </ThemedPanel>
+          ) : null}
+          {panel === "demos" ? (
+            <ThemedPanel>
+              {(theme) => (
+                <IntegrationDemosScreen
+                  theme={theme}
+                  motion={motion}
+                  onClose={() => setPanel("settings")}
                 />
               )}
             </ThemedPanel>
@@ -343,6 +355,7 @@ export default function App() {
           ) : null}
         </>
       ) : null}
+      <LogoIntro ready={boot.kind !== "loading"} motion={motion} />
     </SafeAreaView>
   );
 }
@@ -354,14 +367,14 @@ const styles = StyleSheet.create({
   notice: {
     margin: 12,
     padding: 14,
-    borderRadius: 12,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#D9DDE1",
+    borderRadius: 28,
+    backgroundColor: BRAND.white,
+    borderWidth: 2,
+    borderColor: BRAND.blue,
     gap: 4,
   },
-  noticeTitle: { fontSize: 17, fontWeight: "700", color: "#1F2937" },
-  noticeText: { fontSize: 14, lineHeight: 20, color: "#374151" },
+  noticeTitle: { fontSize: 17, fontWeight: "700", color: BRAND.blue },
+  noticeText: { fontSize: 14, lineHeight: 20, color: BRAND.blue },
   centered: {
     flex: 1,
     alignItems: "center",
@@ -369,15 +382,15 @@ const styles = StyleSheet.create({
     gap: 14,
     padding: 24,
   },
-  title: { fontSize: 30, fontWeight: "700", color: "#1F2937" },
-  muted: { fontSize: 16, color: "#52606D", textAlign: "center" },
+  title: { fontSize: 30, fontWeight: "700", color: BRAND.blue },
+  muted: { fontSize: 16, color: BRAND.blue, textAlign: "center" },
   retryButton: {
     minHeight: 44,
     paddingHorizontal: 20,
-    borderRadius: 10,
-    backgroundColor: "#2F4858",
+    borderRadius: 999,
+    backgroundColor: BRAND.blue,
     alignItems: "center",
     justifyContent: "center",
   },
-  retryText: { color: "#FFFFFF", fontSize: 16, fontWeight: "600" },
+  retryText: { color: BRAND.white, fontSize: 16, fontWeight: "700" },
 });

@@ -48,6 +48,7 @@ const renderSettings = (
       theme={getTheme("paper")}
       onClose={() => undefined}
       onOpenMemory={() => undefined}
+      onOpenDemos={() => undefined}
       timeZone="UTC"
       locale="en-US"
       {...extra}
@@ -218,4 +219,12 @@ describe("SettingsScreen", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it("opens the fictional integration demos", () => {
+    const onOpenDemos = jest.fn();
+    renderSettings(makeSettings(), { onOpenDemos });
+    fireEvent.press(
+      screen.getByRole("button", { name: "Open fictional demos" }),
+    );
+    expect(onOpenDemos).toHaveBeenCalled();
+  });
 });
