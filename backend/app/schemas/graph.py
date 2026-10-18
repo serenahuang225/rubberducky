@@ -103,6 +103,41 @@ class ContextEvidence(ContractModel):
     observed_at: UtcDatetime
 
 
+class KnowledgeNode(ContractModel):
+    """One shared curriculum concept, labeled with this learner's own records."""
+
+    concept_id: EntityId
+    name: ShortText
+    readiness: Literal[
+        "not_practiced",
+        "not_enough_evidence",
+        "emerging",
+        "developing",
+        "strong_so_far",
+    ]
+    readiness_label: ShortText
+    memories: list[ShortText]
+
+
+class KnowledgeEdge(ContractModel):
+    """A shared prerequisite. Personal evidence never appears as one of these."""
+
+    prerequisite_id: EntityId
+    concept_id: EntityId
+    kind: Literal["curriculum_prerequisite"] = "curriculum_prerequisite"
+
+
+class KnowledgeMap(ContractModel):
+    """The shared concept graph with this learner's estimates and memories as labels."""
+
+    schema_version: Literal["knowledge-map.v1"] = "knowledge-map.v1"
+    learner_id: EntityId
+    generated_at: UtcDatetime
+    notice: ShortText
+    nodes: list[KnowledgeNode]
+    edges: list[KnowledgeEdge]
+
+
 class OmittedCounts(ContractModel):
     """How many candidates the budget left out, so truncation is visible, not silent."""
 

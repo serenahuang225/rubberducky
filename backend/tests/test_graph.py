@@ -490,6 +490,38 @@ def _pair(database: Database, client: TestClient, learner_id: str) -> dict[str, 
     return {"Authorization": f"Bearer {token}"}
 
 
+def test_knowledge_map_labels_one_learner_without_new_edges(
+    client: TestClient, database: Database
+) -> None:
+    ada = _pair(database, client, DEMO_LEARNER_ADA)
+    ben = _pair(database, client, DEMO_LEARNER_BEN)
+    ada_body = client.get("/graph/knowledge", headers=ada).json()
+    ben_body = client.get("/graph/knowledge", headers=ben).json()
+    shared_edges = {
+        ("concept.multiplication", "concept.grouping"),
+        ("concept.grouping", "concept.distribution"),
+        ("concept.distribution", "concept.linear_equations"),
+        ("concept.equality_operations", "concept.linear_equations"),
+    }
+    assert {
+        (edge["prerequisite_id"], edge["concept_id"]) for edge in ada_body["edges"]
+    } == shared_edges
+    assert ben_body["edges"] == ada_body["edges"]
+    assert {node["concept_id"] for node in ada_body["nodes"]} == {
+        node["concept_id"] for node in ben_body["nodes"]
+    }
+    ada_distribution = next(
+        node for node in ada_body["nodes"] if node["concept_id"] == DISTRIBUTION
+    )
+    assert ada_distribution["memories"] == ["Partial distribution"]
+    ben_distribution = next(
+        node for node in ben_body["nodes"] if node["concept_id"] == DISTRIBUTION
+    )
+    assert ben_distribution["memories"] == []
+    assert "Partial distribution" not in json.dumps(ben_body)
+    assert client.get("/graph/knowledge").status_code == 401
+
+
 def test_graph_context_route_is_scoped_by_token(client: TestClient, database: Database) -> None:
     ada = _pair(database, client, DEMO_LEARNER_ADA)
     ben = _pair(database, client, DEMO_LEARNER_BEN)

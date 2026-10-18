@@ -657,6 +657,42 @@ export const mediaEventResultSchema = z
   .loose();
 export type MediaEventResult = z.infer<typeof mediaEventResultSchema>;
 
+export const knowledgeMapSchema = z
+  .object({
+    schema_version: z.literal("knowledge-map.v1"),
+    learner_id: z.string(),
+    generated_at: z.string(),
+    notice: z.string(),
+    nodes: z.array(
+      z
+        .object({
+          concept_id: z.string(),
+          name: z.string(),
+          readiness: z.enum([
+            "not_practiced",
+            "not_enough_evidence",
+            "emerging",
+            "developing",
+            "strong_so_far",
+          ]),
+          readiness_label: z.string(),
+          memories: z.array(z.string()),
+        })
+        .loose(),
+    ),
+    edges: z.array(
+      z
+        .object({
+          prerequisite_id: z.string(),
+          concept_id: z.string(),
+          kind: z.literal("curriculum_prerequisite"),
+        })
+        .loose(),
+    ),
+  })
+  .loose();
+export type KnowledgeMap = z.infer<typeof knowledgeMapSchema>;
+
 export type MediaEventRequest =
   | {
       kind: "image_snapshot";
