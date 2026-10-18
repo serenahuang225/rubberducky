@@ -75,6 +75,38 @@ function makeBackend() {
       body:
         init?.body === undefined ? undefined : JSON.parse(String(init.body)),
     });
+    if (url === "/graph/knowledge") {
+      return respond(200, {
+        schema_version: "knowledge-map.v1",
+        learner_id: "learner-1",
+        generated_at: "2026-10-12T09:00:00Z",
+        notice:
+          "Shared lesson order. Labels are only this profile's memories and uncalibrated estimates.",
+        nodes: [
+          {
+            concept_id: "concept.distribution",
+            name: "Distribution",
+            readiness: "developing",
+            readiness_label: "Developing",
+            memories: ["Partial distribution"],
+          },
+          {
+            concept_id: "concept.grouping",
+            name: "Grouping with parentheses",
+            readiness: "not_practiced",
+            readiness_label: "Not practiced yet",
+            memories: [],
+          },
+        ],
+        edges: [
+          {
+            prerequisite_id: "concept.grouping",
+            concept_id: "concept.distribution",
+            kind: "curriculum_prerequisite",
+          },
+        ],
+      });
+    }
     if (url.startsWith("/memory/inspect")) {
       if (state.failInspect) throw new TypeError("Network request failed");
       const limit = Number(
@@ -173,6 +205,10 @@ describe("MemoryScreen", () => {
     expect(note).toHaveTextContent(/Uncertainty: One attempt only\./);
     expect(note).toHaveTextContent(/Used to choose a hint/);
     expect(note).toHaveTextContent(/inference/i);
+    expect(screen.getByTestId("knowledge-graph")).toBeTruthy();
+    expect(screen.getByText("Distribution")).toBeTruthy();
+    expect(screen.getByText("Partial distribution")).toBeTruthy();
+    expect(screen.getByText(/Shared lesson order/)).toBeTruthy();
   });
 
   it("states the inspection bound per kind, and raises it only on request", async () => {
