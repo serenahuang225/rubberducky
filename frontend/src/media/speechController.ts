@@ -109,6 +109,7 @@ export class SpeechController {
   private scope: string | null = null;
   private allowed = false;
   private driverActive = false;
+  private clipStop: (() => void) | null = null;
 
   constructor(private driver: SpeechDriver) {}
 
@@ -243,7 +244,99 @@ export class SpeechController {
     return "started";
   }
 
+  /**
+   * Play audio the server already synthesized from the tutor's reply.
+   * `start` returns the function that stops playback. The text is the caption.
+   */
+  playClip(
+    request: SpeakRequest,
+    start: (handlers: SpeechHandlers) => () => void,
+  ): SpeakOutcome {
+    if (!this.allowed) {
+      this.set(
+        {},
+        { type: "suppressed", detail: "sound is off or text-only is on" },
+      );
+      return "suppressed";
+    }
+    if (request.scope !== this.scope) {
+      this.set({}, { type: "stale_request", detail: request.turnId });
+      return "stale";
+    }
+    const spoken = request.text.trim().slice(0, MAX_SPOKEN_CHARS);
+    if (spoken.length === 0) return "suppressed";
+    this.stopDriver();
+    const token = ++this.token;
+    const scope = request.scope;
+    const live = () => token === this.token && scope === this.scope;
+    const late = (what: string) =>
+      this.set({}, { type: "ignored_late", detail: what });
+    this.set(
+      {
+        phase: "starting",
+        text: spoken,
+        turnId: request.turnId,
+        simulated: false,
+        note: null,
+      },
+      { type: "start", detail: "recorded" },
+    );
+    try {
+      this.clipStop = start({
+        onStart: () => {
+          if (!live()) return late("start");
+          this.set({ phase: "speaking" }, { type: "start", detail: "speaking" });
+        },
+        onDone: () => {
+          if (!live()) return late("done");
+          this.clipStop = null;
+          this.set({ phase: "finished" }, { type: "end", detail: "finished" });
+        },
+        onStopped: () => {
+          if (!live()) return late("stopped");
+          this.clipStop = null;
+          this.set(
+            { phase: "cancelled", note: "Speech was stopped by the device." },
+            { type: "cancel", detail: "device" },
+          );
+        },
+        onError: () => {
+          if (!live()) return late("error");
+          this.clipStop = null;
+          this.set(
+            {
+              phase: "failed",
+              note: "Spoken reply failed. The written reply is unchanged.",
+            },
+            { type: "error", detail: "playback error" },
+          );
+        },
+      });
+    } catch {
+      this.clipStop = null;
+      this.token += 1;
+      this.set(
+        {
+          phase: "failed",
+          note: "Spoken reply failed. The written reply is unchanged.",
+        },
+        { type: "error", detail: "playback threw" },
+      );
+      return "unavailable";
+    }
+    return "started";
+  }
+
   private stopDriver(): void {
+    if (this.clipStop !== null) {
+      const stop = this.clipStop;
+      this.clipStop = null;
+      try {
+        stop();
+      } catch {
+        // Stopping is best effort; the token already rejects whatever arrives later.
+      }
+    }
     if (!this.driverActive) return;
     this.driverActive = false;
     try {

@@ -6,7 +6,7 @@
  * never submits work or speaks on a timer.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -17,7 +17,6 @@ import {
   View,
 } from "react-native";
 import {
-  Bookmark,
   CircleHelp,
   Flag,
   Hourglass,
@@ -42,6 +41,7 @@ import { PromptBar } from "../components/PromptBar";
 import { TutorChat } from "../components/TutorChat";
 import { messagesFromTurns } from "../components/chatMessages";
 import { QuestionIntake } from "../components/QuestionIntake";
+import { HoldPressable } from "../components/HoldPressable";
 import { SquareButton } from "../components/SquareButton";
 import { TeachingContext } from "../components/TeachingContext";
 import { TutorAvatar } from "../components/TutorAvatar";
@@ -51,6 +51,8 @@ import { WhiteboardCanvas } from "../components/WhiteboardCanvas";
 import { pulseHaptic } from "../feedback/haptics";
 import { defaultMediaServices } from "../media/defaultMediaServices";
 import type { MediaServices } from "../media/mediaServices";
+import { createTalkRecorder, talkCaptureAvailable } from "../media/pushToTalk";
+import { primeReplyAudio } from "../media/replyAudio";
 import { useMedia } from "../media/useMedia";
 import { resolveFeedback, resolveMotion } from "../feedback/preferences";
 import { useSystemReducedMotion } from "../feedback/useSystemReducedMotion";
@@ -61,7 +63,7 @@ import { useWaitAgency } from "../state/useWaitAgency";
 import { useWorkspace } from "../state/useWorkspace";
 import { radius, type } from "../theme/tokens";
 
-import { APPEARANCE_INFO, PERSONALITY_INFO } from "./OnboardingScreen";
+import { PERSONALITY_INFO } from "./OnboardingScreen";
 
 export type WorkspaceScreenProps = {
   client: ApiClient;
@@ -103,7 +105,7 @@ export function WorkspaceScreen({
   accessibility = DEFAULT_ACCESSIBILITY,
   boardHidden = false,
   onOpenSettings,
-  onOpenMemory,
+  onOpenMemory: _onOpenMemory,
   onThemeChange,
   media: mediaServices,
   handhold = "balanced",
@@ -174,7 +176,14 @@ export function WorkspaceScreen({
   const [themeName, setThemeName] = useState<BoardThemeName>("paper");
   const [mode, setMode] = useState<BoardInputMode>("draw");
   const [draft, setDraft] = useState("");
+  const [recording, setRecording] = useState(false);
+  const [talkNote, setTalkNote] = useState<string | null>(null);
+  const recorderRef = useRef(createTalkRecorder());
+  const talkFailed = useRef(false);
+  const holding = useRef(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(true);
+  const [showPictureStatement, setShowPictureStatement] = useState(false);
   const [noted, setNoted] = useState(false);
   const [ending, setEnding] = useState(false);
   const [endError, setEndError] = useState<string | null>(null);
@@ -208,9 +217,11 @@ export function WorkspaceScreen({
 
   const theme = useMemo(() => getTheme(themeName), [themeName]);
   const notedTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pictureTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   React.useEffect(
     () => () => {
       if (notedTimer.current !== null) clearTimeout(notedTimer.current);
+      if (pictureTimer.current !== null) clearTimeout(pictureTimer.current);
     },
     [],
   );
@@ -242,6 +253,29 @@ export function WorkspaceScreen({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [boardHidden, workspace]);
+
+  const pageRef = useRef<View>(null);
+  useEffect(() => {
+    if (Platform.OS !== "web" || workspace.phase !== "ready") return;
+    const root = pageRef.current as unknown as HTMLElement | null;
+    if (root == null || typeof root.addEventListener !== "function") return;
+    const onWheel = (event: WheelEvent) => {
+      const scroller = root.querySelector(
+        '[data-testid="tutor-chat-log"]',
+      ) as HTMLElement | null;
+      if (scroller == null) return;
+      const target = event.target;
+      if (target instanceof Node && scroller.contains(target)) return;
+      const max = scroller.scrollHeight - scroller.clientHeight;
+      if (max <= 1) return;
+      const next = Math.min(max, Math.max(0, scroller.scrollTop + event.deltaY));
+      if (next === scroller.scrollTop) return;
+      scroller.scrollTop = next;
+      event.preventDefault();
+    };
+    root.addEventListener("wheel", onWheel, { passive: false });
+    return () => root.removeEventListener("wheel", onWheel);
+  }, [workspace.phase]);
   const toggleTheme = useCallback(() => {
     setThemeName((current) => {
       const next = current === "paper" ? "slate" : "paper";
@@ -249,6 +283,50 @@ export function WorkspaceScreen({
       return next;
     });
   }, []);
+
+  const beginTalk = useCallback(() => {
+    if (feedback.textOnly || workspace.busyLabel !== null || holding.current) return;
+    holding.current = true;
+    talkFailed.current = false;
+    primeReplyAudio();
+    media.cancelSpeech("new_work");
+    media.preferRecordedReply(feedback.sound);
+    setRecording(true);
+    setTalkNote(null);
+    void recorderRef.current.start().catch(() => {
+      talkFailed.current = true;
+      holding.current = false;
+      setRecording(false);
+      media.preferRecordedReply(false);
+      setTalkNote("The microphone could not be opened. Typing still works.");
+    });
+  }, [feedback.sound, feedback.textOnly, media, workspace.busyLabel]);
+
+  const endTalk = useCallback(() => {
+    if (!holding.current && !talkFailed.current) return;
+    holding.current = false;
+    setRecording(false);
+    if (talkFailed.current) {
+      talkFailed.current = false;
+      return;
+    }
+    const willSpeak = feedback.sound && !feedback.textOnly;
+    void recorderRef.current.stop().then(async (clip) => {
+      if (clip === null) {
+        media.preferRecordedReply(false);
+        setTalkNote("Hold a little longer so the recording has your words.");
+        return;
+      }
+      const result = await workspace.submitVoice(clip, { handhold, speak: willSpeak });
+      if (result.playback !== null) media.playRecordedReply(result.playback);
+      else media.preferRecordedReply(false);
+      if (result.outcome === "resolved" && result.transcript !== null) {
+        setTalkNote(`Heard: ${result.transcript}`);
+      } else if (result.note !== null) {
+        setTalkNote(result.note);
+      }
+    });
+  }, [feedback.sound, feedback.textOnly, handhold, media, workspace]);
 
   const submitDraft = useCallback(() => {
     const text = draft.trim();
@@ -359,13 +437,20 @@ export function WorkspaceScreen({
     );
   }
 
-  const personaInfo = APPEARANCE_INFO[persona.appearance];
   const styleInfo = PERSONALITY_INFO[persona.personality];
   const scene = workspace.scene;
-  const visibleObjects =
-    hiddenIds.size === 0
-      ? scene.objects
-      : scene.objects.filter((object) => !hiddenIds.has(object.id));
+  const statementId = workspace.state?.current_problem?.statement_object_id ?? null;
+  const visibleObjects = scene.objects.filter((object) => {
+    if (hiddenIds.has(object.id)) return false;
+    if (
+      statementId !== null &&
+      object.id === statementId &&
+      !showPictureStatement
+    ) {
+      return false;
+    }
+    return true;
+  });
   const avatarStatus = deriveAvatarStatus({
     busy: workspace.busyLabel !== null,
     connectionLost: workspace.connectionLost,
@@ -378,22 +463,26 @@ export function WorkspaceScreen({
 
   return (
     <KeyboardAvoidingView
-      style={[styles.page, { backgroundColor: theme.board }]}
+      style={[styles.avoid, { backgroundColor: theme.board }]}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
+    <View
+      ref={pageRef}
+      style={[styles.page, { backgroundColor: theme.board }]}
     >
       <View style={styles.header}>
         <TutorAvatar
           personality={persona.personality}
           theme={theme}
-          tutorName={`${personaInfo.name}, ${styleInfo.name}`}
+          tutorName={styleInfo.name}
           status={avatarStatus}
         />
         <View style={styles.headerText}>
           <Text
             numberOfLines={1}
-            style={[styles.tutorName, { color: theme.labelText }]}
+            style={[styles.tutorName, { color: theme.studentInk }]}
           >
-            {personaInfo.name} · {styleInfo.name}
+            {styleInfo.name}
           </Text>
           <View style={styles.headerMeta}>
             <Text
@@ -407,16 +496,10 @@ export function WorkspaceScreen({
             </Text>
           </View>
         </View>
-        <PromptBar
-          theme={theme}
-          expectedAction={workspace.lastExpectedAction}
-          status={
-            workspace.busyLabel ??
-            stillThinkingStatusText(wait.stillThinkingStatus)
-          }
-        />
-        <Pressable
+        <HoldPressable
           testID="workspace-menu"
+          overview="Opens help, waiting, voice, and settings."
+          theme={theme}
           accessibilityRole="button"
           accessibilityLabel={menuOpen ? "Close more" : "More"}
           accessibilityState={{ expanded: menuOpen }}
@@ -426,27 +509,26 @@ export function WorkspaceScreen({
           <Text style={[styles.moreText, { color: theme.labelText }]}>
             {menuOpen ? "Close" : "More"}
           </Text>
-        </Pressable>
+        </HoldPressable>
       </View>
+      <PromptBar
+        theme={theme}
+        status={
+          workspace.busyLabel ??
+          stillThinkingStatusText(wait.stillThinkingStatus)
+        }
+      />
+      {workspace.state.current_problem?.statement ? (
+        <Text
+          testID="prompt-problem"
+          style={[styles.problemRow, { color: theme.studentInk }]}
+        >
+          {workspace.state.current_problem.statement}
+        </Text>
+      ) : null}
       <View
         style={[styles.menu, !menuOpen && styles.menuClosed]}
       >
-        {workspace.providerLabel !== null ? (
-          <Text
-            testID="provider-label"
-            numberOfLines={1}
-            accessibilityLabel={
-              workspace.providerIsMock
-                ? `Demo mode: ${workspace.providerLabel}`
-                : `Tutor provider: ${workspace.providerLabel}`
-            }
-            style={[styles.providerLabel, { color: theme.labelMuted }]}
-          >
-            {workspace.providerIsMock
-              ? `Demo mode: ${workspace.providerLabel}`
-              : workspace.providerLabel}
-          </Text>
-        ) : null}
         <SquareButton
           testID="help-me"
           theme={theme}
@@ -464,6 +546,7 @@ export function WorkspaceScreen({
           testID="still-thinking"
           theme={theme}
           label="Still thinking"
+          hint="Asks your tutor to wait. It does not send your work or ask for a hint."
           disabled={workspace.needsCheckIn}
           onPress={markStillThinking}
           icon={<Hourglass color={theme.labelText} size={18} strokeWidth={2.4} />}
@@ -482,20 +565,12 @@ export function WorkspaceScreen({
             )
           }
         />
-        {onOpenMemory !== undefined ? (
-          <SquareButton
-            testID="open-memory"
-            theme={theme}
-            label="Open private memory"
-            onPress={onOpenMemory}
-            icon={<Bookmark color={theme.labelText} size={18} strokeWidth={2.4} />}
-          />
-        ) : null}
         {onOpenSettings !== undefined ? (
           <SquareButton
             testID="open-settings"
             theme={theme}
             label="Open settings"
+            hint="Opens settings for your tutor, how much help, and comfort."
             onPress={onOpenSettings}
             icon={<Settings color={theme.labelText} size={18} strokeWidth={2.4} />}
           />
@@ -516,6 +591,17 @@ export function WorkspaceScreen({
           textOnly={feedback.textOnly}
           captionsOn={feedback.captions}
           onUseText={useMediaText}
+          talk={{
+            available:
+              media.capabilities?.spoken_reply?.status === "available" &&
+              talkCaptureAvailable(),
+            recording,
+            disabled:
+              feedback.textOnly || (workspace.busyLabel !== null && !recording),
+            note: talkNote,
+            onPressIn: beginTalk,
+            onPressOut: endTalk,
+          }}
         />
         <WaitControls
           theme={theme}
@@ -584,17 +670,20 @@ export function WorkspaceScreen({
         <QuestionIntake
           theme={theme}
           busy={workspace.busyLabel !== null}
-          onStart={(input) => void workspace.checkIn({ ...input, handhold })}
+          onStart={(input) => {
+            const fromPicture = input.image != null;
+            if (pictureTimer.current !== null) clearTimeout(pictureTimer.current);
+            setShowPictureStatement(fromPicture);
+            if (fromPicture) {
+              pictureTimer.current = setTimeout(() => setShowPictureStatement(false), 5000);
+            }
+            void workspace.checkIn({ ...input, handhold });
+          }}
         />
       ) : null}
 
       <View style={styles.stage}>
       <View style={styles.boardArea}>
-        {workspace.state.current_problem?.statement ? (
-          <Text testID="prompt-problem" style={styles.srOnly}>
-            {workspace.state.current_problem.statement}
-          </Text>
-        ) : null}
         {workspace.canInterrupt ? (
           <SquareButton
             testID="stop-reply"
@@ -633,7 +722,46 @@ export function WorkspaceScreen({
             void workspace.eraseObject(objectId);
           }}
         />
+        <View pointerEvents="box-none" style={styles.toolDock}>
+          {chatOpen ? null : (
+            <HoldPressable
+              testID="show-chat"
+              overview="Opens the chat beside the board."
+              theme={theme}
+              accessibilityRole="button"
+              accessibilityLabel="Show chat"
+              onPress={() => setChatOpen(true)}
+              style={[
+                styles.showChat,
+                { backgroundColor: theme.surface, borderColor: theme.surfaceEdge },
+              ]}
+            >
+              <Text style={[styles.moreText, { color: theme.labelText }]}>Show chat</Text>
+            </HoldPressable>
+          )}
+          <View
+            style={[
+              styles.toolCard,
+              { backgroundColor: theme.surface, borderColor: theme.surfaceEdge },
+            ]}
+          >
+            <ToolRail
+              theme={theme}
+              mode={mode}
+              layout="column"
+              undoAvailable={scene.student_undo_available}
+              redoAvailable={scene.student_redo_available}
+              tutorUndoAvailable={scene.tutor_move_undo_available}
+              busy={false}
+              onModeChange={setMode}
+              onUndo={() => void workspace.undo()}
+              onRedo={() => void workspace.redo()}
+              onUndoTutorMove={() => void workspace.undoTutorMove()}
+            />
+          </View>
+        </View>
       </View>
+      {chatOpen ? (
       <TutorChat
         theme={theme}
         messages={messagesFromTurns(
@@ -655,31 +783,25 @@ export function WorkspaceScreen({
           wait.clearStillThinkingNote();
         }}
         onSend={submitDraft}
+        onHide={() => setChatOpen(false)}
         noted={noted}
       />
-      <ToolRail
-        theme={theme}
-        mode={mode}
-        layout="column"
-        undoAvailable={scene.student_undo_available}
-        redoAvailable={scene.student_redo_available}
-        tutorUndoAvailable={scene.tutor_move_undo_available}
-        busy={false}
-        onModeChange={setMode}
-        onUndo={() => void workspace.undo()}
-        onRedo={() => void workspace.redo()}
-        onUndoTutorMove={() => void workspace.undoTutorMove()}
-      />
+      ) : null}
       </View>
+    </View>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  page: {
+  avoid: {
     flex: 1,
     width: "100%",
     height: "100%",
+    minHeight: 0,
+  },
+  page: {
+    flex: 1,
     minHeight: 0,
     paddingHorizontal: 20,
   },
@@ -750,7 +872,7 @@ const styles = StyleSheet.create({
     paddingBottom: 0,
     overflow: "hidden",
   },
-  providerLabel: { ...type.meta, fontWeight: "400", flexShrink: 1 },
+  problemRow: { ...type.prompt, paddingBottom: 6 },
   stage: {
     flex: 1,
     minHeight: 0,
@@ -758,11 +880,27 @@ const styles = StyleSheet.create({
     alignItems: "stretch",
   },
   boardArea: { flex: 1, minHeight: 0, position: "relative" },
-  srOnly: {
+  toolDock: {
     position: "absolute",
-    width: 1,
-    height: 1,
-    overflow: "hidden",
+    right: -26,
+    top: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 4,
+    gap: 8,
+  },
+  toolCard: {
+    borderWidth: 2,
+    borderRadius: radius.lg,
+    paddingVertical: 4,
+  },
+  showChat: {
+    borderWidth: 2,
+    borderRadius: radius.pill,
+    paddingHorizontal: 12,
+    minHeight: 44,
+    justifyContent: "center",
   },
   stopFloat: {
     position: "absolute",

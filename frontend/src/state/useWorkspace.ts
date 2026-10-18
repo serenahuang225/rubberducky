@@ -125,6 +125,14 @@ export type WorkspaceController = {
    */
   submitWork: (text: string, handhold?: HandholdMode) => Promise<WorkSubmitOutcome>;
   /**
+   * Hold-to-talk. The clip is transcribed and answered by the tutor. `playback` is the
+   * tutor's reply audio, when the server spoke it.
+   */
+  submitVoice: (
+    clip: { bytes: Blob; mime: string },
+    options?: { handhold?: HandholdMode; speak?: boolean },
+  ) => Promise<VoiceSubmitResult>;
+  /**
    * Help me, or one of the handhold controls. Still exploring asks the tutor to wait.
    * Ask me a question and Give me a hint ask now, without waiting for a timer.
    */
@@ -155,6 +163,19 @@ function isNetworkFailure(error: unknown): boolean {
  * outcome. The fingerprint identifies the learner's content, so edited text never reuses
  * the key of an earlier body.
  */
+export type VoicePlayback = {
+  turnId: string;
+  text: string;
+  audioBase64: string;
+};
+
+export type VoiceSubmitResult = {
+  outcome: WorkSubmitOutcome;
+  playback: VoicePlayback | null;
+  transcript: string | null;
+  note: string | null;
+};
+
 type LogicalCommand = {
   key: string;
   expectedRevision: number;
@@ -264,6 +285,8 @@ export function useWorkspace(
   }
   const pendingHelpRef = useRef<LogicalCommand | null>(null);
   const pendingWorkRef = useRef<LogicalCommand | null>(null);
+  const pendingVoiceRef = useRef<LogicalCommand | null>(null);
+  const serverEpochRef = useRef(0);
   // Commands waiting on the server; a successful Stop settles them without waiting for the
   // withdrawn request, which only returns once the provider finishes.
   const stopWaitersRef = useRef<Set<() => void>>(new Set());
@@ -297,6 +320,7 @@ export function useWorkspace(
     setTurnGeneration(turnGenRef.current);
     pendingHelpRef.current = null;
     pendingWorkRef.current = null;
+    pendingVoiceRef.current = null;
     busyRef.current = false;
     setPenLocked(false);
     setSettlingStrokes([]);
@@ -313,6 +337,7 @@ export function useWorkspace(
     ]);
     if (epoch === epochRef.current) {
       setConnectionLost(false);
+      serverEpochRef.current = nextState.session.cancellation_epoch;
       setState(nextState);
       setScene(nextScene);
       // Mirror the committed server truth; never cache optimistic local guesses.
@@ -721,6 +746,57 @@ export function useWorkspace(
     [client, sendLogical, sessionId],
   );
 
+  const submitVoice = useCallback(
+    async (
+      clip: { bytes: Blob; mime: string },
+      options?: { handhold?: HandholdMode; speak?: boolean },
+    ): Promise<VoiceSubmitResult> => {
+      const heard: VoiceSubmitResult = {
+        outcome: "ignored",
+        playback: null,
+        transcript: null,
+        note: null,
+      };
+      heard.outcome = await sendLogical({
+        label: "Thinking…",
+        command: pendingVoiceRef,
+        fingerprint: `voice:${clip.bytes.size}:${options?.handhold ?? "balanced"}:${Date.now()}`,
+        fenceProblem: true,
+        send: async (key, revision) => {
+          const result = await client.submitVoice(
+            sessionId,
+            key,
+            revision,
+            serverEpochRef.current,
+            clip,
+            { handhold: options?.handhold, speak: options?.speak },
+          );
+          heard.transcript = result.transcript;
+          heard.note = result.speech_note;
+          const text = (result.spoken_text ?? "").trim();
+          if (
+            result.turn.status === "committed" &&
+            result.audio_base64 !== null &&
+            text.length > 0
+          ) {
+            heard.playback = {
+              turnId: result.turn.turn_id,
+              text,
+              audioBase64: result.audio_base64,
+            };
+          }
+          return result.turn;
+        },
+        uncertainMessage:
+          "The tutor may not have heard that. Hold to talk again; a retry of the same recording is not counted twice.",
+        staleMessage: "The board moved on, so that recording was not sent.",
+        failureMessage: "That recording could not be sent.",
+      });
+      return heard;
+    },
+    [client, sendLogical, sessionId],
+  );
+
   const requestHelp = useCallback(
     async (
       mode: "hint" | "explain" = "hint",
@@ -774,6 +850,7 @@ export function useWorkspace(
     setTurnGeneration(turnGenRef.current);
     pendingHelpRef.current = null;
     pendingWorkRef.current = null;
+    pendingVoiceRef.current = null;
     for (const settle of stopWaitersRef.current) settle();
     setTurnInFlight(false);
     releaseBusy();
@@ -988,6 +1065,7 @@ export function useWorkspace(
     retryPending,
     checkIn,
     submitWork,
+    submitVoice,
     requestHelp,
     commitStroke,
     eraseObject,

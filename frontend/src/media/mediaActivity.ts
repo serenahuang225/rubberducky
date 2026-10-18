@@ -27,6 +27,9 @@ export function deriveMediaActivity(facts: MediaFacts): MediaActivity | null {
       source: facts.speech.simulated ? "simulated" : "live",
     };
   }
+  if (facts.voice.active && facts.voice.source === "device") {
+    return { kind: "listening", source: "live" };
+  }
   if (facts.voice.active) {
     return { kind: "listening", source: "simulated" };
   }

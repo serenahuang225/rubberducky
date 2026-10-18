@@ -11,6 +11,8 @@ import { Camera, CameraView } from "expo-camera";
 import React, { useEffect, useRef } from "react";
 import { StyleSheet, View } from "react-native";
 
+import { BRAND } from "../board/palette";
+
 import type {
   CameraOrientation,
   CaptureDriver,
@@ -115,9 +117,9 @@ const styles = StyleSheet.create({
   frame: {
     width: 160,
     height: 120,
-    borderRadius: 10,
+    borderRadius: 20,
     overflow: "hidden",
-    backgroundColor: "#222",
+    backgroundColor: BRAND.blue,
   },
   view: { flex: 1 },
 });

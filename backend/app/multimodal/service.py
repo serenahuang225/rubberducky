@@ -32,9 +32,11 @@ from app.schemas.media import (
     MediaLimits,
     RecognitionCandidate,
     SpeechInterruptionState,
+    SpokenReplyState,
     TranscriptEvent,
     WeakContextEvent,
 )
+from app.speech.xai import speech_enabled
 from app.tutor.cancellation import current_epoch
 
 
@@ -58,16 +60,41 @@ CLARIFICATION = (
 
 
 def _transmitted(settings: Settings) -> list[str]:
+    speech = (
+        "No provider receives microphone audio. Chrome may send it to Google's speech "
+        "service; Safari uses the system recognizer. This server gets text only."
+    )
+    hold = (
+        "Hold to talk sends that recording to xAI for a transcript, then discards it. "
+        "xAI speaks only the tutor's reply and does not rewrite it."
+    )
+    lines: list[str] = []
     if settings.tutor_provider == "claude" and settings.external_integrations_enabled:
-        return [
+        lines.append(
             "A question you type, upload, or screenshot at the start is sent to Anthropic "
-            "so Claude can read it and write the note you see. The picture is not saved.",
-            "Voice and camera from the media panel are still not sent.",
-        ]
-    return [
-        "No provider is configured, so no audio, image or transcript is sent anywhere.",
-        "If a provider is added later, what is sent will be listed here first.",
-    ]
+            "so Claude can read it and write the note you see. The picture is not saved."
+        )
+    else:
+        lines.append("No provider is configured to receive audio, images, or a transcript.")
+    lines.append(speech)
+    if speech_enabled(settings):
+        lines.append(hold)
+    return lines
+
+
+def _spoken_reply(settings: Settings) -> SpokenReplyState:
+    if speech_enabled(settings):
+        tutor = "Claude" if settings.tutor_provider == "claude" else "the tutor"
+        return SpokenReplyState(
+            status="available",
+            detail=(
+                f"Hold to talk. xAI transcribes, {tutor} replies, and xAI speaks only that reply."
+            )[:200],
+        )
+    return SpokenReplyState(
+        status="unavailable",
+        detail="Hold to talk is off. The microphone button still uses this browser's speech.",
+    )
 
 
 def capabilities(settings: Settings) -> MediaCapabilities:
@@ -78,16 +105,20 @@ def capabilities(settings: Settings) -> MediaCapabilities:
             detail="Image understanding is not configured; photos are never read or described.",
         ),
         transcription=CapabilityState(
-            status="unavailable",
-            detail="Speech recognition is not configured; nothing you say is transcribed.",
+            status="available",
+            detail=(
+                "The browser turns speech into text while the microphone is on. "
+                "This server accepts that text and does not receive the audio."
+            ),
         ),
         speech_interruption=SpeechInterruptionState(
             supported=True,
             detail=(
-                "Stop speaking and a deterministic barge-in event stop the tutor's voice; "
-                "interruption by detecting your voice is not available."
+                "A transcript from the microphone stops a reply being read aloud. "
+                "This server does not analyze the audio itself."
             ),
         ),
+        spoken_reply=_spoken_reply(settings),
         fixtures=FixtureState(
             enabled=fixtures,
             detail=(
@@ -193,12 +224,7 @@ def _check_source(settings: Settings, body: MediaEventRequest) -> None:
         raise MediaEventError(
             409, "fixtures_disabled", "Simulated media events are turned off on this server."
         )
-    if isinstance(body, TranscriptEvent) and body.source == "device":
-        raise MediaEventError(
-            409,
-            "transcription_unavailable",
-            "Speech recognition is not configured, so no live transcript can be accepted.",
-        )
+    # Device transcripts are text the browser already produced. Audio is not in the body.
 
 
 def _unseen_latest_interim(repo: ScopedRepository, session_id: str, utterance_id: str) -> int:

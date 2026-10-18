@@ -1,8 +1,8 @@
 """Bounded, uncertain, learner-scoped media events (VAL-MEDIA-002, VAL-MEDIA-003).
 
-The deterministic fixtures run through the real routes and migrated SQLite. Nothing here
-performs transcription or perception: transcripts and recognition are explicitly
-``simulated`` fixtures, and real (device-sourced) recognition reports ``unavailable``.
+The deterministic fixtures run through the real routes and migrated SQLite. Device
+transcripts are accepted as text the browser already produced; they are not assessed.
+Image perception stays unavailable. Nothing here calls a speech or vision model.
 """
 
 import base64
@@ -106,7 +106,8 @@ def test_capabilities_are_honest_and_need_a_paired_learner(media_client: TestCli
     _, headers = bootstrap(media_client)
     body = media_client.get("/media/capabilities", headers=headers).json()
     assert body["perception"]["status"] == "unavailable"
-    assert body["transcription"]["status"] == "unavailable"
+    assert body["transcription"]["status"] == "available"
+    assert "does not receive the audio" in body["transcription"]["detail"]
     assert body["speech_interruption"]["acoustic_barge_in"] is False
     assert body["defaults"] == {
         "raw_media_stored": False,
@@ -239,19 +240,26 @@ def test_stale_revision_and_interrupted_epoch_reject_late_voice(
     assert fresh.status_code == 200
 
 
-def test_unconfigured_transcription_and_perception_are_unavailable_never_canned(
-    media_client: TestClient,
+def test_device_transcript_is_text_only_and_perception_stays_unavailable(
+    media_client: TestClient, database: Database
 ) -> None:
-    _, headers = bootstrap(media_client)
+    learner_id, headers = bootstrap(media_client)
     session = _start(media_client, headers)
+    before = _counts(database, learner_id)
     device_voice = _event(
         media_client,
         headers,
         session["id"],
-        {**_transcript("e-dev-0001", "u1", 0, "final"), "source": "device"},
+        {**_transcript("e-dev-0001", "u1", 0, "final", "2x + 3 = 14"), "source": "device"},
     )
-    assert device_voice.status_code == 409
-    assert device_voice.json()["error"]["code"] == "transcription_unavailable"
+    assert device_voice.status_code == 200
+    voice = device_voice.json()
+    assert voice["status"] == "final_accepted"
+    assert voice["simulated"] is False
+    assert voice["requires_confirmation"] is True
+    assert voice["evidence_recorded"] is False
+    assert voice["raw_media_retained"] is False
+    assert _counts(database, learner_id) == before
     device_image = _event(
         media_client, headers, session["id"], {**_image("e-dev-0002"), "source": "device"}
     )

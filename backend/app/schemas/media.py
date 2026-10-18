@@ -28,8 +28,9 @@ MediaStatus = Literal[
     "clarification_prompt",
 ]
 WeakSignal = Literal["silence", "voice_level", "expression_cue", "gaze_cue", "posture_cue"]
-# Real recognition/transcription need provider credentials that this build does not ship.
-CapabilityStatus = Literal["unavailable"]
+# Perception stays unavailable. Transcription is "available" when this server accepts
+# text from the device recognizer; the audio itself is never uploaded here.
+CapabilityStatus = Literal["unavailable", "available"]
 
 
 class _Event(ContractModel):
@@ -115,6 +116,13 @@ class SpeechInterruptionState(ContractModel):
     detail: ShortText
 
 
+class SpokenReplyState(ContractModel):
+    """Hold-to-talk through xAI. Separate from the browser recognizer, which stays as it is."""
+
+    status: CapabilityStatus
+    detail: ShortText
+
+
 class MediaLimits(ContractModel):
     max_image_bytes: int
     max_image_edge: int
@@ -147,6 +155,7 @@ class MediaCapabilities(ContractModel):
     perception: CapabilityState
     transcription: CapabilityState
     speech_interruption: SpeechInterruptionState
+    spoken_reply: SpokenReplyState
     fixtures: FixtureState
     limits: MediaLimits
     defaults: MediaDefaults

@@ -15,10 +15,25 @@ import { useMedia, type UseMediaInput } from "./useMedia";
 
 type Overrides = Partial<Omit<UseMediaInput, "client" | "services">>;
 
-function setup(fake: FakeMedia, initial: Overrides = {}) {
+function setup(
+  fake: FakeMedia,
+  initial: Overrides = {},
+  capabilities?: { transcription: { status: string; detail: string } },
+) {
   const client = {
-    mediaCapabilities: jest.fn(),
-    postMediaEvent: jest.fn(),
+    mediaCapabilities: jest.fn(async () => capabilities),
+    postMediaEvent: jest.fn(async (_session: string, event: { kind: string; phase?: string; source?: string }) => {
+      fake.mediaPosts.push(event as never);
+      return {
+        status:
+          event.kind === "transcript" && event.phase === "final"
+            ? "final_accepted"
+            : "provisional",
+        simulated: event.source === "simulated",
+        message: "ok",
+        candidates: [],
+      };
+    }),
   } as unknown as ApiClient;
   const base: UseMediaInput = {
     client,
@@ -310,5 +325,50 @@ describe("useMedia capture lifecycle", () => {
     );
     expect(hook.result.current.transcriptionAvailable).toBe(false);
     expect(hook.result.current.activity).toBeNull();
+    expect(fake.recognizerStarts).toBe(0);
+  });
+
+  it("sends browser speech as a device transcript and ignores it after the microphone stops", async () => {
+    const fake = fakeMedia();
+    fake.recognizerAvailable = true;
+    const hook = setup(fake, {}, {
+      transcription: { status: "available", detail: "browser" },
+    });
+    act(() => hook.result.current.loadCapabilities());
+    await waitFor(() =>
+      expect(hook.result.current.transcriptionAvailable).toBe(true),
+    );
+    act(() => hook.result.current.startMicrophone());
+    await waitFor(() =>
+      expect(hook.result.current.capture.microphone.status).toBe("on"),
+    );
+    expect(fake.recognizerStarts).toBe(1);
+    const handlers = fake.recognizerHandlers;
+    expect(handlers).not.toBeNull();
+    act(() => handlers?.onResult({ phase: "interim", text: "2x plus 3" }));
+    await waitFor(() => expect(fake.mediaPosts).toHaveLength(1));
+    expect(fake.mediaPosts[0]).toMatchObject({
+      kind: "transcript",
+      source: "device",
+      phase: "interim",
+      text: "2x plus 3",
+    });
+    await waitFor(() =>
+      expect(hook.result.current.voice.provisional).toBe("2x plus 3"),
+    );
+    expect(hook.result.current.activity).toEqual({
+      kind: "listening",
+      source: "live",
+    });
+    act(() => hook.result.current.stopCapture("microphone"));
+    await waitFor(() =>
+      expect(hook.result.current.capture.microphone.status).toBe("off"),
+    );
+    const posted = fake.mediaPosts.length;
+    act(() =>
+      handlers?.onResult({ phase: "final", text: "should be ignored" }),
+    );
+    expect(fake.mediaPosts).toHaveLength(posted);
+    expect(hook.result.current.voice.final).toBeNull();
   });
 });

@@ -6,7 +6,7 @@
 import React, { createElement, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import type { BoardTheme } from "../board/palette";
+import { BRAND, type BoardTheme } from "../board/palette";
 import { type } from "../theme/tokens";
 
 import type { QuestionImagePayload } from "./questionFile";
@@ -117,7 +117,7 @@ export function WebQuestionCamera({ theme, busy, onCaptured, onError }: WebQuest
                 position: "fixed",
                 inset: 0,
                 zIndex: 50,
-                background: "#1A1916",
+                background: BRAND.blue,
                 display: "flex",
                 flexDirection: "column",
               },
@@ -132,7 +132,7 @@ export function WebQuestionCamera({ theme, busy, onCaptured, onError }: WebQuest
                 width: "100%",
                 minHeight: 0,
                 objectFit: "cover",
-                background: "#111",
+                background: BRAND.blue,
               },
             }),
             <View style={styles.bar}>
@@ -164,9 +164,10 @@ export function WebQuestionCamera({ theme, busy, onCaptured, onError }: WebQuest
 
 const styles = StyleSheet.create({
   open: {
-    borderWidth: 1,
+    borderWidth: 2,
+    borderRadius: 999,
     minHeight: 44,
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
     justifyContent: "center",
   },
   openText: type.control,
@@ -179,7 +180,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
   },
-  notice: { ...type.small, color: "#F6F2E9", flexBasis: "100%" },
+  notice: { ...type.small, color: BRAND.white, flexBasis: "100%" },
   barButton: { minHeight: 44, justifyContent: "center", paddingHorizontal: 8 },
-  barText: { ...type.control, color: "#F6F2E9" },
+  barText: { ...type.control, color: BRAND.white },
 });

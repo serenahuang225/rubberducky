@@ -20,6 +20,7 @@ from app.api.scene import router as scene_router
 from app.api.sessions import router as sessions_router
 from app.api.tracing import router as tracing_router
 from app.api.tutor import router as tutor_router
+from app.api.voice import router as voice_router
 from app.api.wait import router as wait_router
 from app.clock import utc_now
 from app.config import Settings, get_settings
@@ -35,7 +36,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     install_log_redaction()
     register_secrets(
         key.get_secret_value() if key is not None else None
-        for key in (resolved.anthropic_api_key, resolved.tutor_endpoint_api_key)
+        for key in (
+            resolved.anthropic_api_key,
+            resolved.tutor_endpoint_api_key,
+            resolved.xai_api_key,
+        )
     )
     # Creating the engine does not connect; the database is opened on first request.
     database = Database(resolved.database_url)
@@ -73,6 +78,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(persona_router)
     application.include_router(wait_router)
     application.include_router(media_router)
+    application.include_router(voice_router)
     application.openapi = lambda: _openapi(application)  # type: ignore[method-assign]
     return application
 
