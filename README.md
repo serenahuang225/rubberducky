@@ -448,16 +448,18 @@ version limitation described above.
 
 ## Photon messaging
 
-`integrations/photon` is an optional Spectrum cloud bridge. It stays off unless
-`PHOTON_MESSAGING_ENABLED=true` and `SPECTRUM_PROJECT_ID` / `SPECTRUM_PROJECT_SECRET` are set.
-With those set, `npm --prefix integrations/photon start` connects to Spectrum cloud iMessage
-and continues a paired learner's session through the tutor API. A first message that is the
-pairing code from `python -m app.cli pair` links that chat. Later texts are submitted as
-typed work. Nothing is sent when the bridge is disabled, and this repository does not
-provision a phone line.
+`integrations/photon` is an optional Photon Beta (2.0) bridge. It uses `@photon-ai/api`
+against `https://api.photon.codes`, not the Stable Spectrum packages. It stays off unless
+`PHOTON_MESSAGING_ENABLED=true` and these are set: `PHOTON_API_KEY` (bearer `pho_sk_...`),
+`PHOTON_PROJECT_ID` (`pho_prj_...`), `PHOTON_AGENT_HANDLE` (the assigned iMessage line), and
+`PHOTON_TEST_SENDER` (the human identity allowed to text that line). A phone number does not
+select a learner. The first text from that sender is the pairing code from
+`python -m app.cli pair`; later texts continue that learner's session, including the previous
+question and knowledge graph inside the tutor. Nothing is sent when the bridge is disabled,
+and this repository does not assign a line or buy a number.
 
 ```sh
-npm --prefix integrations/photon ci
+npm --prefix integrations/photon install
 npm --prefix integrations/photon test
 ```
 

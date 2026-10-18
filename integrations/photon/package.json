@@ -3,15 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Optional Spectrum cloud bridge that continues a Rubberducky session over iMessage.",
+  "description": "Optional Photon Beta bridge that continues a Rubberducky session over iMessage.",
   "scripts": {
-    "test": "node --experimental-strip-types --test src/bridge.test.ts",
+    "test": "node --experimental-strip-types --test src/bridge.test.ts src/live.test.ts",
     "typecheck": "tsc --noEmit",
     "start": "node --experimental-strip-types src/main.ts"
   },
   "dependencies": {
-    "@spectrum-ts/core": "12.11.0",
-    "@spectrum-ts/imessage": "12.11.0"
+    "@photon-ai/api": "0.5.0"
   },
   "devDependencies": {
     "typescript": "~6.0.3"

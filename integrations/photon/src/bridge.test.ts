@@ -110,10 +110,7 @@ test("a bad code fails without linking, and a send failure can be retried", asyn
 
 test("photon stays disabled and does not load a connection", async () => {
   assert.equal(photonStatus({}), "disabled");
-  assert.equal(
-    photonStatus({ PHOTON_MESSAGING_ENABLED: "true" }),
-    "missing_credentials",
-  );
+  assert.equal(photonStatus({ PHOTON_MESSAGING_ENABLED: "true" }), "missing_credentials");
   let loaded = 0;
   const status = await runPhoton({ PHOTON_MESSAGING_ENABLED: "false" }, tutor(), async () => {
     loaded += 1;
