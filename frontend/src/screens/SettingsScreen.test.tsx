@@ -71,9 +71,12 @@ describe("SettingsScreen", () => {
       /comfort and accessibility can still change now/i,
     );
 
-    for (const option of ["animal", "older_adult", "younger_adult"]) {
+    expect(screen.queryByText("Sunny the duck")).toBeNull();
+    expect(screen.queryByText("Rowan")).toBeNull();
+    expect(screen.queryByText("Kai")).toBeNull();
+    for (const option of ["vincent", "zeeshan", "tony", "janelle", "mary"]) {
       expect(
-        screen.getByTestId(`settings-appearance-${option}`).props
+        screen.getByTestId(`settings-personality-${option}`).props
           .accessibilityState.disabled,
       ).toBe(true);
     }
@@ -128,12 +131,9 @@ describe("SettingsScreen", () => {
     );
   });
 
-  it("shows the current persona pair as checked even while locked", () => {
+  it("shows the current duck as checked even while locked", () => {
     renderSettings(makeSettings());
-    expect(
-      screen.getByTestId("settings-appearance-animal").props.accessibilityState
-        .checked,
-    ).toBe(true);
+    expect(screen.queryByTestId("settings-appearance-animal")).toBeNull();
     expect(
       screen.getByTestId("settings-personality-zeeshan").props
         .accessibilityState.checked,
@@ -169,7 +169,7 @@ describe("SettingsScreen", () => {
     });
   });
 
-  it("lets an unlocked learner pick a new pair and save it, only when it actually differs", () => {
+  it("lets an unlocked learner pick a new duck and save it, only when it actually differs", () => {
     const settings = makeSettings({
       persona: personaStateSchema.parse(PERSONA_STATE_OPEN),
     });
@@ -181,16 +181,13 @@ describe("SettingsScreen", () => {
       screen.getByTestId("settings-save-persona").props.accessibilityState
         .disabled,
     ).toBe(true);
-    fireEvent.press(screen.getByTestId("settings-appearance-older_adult"));
+    fireEvent.press(screen.getByTestId("settings-personality-janelle"));
     expect(
       screen.getByTestId("settings-save-persona").props.accessibilityState
         .disabled,
     ).toBe(false);
     fireEvent.press(screen.getByTestId("settings-save-persona"));
-    expect(settings.changePair).toHaveBeenCalledWith(
-      "older_adult",
-      "zeeshan",
-    );
+    expect(settings.changePair).toHaveBeenCalledWith("animal", "janelle");
   });
 
   it("shows load and save problems in words", () => {
