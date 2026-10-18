@@ -33,6 +33,7 @@ import {
 } from "./src/storage/credentials";
 
 import { LogoIntro } from "./src/components/LogoIntro";
+import { IntegrationDemosScreen } from "./src/screens/IntegrationDemosScreen";
 import { MemoryScreen } from "./src/screens/MemoryScreen";
 import { OnboardingScreen } from "./src/screens/OnboardingScreen";
 import { SettingsScreen } from "./src/screens/SettingsScreen";
@@ -56,7 +57,7 @@ type BootState =
       session: Session;
     };
 
-type Panel = "none" | "settings" | "memory";
+type Panel = "none" | "settings" | "memory" | "demos";
 
 /** Reads the learner's chosen board theme each time a panel opens. */
 function ThemedPanel({
@@ -320,8 +321,20 @@ export default function App() {
                   motion={motion}
                   onClose={() => setPanel("none")}
                   onOpenMemory={() => openMemoryFrom("settings")}
+                  onOpenDemos={() => setPanel("demos")}
                   handhold={handhold}
                   onChangeHandhold={setHandhold}
+                />
+              )}
+            </ThemedPanel>
+          ) : null}
+          {panel === "demos" ? (
+            <ThemedPanel>
+              {(theme) => (
+                <IntegrationDemosScreen
+                  theme={theme}
+                  motion={motion}
+                  onClose={() => setPanel("settings")}
                 />
               )}
             </ThemedPanel>

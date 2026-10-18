@@ -27,6 +27,7 @@ from app.db.migrate import upgrade_to_head
 from app.db.models import Base, LearnerRow
 from app.db.repositories import MAX_HISTORY_ITEMS, ScopedRepository
 from app.db.seed import DEMO_LEARNERS, SEED_VERSION, seed_database
+from app.demos.cli import add_demo_parser
 from app.graph.context import build_graph_context, render_text
 from app.graph.curriculum import (
     CurriculumGraph,
@@ -315,6 +316,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_memory_parser(sub)
     add_interactives_parser(sub)
     add_evaluation_parser(sub)
+    add_demo_parser(sub)
     return parser
 
 
