@@ -1,0 +1,18 @@
+{
+  "name": "rubberducky-photon",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Optional Photon Beta bridge that continues a Rubberducky session over iMessage.",
+  "scripts": {
+    "test": "node --experimental-strip-types --test src/bridge.test.ts src/live.test.ts",
+    "typecheck": "tsc --noEmit",
+    "start": "node --experimental-strip-types src/main.ts"
+  },
+  "dependencies": {
+    "@photon-ai/api": "0.5.0"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3"
+  }
+}
