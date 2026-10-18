@@ -35,6 +35,7 @@ export type SettingsScreenProps = {
   motion?: MotionMode;
   onClose: () => void;
   onOpenMemory: () => void;
+  onOpenDemos: () => void;
   /** How much help the tutor gives on the current session. Applies immediately. */
   handhold?: HandholdMode;
   onChangeHandhold?: (mode: HandholdMode) => void;
@@ -115,6 +116,7 @@ export function SettingsScreen({
   motion,
   onClose,
   onOpenMemory,
+  onOpenDemos,
   handhold = "balanced",
   onChangeHandhold,
   timeZone,
@@ -441,6 +443,27 @@ export function SettingsScreen({
         >
           <Text style={[styles.buttonText, { color: theme.controlText }]}>
             Open private memory
+          </Text>
+        </Pressable>
+      </View>
+
+      <View style={[styles.section, sectionCard]}>
+        <Text accessibilityRole="header" style={[styles.sectionTitle, text]}>
+          Fictional demos
+        </Text>
+        <Text style={[styles.note, muted]}>
+          Chalk, Droid, and Daytona, using invented examples. Nothing is
+          uploaded or started.
+        </Text>
+        <Pressable
+          testID="settings-open-demos"
+          accessibilityRole="button"
+          accessibilityLabel="Open fictional demos"
+          onPress={onOpenDemos}
+          style={[styles.button, { backgroundColor: theme.controlBackground }]}
+        >
+          <Text style={[styles.buttonText, { color: theme.controlText }]}>
+            Open fictional demos
           </Text>
         </Pressable>
       </View>

@@ -9,6 +9,7 @@ from fastapi.openapi.utils import get_openapi
 from sqlalchemy.exc import SQLAlchemyError
 
 from app import __version__
+from app.api.demos import router as demos_router
 from app.api.errors import ErrorEnvelope, install_error_handlers
 from app.api.graph import router as graph_router
 from app.api.health import router as health_router
@@ -63,6 +64,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     install_error_handlers(application)
     application.include_router(health_router)
+    application.include_router(demos_router)
     application.include_router(pairing_router)
     application.include_router(sessions_router)
     application.include_router(scene_router)

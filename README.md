@@ -455,6 +455,17 @@ The repository also contains a Chalk project scaffold created with `chalk init`:
 The tutor uses Chalk (`chalkcompute`) only for an optional tutoring-evaluation adapter, which is
 disabled by default. Nothing is deployed to Chalk unless you run Chalk commands yourself.
 
+A labeled fictional walkthrough of Chalk, Factory Droid, and Daytona runs entirely on this
+machine. It scores scripted tutor replies, shows an explanation written in the repository, and
+runs the local trusted checks. Nothing is uploaded, and no sandbox is created.
+
+```sh
+PYTHONPATH=backend backend/.venv/bin/python -m app.cli demo
+```
+
+The same walkthrough is `GET /demo/integrations` while demo bootstrap is enabled, and in the
+app under Settings, “Fictional demos”.
+
 Docs: https://docs.chalk.ai
 
 ---
