@@ -474,7 +474,7 @@ class TutorConfigurationRow(Base):
         _one_of(
             "personality",
             "personality",
-            ("gentle", "matter_of_fact", "playful", "mildly_sassy"),
+            ("vincent", "zeeshan", "tony", "janelle", "mary"),
         ),
         _one_of(
             "comfort_override",

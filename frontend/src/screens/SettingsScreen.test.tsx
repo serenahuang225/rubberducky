@@ -94,6 +94,16 @@ describe("SettingsScreen", () => {
     ).toBe(false);
   });
 
+  it("keeps how much help in settings and applies it immediately", () => {
+    const onChangeHandhold = jest.fn();
+    renderSettings(makeSettings(), { handhold: "balanced", onChangeHandhold });
+    expect(screen.getByTestId("settings-handhold-balanced").props.accessibilityState.checked).toBe(true);
+    fireEvent.press(screen.getByTestId("settings-handhold-guided"));
+    expect(onChangeHandhold).toHaveBeenCalledWith("guided");
+    fireEvent.press(screen.getByTestId("settings-handhold-hands_off"));
+    expect(onChangeHandhold).toHaveBeenCalledWith("hands_off");
+  });
+
   it("applies comfort immediately through setComfort while locked", () => {
     const settings = makeSettings();
     renderSettings(settings);
@@ -124,11 +134,11 @@ describe("SettingsScreen", () => {
         .checked,
     ).toBe(true);
     expect(
-      screen.getByTestId("settings-personality-mildly_sassy").props
+      screen.getByTestId("settings-personality-zeeshan").props
         .accessibilityState.checked,
     ).toBe(true);
     expect(
-      screen.getByTestId("settings-personality-gentle").props.accessibilityState
+      screen.getByTestId("settings-personality-janelle").props.accessibilityState
         .checked,
     ).toBe(false);
   });
@@ -178,7 +188,7 @@ describe("SettingsScreen", () => {
     fireEvent.press(screen.getByTestId("settings-save-persona"));
     expect(settings.changePair).toHaveBeenCalledWith(
       "older_adult",
-      "mildly_sassy",
+      "zeeshan",
     );
   });
 
@@ -207,4 +217,5 @@ describe("SettingsScreen", () => {
     fireEvent.press(screen.getByRole("button", { name: "Back to board" }));
     expect(onClose).toHaveBeenCalled();
   });
+
 });

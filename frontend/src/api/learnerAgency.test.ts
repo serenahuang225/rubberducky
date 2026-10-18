@@ -56,13 +56,13 @@ describe("persona routes", () => {
       status: 200,
       body: { ...PERSONA_STATE_LOCKED, outcome: "initial_selection" },
     }));
-    const state = await client.putTutorConfiguration("animal", "gentle");
+    const state = await client.putTutorConfiguration("animal", "janelle");
     expect(requests[0].method).toBe("PUT");
     expect(requests[0].url).toBe("http://api/me/tutor-configuration");
     expect(requests[0].body).toEqual({
       schema_version: "tutor-configuration-request.v1",
       appearance: "animal",
-      personality: "gentle",
+      personality: "janelle",
     });
     expect(state.outcome).toBe("initial_selection");
   });
@@ -80,7 +80,7 @@ describe("persona routes", () => {
       },
     }));
     const failure = await client
-      .putTutorConfiguration("older_adult", "gentle")
+      .putTutorConfiguration("older_adult", "janelle")
       .catch((e) => e);
     expect(failure).toBeInstanceOf(ApiClientError);
     expect(failure.status).toBe(409);

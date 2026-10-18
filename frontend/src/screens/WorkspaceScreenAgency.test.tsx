@@ -31,7 +31,7 @@ const PERSONA: TutorConfiguration = {
   id: "cfg-1",
   learner_id: "learner-1",
   appearance: "animal",
-  personality: "gentle",
+  personality: "janelle",
   comfort_override: "none",
   chosen_at: "2026-10-17T00:00:00.000Z",
   last_changed_at: "2026-10-17T00:00:00.000Z",

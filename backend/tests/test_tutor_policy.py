@@ -284,9 +284,9 @@ class TestWorkPlan:
 
 
 class TestPersona:
-    def test_three_appearances_four_personalities_three_comfort_overrides(self) -> None:
+    def test_three_appearances_five_ducks_three_comfort_overrides(self) -> None:
         assert APPEARANCES == ("animal", "older_adult", "younger_adult")
-        assert PERSONALITIES == ("gentle", "matter_of_fact", "playful", "mildly_sassy")
+        assert PERSONALITIES == ("vincent", "zeeshan", "tony", "janelle", "mary")
         assert COMFORT_OVERRIDES == ("none", "neutral_supportive", "reduced_sass")
 
     @pytest.mark.parametrize("personality", PERSONALITIES)
@@ -300,10 +300,10 @@ class TestPersona:
             assert demeaning not in lowered
 
     def test_comfort_override_is_immediate_and_separate(self) -> None:
-        assert effective_personality("mildly_sassy", "reduced_sass") == "matter_of_fact"
-        assert effective_personality("playful", "neutral_supportive") == "gentle"
-        assert effective_personality("playful", "reduced_sass") == "playful"
-        assert effective_personality("gentle", "none") == "gentle"
+        assert effective_personality("zeeshan", "reduced_sass") == "vincent"
+        assert effective_personality("tony", "neutral_supportive") == "janelle"
+        assert effective_personality("tony", "reduced_sass") == "tony"
+        assert effective_personality("janelle", "none") == "janelle"
 
 
 class TestFreshTransfer:

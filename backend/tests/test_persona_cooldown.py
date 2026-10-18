@@ -30,9 +30,9 @@ from tests.test_tutor_turns import check_in, start_session, work
 
 COOLDOWN = timedelta(seconds=604800)
 T0 = datetime(2026, 10, 1, 12, 0, 0, tzinfo=UTC)
-ANIMAL_GENTLE = {"appearance": "animal", "personality": "gentle"}
-ELDER_PLAYFUL = {"appearance": "older_adult", "personality": "playful"}
-YOUNG_SASSY = {"appearance": "younger_adult", "personality": "mildly_sassy"}
+ANIMAL_JANELLE = {"appearance": "animal", "personality": "janelle"}
+ELDER_TONY = {"appearance": "older_adult", "personality": "tony"}
+YOUNG_ZEESHAN = {"appearance": "younger_adult", "personality": "zeeshan"}
 
 
 class Clock:
@@ -82,13 +82,13 @@ class TestInitialSelectionAndAvailability:
         assert (
             client.put(
                 "/me/tutor-configuration",
-                json={**ANIMAL_GENTLE, "chosen_at": "1999-01-01T00:00:00Z"},
+                json={**ANIMAL_JANELLE, "chosen_at": "1999-01-01T00:00:00Z"},
                 headers=headers,
             ).status_code
             == 422
         )
         response = put_persona(
-            client, {**headers, "Date": "Mon, 01 Jan 1990 00:00:00 GMT"}, ANIMAL_GENTLE
+            client, {**headers, "Date": "Mon, 01 Jan 1990 00:00:00 GMT"}, ANIMAL_JANELLE
         )
         assert response.status_code == 200, response.text
         body = response.json()
@@ -110,7 +110,7 @@ class TestInitialSelectionAndAvailability:
         missing = client.get("/me/tutor-configuration", headers=headers)
         assert missing.status_code == 404
         assert missing.json()["error"]["code"] == "persona_not_selected"
-        put_persona(client, headers, ANIMAL_GENTLE)
+        put_persona(client, headers, ANIMAL_JANELLE)
         clock.now = T0 + timedelta(days=3)
         state = get_persona(client, headers)
         assert state["outcome"] is None
@@ -161,14 +161,14 @@ class TestBoundary:
         accepted: bool,
     ) -> None:
         learner_id, headers = bootstrap(client)
-        put_persona(client, headers, ANIMAL_GENTLE)
+        put_persona(client, headers, ANIMAL_JANELLE)
         clock.now = T0 + offset
-        response = put_persona(client, headers, ELDER_PLAYFUL)
+        response = put_persona(client, headers, ELDER_TONY)
         row = stored(database, learner_id)
         if accepted:
             assert response.status_code == 200, response.text
             assert response.json()["outcome"] == "changed"
-            assert (row.appearance, row.personality) == ("older_adult", "playful")
+            assert (row.appearance, row.personality) == ("older_adult", "tony")
             assert row.last_changed_at == T0 + offset
             assert parse(response.json()["next_change_available_at"]) == T0 + offset + COOLDOWN
         else:
@@ -177,7 +177,7 @@ class TestBoundary:
             assert error["code"] == "persona_change_locked"
             assert (T0 + COOLDOWN).isoformat().replace("+00:00", "Z") in error["message"]
             assert int(response.headers["Retry-After"]) >= 1
-            assert (row.appearance, row.personality) == ("animal", "gentle")
+            assert (row.appearance, row.personality) == ("animal", "janelle")
             assert row.last_changed_at == T0
         assert row.chosen_at == T0
 
@@ -185,11 +185,11 @@ class TestBoundary:
         self, client: TestClient, clock: Clock
     ) -> None:
         _, headers = bootstrap(client)
-        put_persona(client, headers, ANIMAL_GENTLE)
+        put_persona(client, headers, ANIMAL_JANELLE)
         clock.now = T0 + timedelta(days=1)
         for body in (
-            {"appearance": "older_adult", "personality": "gentle"},
-            {"appearance": "animal", "personality": "playful"},
+            {"appearance": "older_adult", "personality": "janelle"},
+            {"appearance": "animal", "personality": "tony"},
         ):
             assert put_persona(client, headers, body).status_code == 409
 
@@ -197,15 +197,15 @@ class TestBoundary:
         self, client: TestClient, clock: Clock
     ) -> None:
         _, headers = bootstrap(client)
-        put_persona(client, headers, ANIMAL_GENTLE)
+        put_persona(client, headers, ANIMAL_JANELLE)
         clock.now = T0 + COOLDOWN + timedelta(hours=5)
-        changed = put_persona(client, headers, ELDER_PLAYFUL).json()
+        changed = put_persona(client, headers, ELDER_TONY).json()
         assert parse(changed["last_changed_at"]) == clock.now
         # The successful change starts a new full wait; the first one's expiry is irrelevant.
         clock.now += COOLDOWN - timedelta(seconds=1)
-        assert put_persona(client, headers, YOUNG_SASSY).status_code == 409
+        assert put_persona(client, headers, YOUNG_ZEESHAN).status_code == 409
         clock.now += timedelta(seconds=1)
-        assert put_persona(client, headers, YOUNG_SASSY).status_code == 200
+        assert put_persona(client, headers, YOUNG_ZEESHAN).status_code == 200
 
 
 class TestNoOpSemantics:
@@ -213,18 +213,18 @@ class TestNoOpSemantics:
         self, client: TestClient, database: Database, clock: Clock
     ) -> None:
         learner_id, headers = bootstrap(client)
-        put_persona(client, headers, ANIMAL_GENTLE)
+        put_persona(client, headers, ANIMAL_JANELLE)
         before = stored(database, learner_id)
 
         clock.now = T0 + timedelta(days=2)
-        early = put_persona(client, headers, ANIMAL_GENTLE)
+        early = put_persona(client, headers, ANIMAL_JANELLE)
         assert early.status_code == 200
         assert early.json()["outcome"] == "no_change"
         assert parse(early.json()["next_change_available_at"]) == T0 + COOLDOWN
         assert stored(database, learner_id).last_changed_at == before.last_changed_at
 
         clock.now = T0 + COOLDOWN + timedelta(days=2)
-        late = put_persona(client, headers, ANIMAL_GENTLE)
+        late = put_persona(client, headers, ANIMAL_JANELLE)
         assert late.json()["outcome"] == "no_change"
         assert late.json()["persona_locked"] is False
         after = stored(database, learner_id)
@@ -232,23 +232,23 @@ class TestNoOpSemantics:
         assert after.chosen_at == T0
 
         # The identical selection did not consume or restart eligibility.
-        assert put_persona(client, headers, ELDER_PLAYFUL).status_code == 200
+        assert put_persona(client, headers, ELDER_TONY).status_code == 200
 
     def test_no_op_at_the_exact_boundary_does_not_start_a_new_lock(
         self, client: TestClient, clock: Clock
     ) -> None:
         _, headers = bootstrap(client)
-        put_persona(client, headers, ANIMAL_GENTLE)
+        put_persona(client, headers, ANIMAL_JANELLE)
         clock.now = T0 + COOLDOWN
-        assert put_persona(client, headers, ANIMAL_GENTLE).json()["outcome"] == "no_change"
-        assert put_persona(client, headers, YOUNG_SASSY).status_code == 200
+        assert put_persona(client, headers, ANIMAL_JANELLE).json()["outcome"] == "no_change"
+        assert put_persona(client, headers, YOUNG_ZEESHAN).status_code == 200
 
     def test_omitted_comfort_leaves_the_override_alone_on_a_no_op(
         self, client: TestClient, clock: Clock
     ) -> None:
         _, headers = bootstrap(client)
-        put_persona(client, headers, {**YOUNG_SASSY, "comfort_override": "reduced_sass"})
-        again = put_persona(client, headers, YOUNG_SASSY).json()
+        put_persona(client, headers, {**YOUNG_ZEESHAN, "comfort_override": "reduced_sass"})
+        again = put_persona(client, headers, YOUNG_ZEESHAN).json()
         assert again["comfort_override"] == "reduced_sass"
         assert again["comfort_changed"] is False
 
@@ -259,27 +259,27 @@ class TestRestartRefreshAndClocks:
     ) -> None:
         with TestClient(create_app(Settings(database_url=seeded_db_url))) as first:
             _, headers = bootstrap(first)
-            put_persona(first, headers, ELDER_PLAYFUL)
+            put_persona(first, headers, ELDER_TONY)
         with TestClient(create_app(Settings(database_url=seeded_db_url))) as second:
             clock.now = T0 + COOLDOWN - timedelta(seconds=1)
             state = get_persona(second, headers)
-            assert (state["appearance"], state["personality"]) == ("older_adult", "playful")
+            assert (state["appearance"], state["personality"]) == ("older_adult", "tony")
             assert parse(state["chosen_at"]) == T0
             assert parse(state["next_change_available_at"]) == T0 + COOLDOWN
-            assert put_persona(second, headers, ANIMAL_GENTLE).status_code == 409
+            assert put_persona(second, headers, ANIMAL_JANELLE).status_code == 409
             clock.now = T0 + COOLDOWN
-            assert put_persona(second, headers, ANIMAL_GENTLE).status_code == 200
+            assert put_persona(second, headers, ANIMAL_JANELLE).status_code == 200
 
     def test_new_session_and_me_report_the_same_selection(
         self, client: TestClient, clock: Clock
     ) -> None:
         _, headers = bootstrap(client)
-        put_persona(client, headers, YOUNG_SASSY)
+        put_persona(client, headers, YOUNG_ZEESHAN)
         first = start_session(client, headers)
         second = start_session(client, headers)
         for session_id in (first, second):
             persona = client.get(f"/sessions/{session_id}/state", headers=headers).json()["persona"]
-            assert persona["personality"] == "mildly_sassy"
+            assert persona["personality"] == "zeeshan"
             assert parse(persona["last_changed_at"]) == T0
         me = client.get("/me", headers=headers).json()["tutor_configuration"]
         assert parse(me["chosen_at"]) == T0
@@ -307,11 +307,11 @@ class TestRestartRefreshAndClocks:
     ) -> None:
         timezone_of(zone)
         _, headers = bootstrap(client)
-        put_persona(client, headers, ANIMAL_GENTLE)
+        put_persona(client, headers, ANIMAL_JANELLE)
         clock.now = T0 + COOLDOWN - timedelta(seconds=1)
-        assert put_persona(client, headers, ELDER_PLAYFUL).status_code == 409
+        assert put_persona(client, headers, ELDER_TONY).status_code == 409
         clock.now = T0 + COOLDOWN
-        assert put_persona(client, headers, ELDER_PLAYFUL).status_code == 200
+        assert put_persona(client, headers, ELDER_TONY).status_code == 200
 
     @pytest.mark.parametrize(
         "selected",
@@ -334,11 +334,11 @@ class TestRestartRefreshAndClocks:
         timezone_of("America/New_York")
         _, headers = bootstrap(client)
         clock.now = selected
-        put_persona(client, headers, ANIMAL_GENTLE)
+        put_persona(client, headers, ANIMAL_JANELLE)
         clock.now = selected + COOLDOWN - timedelta(seconds=1)
-        assert put_persona(client, headers, ELDER_PLAYFUL).status_code == 409
+        assert put_persona(client, headers, ELDER_TONY).status_code == 409
         clock.now = selected + COOLDOWN
-        accepted = put_persona(client, headers, ELDER_PLAYFUL)
+        accepted = put_persona(client, headers, ELDER_TONY)
         assert accepted.status_code == 200
         assert parse(accepted.json()["last_changed_at"]) == selected + COOLDOWN
 
@@ -346,14 +346,14 @@ class TestRestartRefreshAndClocks:
         self, client: TestClient, clock: Clock
     ) -> None:
         _, headers = bootstrap(client)
-        put_persona(client, headers, ANIMAL_GENTLE)
+        put_persona(client, headers, ANIMAL_JANELLE)
         advanced = {
             **headers,
             "Date": (T0 + timedelta(days=30)).strftime("%a, %d %b %Y %H:%M:%S GMT"),
             "X-Client-Time": (T0 + timedelta(days=30)).isoformat(),
         }
         clock.now = T0 + timedelta(hours=1)
-        assert put_persona(client, advanced, ELDER_PLAYFUL).status_code == 409
+        assert put_persona(client, advanced, ELDER_TONY).status_code == 409
 
 
 class TestConcurrency:
@@ -382,9 +382,9 @@ class TestConcurrency:
         for attempt in range(8):
             learner_id, headers = bootstrap(client, f"Racer {attempt}")
             clock.now = T0
-            put_persona(client, headers, ANIMAL_GENTLE)
+            put_persona(client, headers, ANIMAL_JANELLE)
             clock.now = T0 + COOLDOWN + timedelta(minutes=attempt)
-            results = self.race(client, headers, [ELDER_PLAYFUL, YOUNG_SASSY])
+            results = self.race(client, headers, [ELDER_TONY, YOUNG_ZEESHAN])
             statuses = sorted(status for status, _ in results)
             assert statuses == [200, 409], results
             winner = next(body for status, body in results if status == 200)
@@ -404,7 +404,7 @@ class TestConcurrency:
         for attempt in range(8):
             learner_id, headers = bootstrap(client, f"First {attempt}")
             clock.now = T0
-            results = self.race(client, headers, [ELDER_PLAYFUL, YOUNG_SASSY])
+            results = self.race(client, headers, [ELDER_TONY, YOUNG_ZEESHAN])
             assert sorted(status for status, _ in results) == [200, 409], results
             winner = next(body for status, body in results if status == 200)
             assert winner["outcome"] == "initial_selection"
@@ -419,9 +419,9 @@ class TestConcurrency:
         self, client: TestClient, database: Database, clock: Clock
     ) -> None:
         learner_id, headers = bootstrap(client)
-        put_persona(client, headers, ANIMAL_GENTLE)
+        put_persona(client, headers, ANIMAL_JANELLE)
         clock.now = T0 + COOLDOWN
-        results = self.race(client, headers, [ELDER_PLAYFUL, ELDER_PLAYFUL])
+        results = self.race(client, headers, [ELDER_TONY, ELDER_TONY])
         assert [status for status, _ in results] == [200, 200]
         assert sorted(body["outcome"] for _, body in results) == ["changed", "no_change"]
         assert stored(database, learner_id).last_changed_at == clock.now
@@ -432,7 +432,7 @@ class TestCompareAndSwap:
         self, client: TestClient, database: Database, clock: Clock
     ) -> None:
         learner_id, headers = bootstrap(client)
-        put_persona(client, headers, ANIMAL_GENTLE)
+        put_persona(client, headers, ANIMAL_JANELLE)
         eligible = T0 + COOLDOWN
         scope = LearnerScope(learner_id=learner_id, credential_id="test")
         stale_session = database.new_session()
@@ -444,7 +444,7 @@ class TestCompareAndSwap:
             ).scalar_one()
             winner = select_persona(
                 ScopedRepository(db=winner_session, scope=scope),
-                TutorConfigurationRequest.model_validate(ELDER_PLAYFUL),
+                TutorConfigurationRequest.model_validate(ELDER_TONY),
                 eligible,
             )
             winner_session.commit()
@@ -452,7 +452,7 @@ class TestCompareAndSwap:
             # The stale session still believes the change is available at the same instant.
             assert seen.last_changed_at == T0
             claimed = _claim_change(
-                stale, seen, TutorConfigurationRequest.model_validate(YOUNG_SASSY), eligible
+                stale, seen, TutorConfigurationRequest.model_validate(YOUNG_ZEESHAN), eligible
             )
             assert claimed is False
             stale_session.rollback()
@@ -460,7 +460,7 @@ class TestCompareAndSwap:
             stale_session.close()
             winner_session.close()
         row = stored(database, learner_id)
-        assert (row.appearance, row.personality) == ("older_adult", "playful")
+        assert (row.appearance, row.personality) == ("older_adult", "tony")
 
 
 class TestComfortOverride:
@@ -470,7 +470,7 @@ class TestComfortOverride:
         self, client: TestClient, database: Database, clock: Clock
     ) -> None:
         learner_id, headers = bootstrap(client)
-        put_persona(client, headers, YOUNG_SASSY)
+        put_persona(client, headers, YOUNG_ZEESHAN)
         before = stored(database, learner_id)
         clock.now = T0 + timedelta(hours=2)
         response = client.put(
@@ -484,7 +484,7 @@ class TestComfortOverride:
         assert parse(body["comfort_updated_at"]) == clock.now
         assert parse(body["next_change_available_at"]) == T0 + COOLDOWN
         after = stored(database, learner_id)
-        assert (after.appearance, after.personality) == ("younger_adult", "mildly_sassy")
+        assert (after.appearance, after.personality) == ("younger_adult", "zeeshan")
         assert after.chosen_at == before.chosen_at
         assert after.last_changed_at == before.last_changed_at
 
@@ -497,13 +497,13 @@ class TestComfortOverride:
                 == 200
             )
         clock.now = T0 + COOLDOWN
-        assert put_persona(client, headers, ELDER_PLAYFUL).status_code == 200
+        assert put_persona(client, headers, ELDER_TONY).status_code == 200
 
     def test_repeating_the_current_override_is_a_no_op(
         self, client: TestClient, clock: Clock
     ) -> None:
         _, headers = bootstrap(client)
-        put_persona(client, headers, YOUNG_SASSY)
+        put_persona(client, headers, YOUNG_ZEESHAN)
         first = client.put(
             "/me/comfort-override", json={"comfort_override": "neutral_supportive"}, headers=headers
         ).json()
@@ -518,36 +518,36 @@ class TestComfortOverride:
         self, client: TestClient, clock: Clock
     ) -> None:
         _, headers = bootstrap(client)
-        put_persona(client, headers, YOUNG_SASSY)
+        put_persona(client, headers, YOUNG_ZEESHAN)
         session_id = start_session(client, headers)
         check_in(client, headers, session_id)
         sassy = work(client, headers, session_id, "x + 3 = 7", 1)
-        assert sassy["utterance"].startswith("Look at that, the equation behaved.")
+        assert sassy["utterance"].startswith("Oh, so you did know.")
 
         clock.now = T0 + timedelta(minutes=1)
         client.put(
             "/me/comfort-override", json={"comfort_override": "reduced_sass"}, headers=headers
         )
         reduced = work(client, headers, session_id, "2x + 6 = 14", 2)
-        assert reduced["utterance"].startswith(opener("mildly_sassy", "reduced_sass", "success"))
-        assert "Look at that" not in reduced["utterance"]
+        assert reduced["utterance"].startswith(opener("zeeshan", "reduced_sass", "success"))
+        assert "Oh, so you did know" not in reduced["utterance"]
 
         client.put(
             "/me/comfort-override", json={"comfort_override": "neutral_supportive"}, headers=headers
         )
         persona = client.get(f"/sessions/{session_id}/state", headers=headers).json()["persona"]
-        assert persona["personality"] == "mildly_sassy"
+        assert persona["personality"] == "zeeshan"
         assert persona["comfort_override"] == "neutral_supportive"
-        assert opener("mildly_sassy", "neutral_supportive", "success") == "Nice work. "
+        assert opener("zeeshan", "neutral_supportive", "success") == "Nice work. "
 
     def test_a_locked_pair_change_bundled_with_comfort_applies_nothing(
         self, client: TestClient, database: Database, clock: Clock
     ) -> None:
         learner_id, headers = bootstrap(client)
-        put_persona(client, headers, YOUNG_SASSY)
+        put_persona(client, headers, YOUNG_ZEESHAN)
         clock.now = T0 + timedelta(days=1)
         response = put_persona(
-            client, headers, {**ELDER_PLAYFUL, "comfort_override": "neutral_supportive"}
+            client, headers, {**ELDER_TONY, "comfort_override": "neutral_supportive"}
         )
         assert response.status_code == 409
         row = stored(database, learner_id)
@@ -567,7 +567,7 @@ class TestComfortOverride:
         self, client: TestClient, clock: Clock
     ) -> None:
         _, headers = bootstrap(client)
-        put_persona(client, headers, ANIMAL_GENTLE)
+        put_persona(client, headers, ANIMAL_JANELLE)
         assert (
             client.put(
                 "/me/comfort-override", json={"comfort_override": "sassier"}, headers=headers
@@ -608,7 +608,7 @@ class TestAccessibilityPreferences:
     ) -> None:
         with TestClient(create_app(Settings(database_url=seeded_db_url))) as first:
             _, headers = bootstrap(first)
-            put_persona(first, headers, YOUNG_SASSY)
+            put_persona(first, headers, YOUNG_ZEESHAN)
             clock.now = T0 + timedelta(hours=3)
             response = first.patch(
                 "/me/accessibility-preferences",
@@ -635,10 +635,10 @@ class TestAccessibilityPreferences:
         self, client: TestClient, database: Database, clock: Clock
     ) -> None:
         learner_id, headers = bootstrap(client)
-        put_persona(client, headers, ELDER_PLAYFUL)
+        put_persona(client, headers, ELDER_TONY)
         before = stored(database, learner_id)
         clock.now = T0 + timedelta(minutes=1)
-        assert put_persona(client, headers, ANIMAL_GENTLE).status_code == 409
+        assert put_persona(client, headers, ANIMAL_JANELLE).status_code == 409
         for patch in (
             {"animation": "reduced"},
             {"haptics_enabled": False},
@@ -657,7 +657,7 @@ class TestAccessibilityPreferences:
         assert after.last_changed_at == before.last_changed_at
         assert after.comfort_updated_at is None
         clock.now = T0 + COOLDOWN
-        assert put_persona(client, headers, ANIMAL_GENTLE).status_code == 200
+        assert put_persona(client, headers, ANIMAL_JANELLE).status_code == 200
 
     def test_invalid_values_nulls_and_unknown_fields_are_rejected_without_writes(
         self, client: TestClient, database: Database
@@ -682,7 +682,7 @@ class TestAccessibilityPreferences:
 
     def test_only_comfort_endpoint_changes_comfort(self, client: TestClient, clock: Clock) -> None:
         _, headers = bootstrap(client)
-        put_persona(client, headers, YOUNG_SASSY)
+        put_persona(client, headers, YOUNG_ZEESHAN)
         assert (
             client.patch(
                 "/me/accessibility-preferences",
@@ -699,19 +699,19 @@ class TestLearnerScope:
     ) -> None:
         ada_id, ada = bootstrap(client, "Ada demo")
         ben_id, ben = bootstrap(client, "Ben demo")
-        put_persona(client, ada, YOUNG_SASSY)
+        put_persona(client, ada, YOUNG_ZEESHAN)
 
         assert client.get("/me/tutor-configuration", headers=ben).status_code == 404
         assert client.get("/me/accessibility-preferences", headers=ben).json()["updated_at"] is None
         # Ben's first selection is his own initial choice and is not locked by Ada's record.
-        assert put_persona(client, ben, ANIMAL_GENTLE).json()["outcome"] == "initial_selection"
+        assert put_persona(client, ben, ANIMAL_JANELLE).json()["outcome"] == "initial_selection"
         clock.now = T0 + timedelta(hours=1)
         client.put("/me/comfort-override", json={"comfort_override": "reduced_sass"}, headers=ben)
         client.patch("/me/accessibility-preferences", json={"text_only": True}, headers=ben)
 
         ada_row = stored(database, ada_id)
         assert ada_row.comfort_override == "none"
-        assert (ada_row.appearance, ada_row.personality) == ("younger_adult", "mildly_sassy")
+        assert (ada_row.appearance, ada_row.personality) == ("younger_adult", "zeeshan")
         assert client.get("/me/accessibility-preferences", headers=ada).json()["text_only"] is False
         assert ben_id != ada_id
 
@@ -719,7 +719,7 @@ class TestLearnerScope:
         ("method", "path", "body"),
         [
             ("GET", "/me/tutor-configuration", None),
-            ("PUT", "/me/tutor-configuration", ANIMAL_GENTLE),
+            ("PUT", "/me/tutor-configuration", ANIMAL_JANELLE),
             ("PUT", "/me/comfort-override", {"comfort_override": "none"}),
             ("GET", "/me/accessibility-preferences", None),
             ("PATCH", "/me/accessibility-preferences", {"text_only": True}),

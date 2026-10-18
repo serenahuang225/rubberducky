@@ -18,6 +18,9 @@ export type TutorChatProps = {
   busy: boolean;
   canReply: boolean;
   thinking: string | null;
+  onStillExploring: () => void;
+  onAskQuestion: () => void;
+  onGiveHint: () => void;
   onChangeDraft: (text: string) => void;
   onSend: () => void;
 };
@@ -29,11 +32,15 @@ export function TutorChat({
   busy,
   canReply,
   thinking,
+  onStillExploring,
+  onAskQuestion,
+  onGiveHint,
   onChangeDraft,
   onSend,
 }: TutorChatProps) {
   const scrollRef = useRef<ScrollView>(null);
   const canSend = canReply && !busy && draft.trim().length > 0;
+  const controlsReady = canReply && !busy;
 
   useEffect(() => {
     scrollRef.current?.scrollToEnd({ animated: false });
@@ -78,6 +85,38 @@ export function TutorChat({
           </Text>
         ) : null}
       </ScrollView>
+      <View style={styles.controls}>
+        <Pressable
+          testID="handhold-still-exploring"
+          accessibilityRole="button"
+          accessibilityLabel="Still exploring"
+          disabled={!controlsReady}
+          onPress={onStillExploring}
+          style={{ opacity: controlsReady ? 1 : 0.4 }}
+        >
+          <Text style={[styles.control, { color: theme.labelText }]}>Still exploring</Text>
+        </Pressable>
+        <Pressable
+          testID="handhold-ask-question"
+          accessibilityRole="button"
+          accessibilityLabel="Ask me a question"
+          disabled={!controlsReady}
+          onPress={onAskQuestion}
+          style={{ opacity: controlsReady ? 1 : 0.4 }}
+        >
+          <Text style={[styles.control, { color: theme.labelText }]}>Ask me a question</Text>
+        </Pressable>
+        <Pressable
+          testID="handhold-give-hint"
+          accessibilityRole="button"
+          accessibilityLabel="Give me a hint"
+          disabled={!controlsReady}
+          onPress={onGiveHint}
+          style={{ opacity: controlsReady ? 1 : 0.4 }}
+        >
+          <Text style={[styles.control, { color: theme.labelText }]}>Give me a hint</Text>
+        </Pressable>
+      </View>
       <View style={[styles.composer, { borderTopColor: theme.surfaceEdge }]}>
         <TextInput
           testID="chat-input"
@@ -110,11 +149,22 @@ export function TutorChat({
 const styles = StyleSheet.create({
   panel: {
     width: 300,
+    flexShrink: 0,
+    minHeight: 0,
+    overflow: "hidden",
     borderLeftWidth: StyleSheet.hairlineWidth,
     paddingTop: 16,
   },
   title: { ...type.name, paddingHorizontal: 16, marginBottom: 8 },
-  log: { flex: 1 },
+  controls: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  control: { ...type.small, minHeight: 44, textAlignVertical: "center" },
+  log: { flex: 1, minHeight: 0 },
   logContent: { paddingHorizontal: 16, paddingBottom: 12, gap: 16 },
   empty: type.small,
   who: { ...type.meta, marginBottom: 2 },

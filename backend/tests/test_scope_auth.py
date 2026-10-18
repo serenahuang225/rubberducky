@@ -131,7 +131,7 @@ def test_seeded_learner_sees_own_fictional_history_after_pairing(
     headers = pair_seeded(database, client, DEMO_LEARNER_ADA)
     me = client.get("/me", headers=headers).json()
     assert me["learner"]["id"] == DEMO_LEARNER_ADA
-    assert me["tutor_configuration"]["personality"] == "gentle"
+    assert me["tutor_configuration"]["personality"] == "janelle"
     history = client.get("/me/history", headers=headers).json()
     assert [s["id"] for s in history["sessions"]] == [ADA_SEED_SESSION]
     records = [*history["sessions"], *history["observations"], *history["hints"]]

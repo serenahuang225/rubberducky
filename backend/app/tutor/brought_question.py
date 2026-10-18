@@ -21,6 +21,7 @@ from app.db.models import AttemptRow, ProblemRow, SceneObjectRow
 from app.db.repositories import ScopedRepository
 from app.inference.errors import ProviderError
 from app.learner.pairing import new_id
+from app.pedagogy.handhold import followup_system, opening_system
 from app.pedagogy.problems import (
     LINEAR_EQUATIONS,
     ProblemSpec,
@@ -28,7 +29,8 @@ from app.pedagogy.problems import (
     problem_spec,
 )
 from app.schemas.curriculum import Problem
-from app.schemas.tutor import MAX_UTTERANCE_CHARS, CheckInRequest
+from app.schemas.learner import Personality
+from app.schemas.tutor import MAX_UTTERANCE_CHARS, CheckInRequest, HandholdMode, LearnerControl
 from app.whiteboard.scene import log_tutor_add, retire_tutor_objects
 
 LEARNER_PROBLEM_PREFIX = "problem.lrn."
@@ -39,31 +41,9 @@ TEACHING_LINE_CHARS = 68
 _FENCE = re.compile(r"^```(?:json)?\s*\n(.*)\n```$", re.DOTALL)
 _NOTE_NAMESPACE = uuid.UUID("c3a91e04-7b2d-4f58-9a16-0e5d8c2b7f41")
 
-DISPLAY_SYSTEM = (
-    "You are Rubberducky, a patient tutor sitting with one learner. "
-    "They just showed you the question they are working on. "
-    "Tutor them by writing information they can read on the board. "
-    "Restate the question in plain language, then teach the first idea or the next step. "
-    "Do not dump the final answer unless they explicitly asked you to solve it outright. "
-    "Respond with ONE JSON object and nothing else, no code fence: "
-    '{"statement": "the question in at most 160 characters", '
-    '"teaching": "the note to display, at most 1100 characters", '
-    '"next_step": "one short instruction, at most 140 characters"}'
-)
-
-FOLLOWUP_SYSTEM = (
-    "You are Rubberducky, a patient tutor. The learner is still on the question below. "
-    "This is a conversation: write the next thing they should read, about what their latest "
-    "step shows and one concrete next move. Do not dump the final answer unless they "
-    "asked you to solve it outright. "
-    "If what they just did is a correct answer to the original question, start the teaching "
-    'with the exact words "Good job!" and tell them they solved it. Do not ask for another '
-    "calculation after that. "
-    "Respond with ONE JSON object and nothing else, no code fence: "
-    '{"statement": "the same question, at most 160 characters", '
-    '"teaching": "the note to display, at most 1100 characters", '
-    '"next_step": "one short instruction, at most 140 characters"}'
-)
+# Balanced is the default amount of help when a caller has not chosen a mode.
+DISPLAY_SYSTEM = opening_system("balanced", "janelle")
+FOLLOWUP_SYSTEM = followup_system("balanced", "none", "janelle")
 
 
 class BroughtQuestionError(Exception):
@@ -136,7 +116,9 @@ def parse_tutor_display(raw: str) -> BroughtQuestion:
     return BroughtQuestion(statement=statement, teaching=teaching, next_step=next_step)
 
 
-def read_brought_question(settings: Settings, body: CheckInRequest) -> BroughtQuestion:
+def read_brought_question(
+    settings: Settings, body: CheckInRequest, *, personality: Personality = "janelle"
+) -> BroughtQuestion:
     """Ask Claude to read the question and write the note the learner will see."""
     blocks: list[dict[str, object]] = []
     if body.question_image_base64 is not None and body.question_image_media_type is not None:
@@ -163,21 +145,30 @@ def read_brought_question(settings: Settings, body: CheckInRequest) -> BroughtQu
         )
     else:
         raise BroughtQuestionError("Type a question or attach a picture of it.")
-    raw = complete_tutoring(settings, system=DISPLAY_SYSTEM, blocks=blocks)
+    raw = complete_tutoring(
+        settings, system=opening_system(body.handhold, personality), blocks=blocks
+    )
     return parse_tutor_display(raw)
 
 
 def follow_up_display(
-    settings: Settings, *, statement: str, learner_text: str, prior_note: str | None
+    settings: Settings,
+    *,
+    statement: str,
+    learner_text: str,
+    prior_note: str | None,
+    handhold: HandholdMode = "balanced",
+    control: LearnerControl = "none",
+    personality: Personality = "janelle",
 ) -> BroughtQuestion:
     """Claude's next note, after the learner writes or asks for help."""
-    parts = [f"Question: {statement}"]
+    parts = [f"Question: {statement}", f"Handhold: {handhold}."]
     if prior_note:
         parts.append(f"What you last showed them:\n{prior_note}")
     parts.append(f"What they just did:\n{learner_text or 'They asked for help.'}")
     raw = complete_tutoring(
         settings,
-        system=FOLLOWUP_SYSTEM,
+        system=followup_system(handhold, control, personality),
         blocks=[{"type": "text", "text": "\n\n".join(parts)}],
     )
     parsed = parse_tutor_display(raw)

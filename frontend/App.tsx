@@ -17,6 +17,7 @@ import {
 import { ApiClient, ApiClientError } from "./src/api/client";
 import type {
   Appearance,
+  HandholdMode,
   Personality,
   Session,
   TutorConfiguration,
@@ -85,6 +86,7 @@ export default function App() {
   const settings = useLearnerSettings(workspaceClient);
   const storedTheme = useStoredTheme();
   const [liveTheme, setLiveTheme] = useState<BoardTheme | null>(null);
+  const [handhold, setHandhold] = useState<HandholdMode>("balanced");
   // The safe-area bands use the same color as the writing surface. Onboarding stays
   // on the warm canvas; the workspace follows the learner's board, including chalkboard.
   const shellTheme =
@@ -299,6 +301,7 @@ export default function App() {
               onOpenSettings={() => setPanel("settings")}
               onOpenMemory={() => openMemoryFrom("none")}
               onThemeChange={setLiveTheme}
+              handhold={handhold}
               onSessionEnded={() => {
                 setPanel("none");
                 setBoot((current) =>
@@ -318,6 +321,8 @@ export default function App() {
                   motion={motion}
                   onClose={() => setPanel("none")}
                   onOpenMemory={() => openMemoryFrom("settings")}
+                  handhold={handhold}
+                  onChangeHandhold={setHandhold}
                 />
               )}
             </ThemedPanel>

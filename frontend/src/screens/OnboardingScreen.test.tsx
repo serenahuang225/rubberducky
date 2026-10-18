@@ -18,7 +18,7 @@ function renderOnboarding(onComplete = jest.fn()) {
 }
 
 describe('OnboardingScreen', () => {
-  it('offers all three appearances and all four personalities as separate choices', () => {
+  it('offers all three appearances and all five ducks as separate choices', () => {
     const screen = renderOnboarding();
     for (const appearance of APPEARANCES) {
       expect(screen.getByTestId(`appearance-${appearance}`)).toBeTruthy();
@@ -37,12 +37,12 @@ describe('OnboardingScreen', () => {
 
     fireEvent.press(screen.getByTestId('appearance-animal'));
     expect(screen.getByTestId('onboarding-start').props.accessibilityState?.disabled).toBe(true);
-    fireEvent.press(screen.getByTestId('personality-gentle'));
+    fireEvent.press(screen.getByTestId('personality-janelle'));
     expect(screen.getByTestId('onboarding-start').props.accessibilityState?.disabled).toBe(false);
 
     fireEvent.press(screen.getByTestId('onboarding-start'));
     expect(onComplete).toHaveBeenCalledWith(
-      expect.objectContaining({ appearance: 'animal', personality: 'gentle' }),
+      expect.objectContaining({ appearance: 'animal', personality: 'janelle' }),
     );
   });
 
@@ -64,11 +64,11 @@ describe('OnboardingScreen', () => {
     const screen = renderOnboarding(onComplete);
     fireEvent.press(screen.getByTestId('appearance-animal'));
     fireEvent.press(screen.getByTestId('appearance-older_adult'));
-    fireEvent.press(screen.getByTestId('personality-mildly_sassy'));
-    fireEvent.press(screen.getByTestId('personality-matter_of_fact'));
+    fireEvent.press(screen.getByTestId('personality-zeeshan'));
+    fireEvent.press(screen.getByTestId('personality-vincent'));
     fireEvent.press(screen.getByTestId('onboarding-start'));
     expect(onComplete).toHaveBeenCalledWith(
-      expect.objectContaining({ appearance: 'older_adult', personality: 'matter_of_fact' }),
+      expect.objectContaining({ appearance: 'older_adult', personality: 'vincent' }),
     );
   });
 
@@ -76,7 +76,7 @@ describe('OnboardingScreen', () => {
     const screen = renderOnboarding();
     // Kind framing is visible, and no copy ties appearance or style to ability.
     expect(
-      screen.getByText(/every style is kind and respectful/i),
+      screen.getByText(/every duck stays respectful of you/i),
     ).toBeTruthy();
     expect(
       screen.getByText(/never what it thinks you can do/i),
@@ -88,6 +88,5 @@ describe('OnboardingScreen', () => {
     for (const banned of ['smart', 'clever', 'advanced', 'expert', 'genius', 'beginner']) {
       expect(copy).not.toContain(banned);
     }
-    expect(copy).toContain('kind');
   });
 });

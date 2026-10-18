@@ -7,31 +7,31 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 
-import type { Appearance } from "../api/contracts";
+import type { Personality } from "../api/contracts";
 import type { BoardTheme } from "../board/palette";
 import type { AvatarStatus } from "../state/avatarStatus";
 import { type } from "../theme/tokens";
 
-import { AvatarFigure } from "./AvatarFigure";
+import { DuckPortrait } from "./DuckPortrait";
 
 export type TutorAvatarProps = {
-  appearance: Appearance;
+  personality: Personality;
   theme: BoardTheme;
   tutorName: string;
   status: AvatarStatus;
 };
 
 export function TutorAvatar({
-  appearance,
+  personality,
   theme,
   tutorName,
   status,
 }: TutorAvatarProps) {
   return (
     <View style={styles.row}>
-      <AvatarFigure
-        appearance={appearance}
-        size={36}
+      <DuckPortrait
+        personality={personality}
+        size={48}
         label={`${tutorName} avatar: ${status.label}. ${status.description}`}
       />
       <Text

@@ -193,7 +193,7 @@ def _rejections(setup: dict[str, str]) -> list[tuple[str, list[Any], str]]:
         ("overwrite-evidence", [note(table="observations", target_id=ADA_OBSERVATION)],
          "schema_invalid"),
         ("rewrite-note", [note(id=SEED_NOTE)], "schema_invalid"),
-        ("persona-change", [note(layer="persona", personality="mildly_sassy")],
+        ("persona-change", [note(layer="persona", personality="zeeshan")],
          "schema_invalid"),
         ("curriculum-edge", [{
             "operation": "add_prerequisite_edge", "learner_id": DEMO_LEARNER_ADA,

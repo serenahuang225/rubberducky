@@ -187,7 +187,7 @@ class TurnPlan(ContractModel):
 
 @dataclass(frozen=True)
 class Persona:
-    personality: Personality = "gentle"
+    personality: Personality = "janelle"
     comfort_override: ComfortOverride = "none"
 
 

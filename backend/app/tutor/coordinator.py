@@ -35,6 +35,8 @@ from app.inference.request import (
 from app.learner.memory import episodic_notes
 from app.learner.memory_updates import ProposalScope, apply_memory_updates
 from app.learner.pairing import LearnerScope, new_id
+from app.pedagogy.handhold import CONTROL_LABELS, HOLD_JUSTIFICATION, HOLD_NEXT, HOLD_TEACHING
+from app.pedagogy.persona import effective_personality
 from app.pedagogy.intents import HelpIntent
 from app.pedagogy.policy import Persona, TurnPlan, WorkFacts, plan_check_in, plan_work
 from app.pedagogy.problems import (
@@ -128,6 +130,14 @@ class _Reserved:
 def _request_hash(kind: str, body: CheckInRequest | WorkRequest | HelpRequest) -> str:
     payload = json.dumps({"kind": kind, "body": body.model_dump(mode="json")}, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _load_persona(database: Database, scope: LearnerScope) -> Persona:
+    db = database.new_session()
+    try:
+        return _persona(ScopedRepository(db, scope))
+    finally:
+        db.close()
 
 
 def _persona(repo: ScopedRepository) -> Persona:
@@ -263,6 +273,43 @@ def _learner_reply_plan(
     )
 
 
+def _hold_plan(
+    *,
+    turn_id: str,
+    spec: ProblemSpec,
+    problem: ProblemView,
+    recorded_ids: list[str],
+    persona: Persona,
+    pace: Pace,
+    attempt_id: str,
+) -> TurnPlan:
+    """They are still exploring: wait, and do not correct or confirm the work."""
+    plan = _learner_reply_plan(
+        turn_id=turn_id,
+        spec=spec,
+        problem=problem,
+        recorded_ids=recorded_ids,
+        persona=persona,
+        pace=pace,
+        attempt_id=attempt_id,
+        help_request=False,
+    )
+    return plan.model_copy(
+        update={
+            "message_params": {
+                **plan.message_params,
+                "learner_authored": "yes" if is_learner_problem(spec.problem_id) else "no",
+                "teaching": HOLD_TEACHING,
+                "hold_for_exploration": "yes",
+            },
+            "expected_student_action": HOLD_NEXT,
+            "hint_level": 0,
+            "action_type": "step_feedback",
+            "decision_justification": HOLD_JUSTIFICATION,
+        }
+    )
+
+
 def _next_problem_after(problem_id: str) -> str | None:
     if problem_id == FIXTURE_PROBLEM_ID:
         return TRANSFER_ORDER[0]
@@ -306,7 +353,7 @@ def _plan_work_turn(
     input_mode: WorkInputMode | Literal["help_button"]
     if isinstance(body, HelpRequest):
         input_mode = "help_button"
-        learner_text = ""
+        learner_text = CONTROL_LABELS[body.learner_control]
         help_intent: HelpIntent = "explain_request" if body.mode == "explain" else "not_sure"
         recorded = record_help(repo, session.id, attempt, spec, help_intent, turn_id, now)
     else:
@@ -366,7 +413,17 @@ def _plan_work_turn(
     if latest is not None and latest.result.get("pace") == "lighter":
         pace = "lighter"
     persona = _persona(repo)
-    if is_learner_problem(spec.problem_id):
+    if isinstance(body, HelpRequest) and body.learner_control == "still_exploring":
+        plan = _hold_plan(
+            turn_id=turn_id,
+            spec=spec,
+            problem=problem,
+            recorded_ids=list(recorded.observation_ids),
+            persona=persona,
+            pace=pace,
+            attempt_id=attempt.id,
+        )
+    elif is_learner_problem(spec.problem_id):
         plan = _learner_reply_plan(
             turn_id=turn_id,
             spec=spec,
@@ -624,12 +681,18 @@ def _learner_text(body: CheckInRequest | WorkRequest | HelpRequest) -> str:
             return "Check-in question: a picture of the learner's question."
         return f"Check-in: goal={body.goal}; energy={body.energy or 'not said'}."
     if isinstance(body, HelpRequest):
+        label = CONTROL_LABELS[body.learner_control]
+        if label:
+            return f"[help_button] {label}"
         return f"[help_button] mode={body.mode}"
     return f"[{body.input_mode}] {body.text}"
 
 
 def _draft_from_teaching(
-    plan: TurnPlan, session_revision: int, teaching: str, next_step: str
+    plan: TurnPlan,
+    session_revision: int,
+    teaching: str,
+    next_step: str,
 ) -> TutorDraft:
     """Package Claude's displayed note as a draft that matches the stored plan."""
     return TutorDraft(
@@ -661,6 +724,17 @@ def _infer(
     settings: Settings,
 ) -> tuple[TutorDraft, list[str]]:
     """Build the bounded context and ask the provider. Holds no transaction open."""
+    if reserved.plan.message_params.get("hold_for_exploration") == "yes":
+        teaching = reserved.plan.message_params.get("teaching") or HOLD_TEACHING
+        return (
+            _draft_from_teaching(
+                reserved.plan,
+                reserved.base_revision + 1,
+                teaching,
+                reserved.plan.expected_student_action,
+            ),
+            list(reserved.plan.required_evidence_ids),
+        )
     if reserved.plan.message_params.get("learner_authored") == "yes":
         return _infer_brought_question(database, scope, session_id, reserved, body, settings), list(
             reserved.plan.required_evidence_ids
@@ -710,13 +784,23 @@ def _infer_brought_question(
         statement = plan.current_problem.statement if plan.current_problem is not None else ""
         prior = _latest_utterance(database, scope, session_id)
         if isinstance(body, HelpRequest):
-            learner_text = "They pressed Help me and want the next idea shown on the board."
+            learner_text = CONTROL_LABELS[body.learner_control] or (
+                "They pressed Help me and want the next idea shown on the board."
+            )
         elif isinstance(body, WorkRequest):
             learner_text = body.text
         else:
             learner_text = (body.question_text or "").strip()
+        handhold = body.handhold if isinstance(body, HelpRequest | WorkRequest) else "balanced"
+        control = body.learner_control if isinstance(body, HelpRequest) else "none"
         displayed = follow_up_display(
-            settings, statement=statement, learner_text=learner_text, prior_note=prior
+            settings,
+            statement=statement,
+            learner_text=learner_text,
+            prior_note=prior,
+            handhold=handhold,
+            control=control,
+            personality=effective_personality(plan.personality, plan.comfort_override),
         )
         teaching = displayed.teaching
         next_step = displayed.next_step
@@ -1020,7 +1104,12 @@ def execute_turn(
     ):
         _require_claude(settings)
         try:
-            prepared = read_brought_question(settings, body)
+            persona = _load_persona(database, scope)
+            prepared = read_brought_question(
+                settings,
+                body,
+                personality=effective_personality(persona.personality, persona.comfort_override),
+            )
         except BroughtQuestionError as error:
             raise TurnCommandError("provider_error", error.message, 502) from error
     provider = get_provider(settings)

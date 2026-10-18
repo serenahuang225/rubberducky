@@ -242,7 +242,7 @@ class TestDuplicatesAndConcurrency:
             assert ended.status_code == 200
             other_pref = client.put(
                 "/me/tutor-configuration",
-                json={"appearance": "animal", "personality": "gentle"},
+                json={"appearance": "animal", "personality": "janelle"},
                 headers=other_headers,
             )
             assert other_pref.status_code == 200, other_pref.text

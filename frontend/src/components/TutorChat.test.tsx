@@ -95,12 +95,21 @@ describe("TutorChat", () => {
         busy={false}
         canReply
         thinking={null}
+        onStillExploring={() => sent.push("still")}
+        onAskQuestion={() => sent.push("question")}
+        onGiveHint={() => sent.push("hint")}
         onChangeDraft={() => undefined}
         onSend={() => sent.push("ok")}
       />,
     );
     expect(view.getByTestId("chat-good-job")).toBeTruthy();
+    expect(view.queryByText("Guided")).toBeNull();
+    expect(view.queryByText("Balanced")).toBeNull();
+    expect(view.queryByText("Hands off")).toBeNull();
+    fireEvent.press(view.getByTestId("handhold-still-exploring"));
+    fireEvent.press(view.getByTestId("handhold-ask-question"));
+    fireEvent.press(view.getByTestId("handhold-give-hint"));
     fireEvent.press(view.getByTestId("chat-send"));
-    expect(sent).toEqual(["ok"]);
+    expect(sent).toEqual(["still", "question", "hint", "ok"]);
   });
 });

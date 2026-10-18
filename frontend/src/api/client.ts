@@ -31,6 +31,8 @@ import {
   waitPreferenceSchema,
   waitStateSchema,
   type AccessibilityPatch,
+  type HandholdMode,
+  type LearnerControl,
   type AccessibilityPreferences,
   type Appearance,
   type ComfortOverride,
@@ -89,7 +91,18 @@ export type CheckInInput = {
   questionText?: string;
   image?: QuestionImage | null;
   practice?: boolean;
+  handhold?: HandholdMode;
 };
+
+function handholdBody(
+  handhold?: HandholdMode,
+  learnerControl?: LearnerControl,
+): { handhold?: HandholdMode; learner_control?: LearnerControl } {
+  return {
+    ...(handhold !== undefined && handhold !== "balanced" ? { handhold } : {}),
+    ...(learnerControl !== undefined ? { learner_control: learnerControl } : {}),
+  };
+}
 
 export class ApiClient {
   private readonly fetchImpl: typeof fetch;
@@ -346,6 +359,7 @@ export class ApiClient {
           question_image_media_type: practice ? null : (input.image?.mediaType ?? null),
           question_image_base64: practice ? null : (input.image?.base64 ?? null),
           use_practice_problem: practice,
+          ...handholdBody(input.handhold),
         },
         idempotencyKey,
         timeoutMs: TUTOR_TURN_TIMEOUT_MS,
@@ -359,6 +373,7 @@ export class ApiClient {
     expectedRevision: number,
     text: string,
     inputMode: "typed" | "confirmed_ink" | "unconfirmed_ink" = "typed",
+    handhold?: HandholdMode,
   ): Promise<TutorTurnResult> {
     return this.request(
       "POST",
@@ -370,6 +385,7 @@ export class ApiClient {
           expected_revision: expectedRevision,
           text,
           input_mode: inputMode,
+          ...handholdBody(handhold),
         },
         idempotencyKey,
         timeoutMs: TUTOR_TURN_TIMEOUT_MS,
@@ -383,6 +399,8 @@ export class ApiClient {
     idempotencyKey: string,
     expectedRevision: number,
     mode: "hint" | "explain" = "hint",
+    handhold?: HandholdMode,
+    learnerControl?: LearnerControl,
   ): Promise<TutorTurnResult> {
     return this.request(
       "POST",
@@ -393,6 +411,7 @@ export class ApiClient {
           schema_version: "help-request.v1",
           expected_revision: expectedRevision,
           mode,
+          ...handholdBody(handhold, learnerControl),
         },
         idempotencyKey,
         timeoutMs: TUTOR_TURN_TIMEOUT_MS,

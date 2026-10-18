@@ -220,7 +220,7 @@ describe("useLearnerSettings", () => {
     const { hook } = await setup();
     let outcome: string | undefined;
     await act(async () => {
-      outcome = await hook.result.current.changePair("older_adult", "gentle");
+      outcome = await hook.result.current.changePair("older_adult", "janelle");
     });
     expect(outcome).toBe("locked");
     expect(hook.result.current.pairError).toMatch(/can change again/i);
@@ -236,7 +236,7 @@ describe("useLearnerSettings", () => {
     expect(hook.result.current.persona?.persona_locked).toBe(false);
     let outcome: string | undefined;
     await act(async () => {
-      outcome = await hook.result.current.changePair("older_adult", "gentle");
+      outcome = await hook.result.current.changePair("older_adult", "janelle");
     });
     expect(outcome).toBe("saved");
     expect(hook.result.current.persona?.appearance).toBe("older_adult");

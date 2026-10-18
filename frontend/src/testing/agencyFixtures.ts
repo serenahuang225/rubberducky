@@ -9,7 +9,7 @@ export const PERSONA_STATE_LOCKED = {
   id: "cfg-1",
   learner_id: "learner-1",
   appearance: "animal",
-  personality: "mildly_sassy",
+  personality: "zeeshan",
   comfort_override: "none",
   provenance: "submitted",
   chosen_at: "2026-10-10T12:30:00Z",

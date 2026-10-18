@@ -19,7 +19,7 @@ const BASE: AvatarInputs = {
 const renderAvatar = (patch: Partial<AvatarInputs>) =>
   render(
     <TutorAvatar
-      appearance="animal"
+      personality="janelle"
       theme={getTheme("paper")}
       tutorName="Duck · Mildly sassy"
       status={deriveAvatarStatus({ ...BASE, ...patch })}

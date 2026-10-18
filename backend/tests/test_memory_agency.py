@@ -660,7 +660,7 @@ class TestSessionAndProfileRemoval:
         other_session = start_session(client, headers, "keep me")
         client.put(
             "/me/tutor-configuration",
-            json={"appearance": "animal", "personality": "playful"},
+            json={"appearance": "animal", "personality": "tony"},
             headers=headers,
         )
         with database.transaction() as db:

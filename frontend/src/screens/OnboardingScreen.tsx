@@ -1,10 +1,10 @@
 /**
  * First-run onboarding: choose a companion look and a teaching style, independently.
  *
- * Three original appearances (animal, older adult, younger adult) and four personalities
- * (gentle, matter-of-fact, playful, mildly sassy) are separate axes — every one of the
- * twelve pairs is valid, and no appearance is worded or styled as more capable than
- * another. Every personality stays kind and respectful, including the sassy one.
+ * Three original appearances (animal, older adult, younger adult) and five rubber ducks
+ * (Vincent, Zeeshan, Tony, Janelle, Mary) are separate axes — every pair is valid, and
+ * no appearance is worded or styled as more capable than another. Each duck teaches
+ * differently and stays respectful of the learner.
  */
 
 import React, { useState } from "react";
@@ -23,6 +23,7 @@ import { getTheme } from "../board/palette";
 
 import { AvatarFigure } from "../components/AvatarFigure";
 import { RadioCard } from "../components/ChoiceControls";
+import { DuckPortrait } from "../components/DuckPortrait";
 
 export const APPEARANCE_INFO: Record<
   Appearance,
@@ -46,21 +47,26 @@ export const PERSONALITY_INFO: Record<
   Personality,
   { name: string; blurb: string }
 > = {
-  gentle: {
-    name: "Gentle",
-    blurb: "Soft-spoken and patient, with plenty of room to think.",
+  vincent: {
+    name: "Vincent",
+    blurb: "Walks the problem one step at a time. You say what comes next.",
   },
-  matter_of_fact: {
-    name: "Matter-of-fact",
-    blurb: "Clear, direct and steady. Says exactly what matters.",
+  zeeshan: {
+    name: "Zeeshan",
+    blurb:
+      "Hard mode. He will not answer until you ask, and he needles you first. Helpful once you do.",
   },
-  playful: {
-    name: "Playful",
-    blurb: "Curious and light-hearted. Problems are puzzles here.",
+  tony: {
+    name: "Tony",
+    blurb: "Follows your idea and keeps going with it, even after the track runs out.",
   },
-  mildly_sassy: {
-    name: "Mildly sassy",
-    blurb: "A little cheeky about the problem — always kind to you.",
+  janelle: {
+    name: "Janelle",
+    blurb: "Guides you fully and asks questions that make you think.",
+  },
+  mary: {
+    name: "Mary",
+    blurb: "Less guidance and no direct hints. She tells you where you are, like a navigator.",
   },
 };
 
@@ -96,8 +102,8 @@ export function OnboardingScreen({
         Welcome to Rubberducky
       </Text>
       <Text style={styles.subtitle}>
-        Pick a companion and a teaching style. They are separate choices, every
-        mix works, and every style is kind and respectful.
+        Pick a companion and a rubber duck. They are separate choices, every
+        mix works, and every duck stays respectful of you.
       </Text>
 
       {showNameField ? (
@@ -158,7 +164,7 @@ export function OnboardingScreen({
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle} accessibilityRole="header">
-          2. Choose a teaching style
+          2. Choose a rubber duck
         </Text>
         <Text style={styles.sectionNote}>
           Style changes how your tutor talks, never what it thinks you can do.
@@ -166,7 +172,7 @@ export function OnboardingScreen({
         <View
           style={styles.cardRow}
           accessibilityRole="radiogroup"
-          accessibilityLabel="Teaching style"
+          accessibilityLabel="Rubber duck"
         >
           {PERSONALITIES.map((option) => {
             const info = PERSONALITY_INFO[option];
@@ -181,6 +187,9 @@ export function OnboardingScreen({
                 onPress={() => setPersonality(option)}
                 style={[styles.card, styles.personalityCard]}
               >
+                <View style={styles.portrait}>
+                  <DuckPortrait personality={option} size={104} />
+                </View>
                 <Text style={[styles.cardTitle, { color: theme.labelText }]}>
                   {info.name}
                 </Text>
@@ -254,6 +263,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   personalityCard: { alignItems: "flex-start" },
+  portrait: { alignSelf: "center" },
   cardTitle: { fontSize: 17, fontWeight: "700" },
   cardBlurb: { fontSize: 14, lineHeight: 20, textAlign: "center" },
   nameInput: {

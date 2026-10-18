@@ -22,6 +22,8 @@ import {
 import type { ApiClient } from "../api/client";
 import type {
   AccessibilityPreferences,
+  HandholdMode,
+  LearnerControl,
   TutorConfiguration,
   TutorTurnResult,
 } from "../api/contracts";
@@ -72,6 +74,8 @@ export type WorkspaceScreenProps = {
   onThemeChange?: (theme: BoardTheme) => void;
   /** Platform capture and speech drivers; the real device drivers unless a test supplies fakes. */
   media?: MediaServices;
+  /** How much help the tutor gives. Chosen in Settings; balanced when unset. */
+  handhold?: HandholdMode;
 };
 
 function stillThinkingStatusText(
@@ -96,6 +100,7 @@ export function WorkspaceScreen({
   onOpenMemory,
   onThemeChange,
   media: mediaServices,
+  handhold = "balanced",
 }: WorkspaceScreenProps) {
   const workspace = useWorkspace(client, sessionId);
   const systemReducedMotion = useSystemReducedMotion();
@@ -244,7 +249,7 @@ export function WorkspaceScreen({
     if (text.length === 0) return;
     wait.clearStillThinkingNote();
     media.cancelSpeech("new_work");
-    void workspace.submitWork(text).then((outcome) => {
+    void workspace.submitWork(text, handhold).then((outcome) => {
       // Only an authoritative answer for exactly this text removes it; a failed or uncertain
       // send keeps it for retry, and anything the learner typed since stays untouched.
       if (outcome === "resolved") {
@@ -257,13 +262,22 @@ export function WorkspaceScreen({
         );
       }
     });
-  }, [draft, media, motion, wait, workspace]);
+  }, [draft, handhold, media, motion, wait, workspace]);
 
   const askHelp = useCallback(() => {
     wait.clearStillThinkingNote();
     media.cancelSpeech("new_work");
     void workspace.requestHelp();
   }, [media, wait, workspace]);
+
+  const askControl = useCallback(
+    (control: LearnerControl) => {
+      wait.clearStillThinkingNote();
+      media.cancelSpeech("new_work");
+      void workspace.requestHelp("hint", { handhold, learnerControl: control });
+    },
+    [handhold, media, wait, workspace],
+  );
 
   const useMediaText = useCallback(
     (text: string) => {
@@ -364,9 +378,9 @@ export function WorkspaceScreen({
     >
       <View style={styles.header}>
         <TutorAvatar
-          appearance={persona.appearance}
+          personality={persona.personality}
           theme={theme}
-          tutorName={`${personaInfo.name}, ${styleInfo.name} style`}
+          tutorName={`${personaInfo.name}, ${styleInfo.name}`}
           status={avatarStatus}
         />
         <View style={styles.headerText}>
@@ -602,7 +616,7 @@ export function WorkspaceScreen({
         <QuestionIntake
           theme={theme}
           busy={workspace.busyLabel !== null}
-          onStart={(input) => void workspace.checkIn(input)}
+          onStart={(input) => void workspace.checkIn({ ...input, handhold })}
         />
       ) : null}
 
@@ -660,6 +674,9 @@ export function WorkspaceScreen({
         busy={workspace.busyLabel !== null}
         canReply={!workspace.needsCheckIn}
         thinking={workspace.busyLabel}
+        onStillExploring={() => askControl("still_exploring")}
+        onAskQuestion={() => askControl("ask_question")}
+        onGiveHint={() => askControl("give_hint")}
         onChangeDraft={(text) => {
           setDraft(text);
           wait.clearStillThinkingNote();

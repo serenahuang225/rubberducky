@@ -22,7 +22,7 @@ MAX_TURN_EVENTS = 50
 
 
 def persona_options() -> PersonaOptions:
-    """The independently selectable first-run persona axes (3 appearances x 4 personalities)."""
+    """The independently selectable first-run persona axes (3 appearances x 5 ducks)."""
     return PersonaOptions(
         appearances=list(APPEARANCES),
         personalities=list(PERSONALITIES),

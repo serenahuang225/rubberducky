@@ -474,7 +474,7 @@ class TestRepeatedDifficultyAndFadingSupport:
         assert after["representation"] == "next_step"
         assert after["answer_revealed"] is False
 
-    @pytest.mark.parametrize("personality", ["gentle", "matter_of_fact", "playful", "mildly_sassy"])
+    @pytest.mark.parametrize("personality", ["vincent", "zeeshan", "tony", "janelle", "mary"])
     def test_representation_change_is_respectful_in_every_personality(
         self, client: TestClient, personality: str
     ) -> None:

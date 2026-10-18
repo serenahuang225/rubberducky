@@ -53,6 +53,10 @@ Representation = Literal[
 ]
 SupportChange = Literal["none", "reduced"]
 HelpMode = Literal["hint", "explain"]
+# How much help, separate from when the tutor steps in.
+HandholdMode = Literal["guided", "balanced", "hands_off"]
+# The learner's own signal. Silence is not one of these.
+LearnerControl = Literal["none", "still_exploring", "ask_question", "give_hint"]
 Pace = Literal["standard", "lighter"]
 Energy = Literal["ready", "a_bit_tired", "tired"]
 GoalChoice = Literal[
@@ -104,6 +108,7 @@ class CheckInRequest(_Request):
         Annotated[str, Field(min_length=1, max_length=MAX_QUESTION_IMAGE_CHARS)] | None
     ) = None
     use_practice_problem: bool = False
+    handhold: HandholdMode = "balanced"
 
     @model_validator(mode="after")
     def _image_parts_together(self) -> Self:
@@ -125,6 +130,7 @@ class WorkRequest(_Request):
     expected_revision: Annotated[int, Field(ge=0)]
     text: Annotated[str, Field(min_length=1, max_length=MAX_WORK_CHARS)]
     input_mode: WorkInputMode = "typed"
+    handhold: HandholdMode = "balanced"
 
 
 class HelpRequest(_Request):
@@ -136,6 +142,8 @@ class HelpRequest(_Request):
     schema_version: Literal["help-request.v1"] = "help-request.v1"
     expected_revision: Annotated[int, Field(ge=0)]
     mode: HelpMode = "hint"
+    handhold: HandholdMode = "balanced"
+    learner_control: LearnerControl = "none"
 
 
 InterruptReason = Literal["student_interrupt", "speech_barge_in"]

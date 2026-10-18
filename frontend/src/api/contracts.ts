@@ -9,10 +9,11 @@ import { z } from "zod";
 
 export const APPEARANCES = ["animal", "older_adult", "younger_adult"] as const;
 export const PERSONALITIES = [
-  "gentle",
-  "matter_of_fact",
-  "playful",
-  "mildly_sassy",
+  "vincent",
+  "zeeshan",
+  "tony",
+  "janelle",
+  "mary",
 ] as const;
 
 export const appearanceSchema = z.enum(APPEARANCES);
@@ -327,6 +328,13 @@ export const REPRESENTATIONS = [
 ] as const;
 export const representationSchema = z.enum(REPRESENTATIONS);
 export type Representation = z.infer<typeof representationSchema>;
+
+export const HANDHOLD_MODES = ["guided", "balanced", "hands_off"] as const;
+export const handholdModeSchema = z.enum(HANDHOLD_MODES);
+export type HandholdMode = z.infer<typeof handholdModeSchema>;
+
+export const LEARNER_CONTROLS = ["still_exploring", "ask_question", "give_hint"] as const;
+export type LearnerControl = (typeof LEARNER_CONTROLS)[number];
 
 export const tutorTurnResultSchema = z
   .object({

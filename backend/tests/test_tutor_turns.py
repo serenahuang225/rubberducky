@@ -133,7 +133,7 @@ def pair_seeded(database: Database, client: TestClient, learner_id: str) -> dict
 
 
 class TestPersona:
-    def test_options_offer_three_appearances_and_four_personalities(
+    def test_options_offer_three_appearances_and_five_ducks(
         self, client: TestClient
     ) -> None:
         _, headers = bootstrap(client)
@@ -141,12 +141,12 @@ class TestPersona:
         assert response.status_code == 200
         body = response.json()
         assert body["appearances"] == ["animal", "older_adult", "younger_adult"]
-        assert body["personalities"] == ["gentle", "matter_of_fact", "playful", "mildly_sassy"]
+        assert body["personalities"] == ["vincent", "zeeshan", "tony", "janelle", "mary"]
         assert body["comfort_overrides"] == ["none", "neutral_supportive", "reduced_sass"]
 
     @pytest.mark.parametrize("appearance", ["animal", "older_adult", "younger_adult"])
     @pytest.mark.parametrize(
-        "personality", ["gentle", "matter_of_fact", "playful", "mildly_sassy"]
+        "personality", ["vincent", "zeeshan", "tony", "janelle", "mary"]
     )
     def test_first_run_appearance_and_personality_are_independently_selectable(
         self, client: TestClient, appearance: str, personality: str
@@ -169,31 +169,31 @@ class TestPersona:
         _, headers = bootstrap(client)
         client.put(
             "/me/tutor-configuration",
-            json={"appearance": appearance, "personality": "playful"},
+            json={"appearance": appearance, "personality": "tony"},
             headers=headers,
         )
         session_id = start_session(client, headers)
         result = check_in(client, headers, session_id)
         assert result["utterance"] == (
-            "Puzzle time! Here's the problem: 2(x + 3) = 14. What's your first step?"
+            "Tell me what you're thinking. Here's the problem: 2(x + 3) = 14. What's your first step?"
         )
 
     def test_comfort_override_applies_immediately(self, client: TestClient) -> None:
         _, headers = bootstrap(client)
         client.put(
             "/me/tutor-configuration",
-            json={"appearance": "animal", "personality": "playful"},
+            json={"appearance": "animal", "personality": "tony"},
             headers=headers,
         )
         session_id = start_session(client, headers)
         check_in(client, headers, session_id)
         first = work(client, headers, session_id, "x + 3 = 7", 1)
-        assert first["utterance"].startswith("Yes!")
+        assert first["utterance"].startswith("That line of thought landed.")
         client.put(
             "/me/tutor-configuration",
             json={
                 "appearance": "animal",
-                "personality": "playful",
+                "personality": "tony",
                 "comfort_override": "neutral_supportive",
             },
             headers=headers,

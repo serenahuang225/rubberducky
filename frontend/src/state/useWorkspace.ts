@@ -43,6 +43,8 @@ import {
   type SceneActionRequest,
 } from "../api/client";
 import type {
+  HandholdMode,
+  LearnerControl,
   SceneSnapshot,
   SessionState,
   TutorTurnResult,
@@ -121,9 +123,15 @@ export type WorkspaceController = {
    * 'stale': the problem or session changed, nothing was sent for the old one. 'ignored':
    * another command was running.
    */
-  submitWork: (text: string) => Promise<WorkSubmitOutcome>;
-  /** Help me: asks /help for a hint right now, without waiting for any timer. */
-  requestHelp: () => Promise<void>;
+  submitWork: (text: string, handhold?: HandholdMode) => Promise<WorkSubmitOutcome>;
+  /**
+   * Help me, or one of the handhold controls. Still exploring asks the tutor to wait.
+   * Ask me a question and Give me a hint ask now, without waiting for a timer.
+   */
+  requestHelp: (
+    mode?: "hint" | "explain",
+    options?: { handhold?: HandholdMode; learnerControl?: LearnerControl },
+  ) => Promise<void>;
   commitStroke: (points: readonly LogicalPoint[]) => Promise<void>;
   eraseObject: (objectId: string) => Promise<void>;
   undo: () => Promise<void>;
@@ -692,16 +700,19 @@ export function useWorkspace(
   );
 
   const submitWork = useCallback(
-    async (text: string): Promise<WorkSubmitOutcome> => {
+    async (text: string, handhold?: HandholdMode): Promise<WorkSubmitOutcome> => {
       const trimmed = text.trim();
       if (trimmed.length === 0) return "ignored";
       return sendLogical({
         label: "Thinking…",
         command: pendingWorkRef,
-        fingerprint: trimmed,
+        fingerprint:
+          handhold !== undefined && handhold !== "balanced"
+            ? `${trimmed}|${handhold}`
+            : trimmed,
         fenceProblem: true,
         send: (key, revision) =>
-          client.submitWork(sessionId, key, revision, trimmed, "typed"),
+          client.submitWork(sessionId, key, revision, trimmed, "typed", handhold),
         uncertainMessage: WORK_UNCERTAIN_MESSAGE,
         staleMessage: WORK_STALE_MESSAGE,
         failureMessage: "The tutor turn failed to send.",
@@ -710,19 +721,29 @@ export function useWorkspace(
     [client, sendLogical, sessionId],
   );
 
-  const requestHelp = useCallback(async () => {
-    await sendLogical({
-      label: "Thinking…",
-      command: pendingHelpRef,
-      fingerprint: "help:hint",
-      fenceProblem: false,
-      send: (key, revision) =>
-        client.requestHelp(sessionId, key, revision, "hint"),
-      uncertainMessage: HELP_UNCERTAIN_MESSAGE,
-      staleMessage: HELP_STALE_MESSAGE,
-      failureMessage: "Help me could not be sent.",
-    });
-  }, [client, sendLogical, sessionId]);
+  const requestHelp = useCallback(
+    async (
+      mode: "hint" | "explain" = "hint",
+      options?: { handhold?: HandholdMode; learnerControl?: LearnerControl },
+    ) => {
+      const control = options?.learnerControl;
+      const handhold = options?.handhold;
+      await sendLogical({
+        label: "Thinking…",
+        command: pendingHelpRef,
+        fingerprint: control
+          ? `help:${mode}:${control}:${handhold ?? "balanced"}`
+          : `help:${mode}`,
+        fenceProblem: false,
+        send: (key, revision) =>
+          client.requestHelp(sessionId, key, revision, mode, handhold, control),
+        uncertainMessage: HELP_UNCERTAIN_MESSAGE,
+        staleMessage: HELP_STALE_MESSAGE,
+        failureMessage: "Help me could not be sent.",
+      });
+    },
+    [client, sendLogical, sessionId],
+  );
 
   const interrupt = useCallback(async () => {
     if (!turnInFlight) return;

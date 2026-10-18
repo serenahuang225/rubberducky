@@ -18,11 +18,13 @@ import {
   type AnimationPreference,
   type Appearance,
   type ComfortOverride,
+  type HandholdMode,
   type Personality,
 } from "../api/contracts";
 import type { BoardTheme } from "../board/palette";
 import type { MotionMode } from "../feedback/preferences";
 import { RadioCard, ToggleRow } from "../components/ChoiceControls";
+import { DuckPortrait } from "../components/DuckPortrait";
 import { ScreenFrame } from "../components/ScreenFrame";
 import { describeAvailability, formatInstant } from "../persona/availability";
 import type { LearnerSettings } from "../state/useLearnerSettings";
@@ -35,10 +37,35 @@ export type SettingsScreenProps = {
   motion?: MotionMode;
   onClose: () => void;
   onOpenMemory: () => void;
+  /** How much help the tutor gives on the current session. Applies immediately. */
+  handhold?: HandholdMode;
+  onChangeHandhold?: (mode: HandholdMode) => void;
   /** Overrides for deterministic tests; the device zone and locale are used otherwise. */
   timeZone?: string;
   locale?: string;
 };
+
+const HANDHOLD_OPTIONS: {
+  value: HandholdMode;
+  label: string;
+  blurb: string;
+}[] = [
+  {
+    value: "guided",
+    label: "Guided",
+    blurb: "Checks steps often and hints early.",
+  },
+  {
+    value: "balanced",
+    label: "Balanced",
+    blurb: "Lets you try, then asks about a shaky assumption.",
+  },
+  {
+    value: "hands_off",
+    label: "Hands off",
+    blurb: "Waits, and helps you test an idea without correcting it.",
+  },
+];
 
 const COMFORT_OPTIONS: {
   value: ComfortOverride;
@@ -90,6 +117,8 @@ export function SettingsScreen({
   motion,
   onClose,
   onOpenMemory,
+  handhold = "balanced",
+  onChangeHandhold,
   timeZone,
   locale,
 }: SettingsScreenProps) {
@@ -198,10 +227,10 @@ export function SettingsScreen({
                 </RadioCard>
               ))}
             </View>
-            <Text style={[styles.groupLabel, text]}>Teaching style</Text>
+            <Text style={[styles.groupLabel, text]}>Rubber duck</Text>
             <View
               accessibilityRole="radiogroup"
-              accessibilityLabel="Teaching style"
+              accessibilityLabel="Rubber duck"
               style={styles.cardRow}
             >
               {PERSONALITIES.map((option) => (
@@ -215,6 +244,9 @@ export function SettingsScreen({
                   onPress={() => setPersonality(option)}
                   style={styles.choiceCard}
                 >
+                  <View style={styles.portrait}>
+                    <DuckPortrait personality={option} size={88} />
+                  </View>
                   <Text style={[styles.cardTitle, text]}>
                     {PERSONALITY_INFO[option].name}
                   </Text>
@@ -263,6 +295,37 @@ export function SettingsScreen({
             </Pressable>
           </>
         )}
+      </View>
+
+      <View style={[styles.section, sectionCard]}>
+        <Text accessibilityRole="header" style={[styles.sectionTitle, text]}>
+          How much help
+        </Text>
+        <Text style={[styles.note, muted]}>
+          Applies to the next reply. Still exploring, a question, and a hint
+          stay on the chat.
+        </Text>
+        <View
+          testID="settings-handhold-group"
+          accessibilityRole="radiogroup"
+          accessibilityLabel="How much help"
+          style={styles.cardRow}
+        >
+          {HANDHOLD_OPTIONS.map((option) => (
+            <RadioCard
+              key={option.value}
+              testID={`settings-handhold-${option.value}`}
+              label={`${option.label}. ${option.blurb}`}
+              selected={handhold === option.value}
+              theme={theme}
+              onPress={() => onChangeHandhold?.(option.value)}
+              style={styles.choiceCard}
+            >
+              <Text style={[styles.cardTitle, text]}>{option.label}</Text>
+              <Text style={[styles.cardBlurb, muted]}>{option.blurb}</Text>
+            </RadioCard>
+          ))}
+        </View>
       </View>
 
       <View style={[styles.section, sectionCard]}>
@@ -415,6 +478,7 @@ export function SettingsScreen({
           </Text>
         </Pressable>
       </View>
+
     </ScreenFrame>
   );
 }
@@ -427,6 +491,7 @@ const styles = StyleSheet.create({
   error: { fontSize: 14, lineHeight: 20 },
   cardRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   choiceCard: { width: 200 },
+  portrait: { alignSelf: "center" },
   cardTitle: { fontSize: 16, fontWeight: "700" },
   cardBlurb: { fontSize: 14, lineHeight: 19 },
   button: {

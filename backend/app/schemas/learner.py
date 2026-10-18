@@ -18,7 +18,7 @@ from app.schemas.common import (
 
 SessionStatus = Literal["active", "ended", "expired"]
 Appearance = Literal["animal", "older_adult", "younger_adult"]
-Personality = Literal["gentle", "matter_of_fact", "playful", "mildly_sassy"]
+Personality = Literal["vincent", "zeeshan", "tony", "janelle", "mary"]
 ComfortOverride = Literal["none", "neutral_supportive", "reduced_sass"]
 MemoryLayer = Literal["episodic_note", "session_context"]
 MemoryStatus = Literal["active", "needs_review", "corrected", "expired", "deleted"]

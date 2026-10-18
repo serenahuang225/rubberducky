@@ -163,7 +163,7 @@ def test_six_layers_and_metadata_survive_a_process_restart(
     assert notes[SEED_NOTE]["review_due"] is True  # seed note's review date has passed
     # 6. Persona configuration with its selection timestamps.
     persona = layers["persona"]
-    assert persona["personality"] == "gentle" and persona["chosen_at"]
+    assert persona["personality"] == "janelle" and persona["chosen_at"]
 
 
 def test_new_session_does_not_turn_yesterdays_tiredness_into_todays_fact(
