@@ -43,7 +43,7 @@ export function formatInstant(
   try {
     local = new Intl.DateTimeFormat(options.locale, {
       timeZone: options.timeZone,
-      dateStyle: "long",
+      dateStyle: "medium",
       timeStyle: "short",
     }).format(date);
   } catch {

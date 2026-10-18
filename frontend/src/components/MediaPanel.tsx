@@ -18,9 +18,12 @@ import {
   View,
 } from "react-native";
 
-import Svg, { Path } from "react-native-svg";
+import { Mic } from "lucide-react-native";
 
 import type { BoardTheme } from "../board/palette";
+import { radius } from "../theme/tokens";
+
+import { HoldPressable } from "./HoldPressable";
 import { nextScriptStep } from "../media/voiceSession";
 import type { MediaController, VoiceMode } from "../media/useMedia";
 
@@ -37,6 +40,15 @@ export type MediaPanelProps = {
   captionsOn: boolean;
   /** Puts text into the typed-step box. It is never submitted automatically. */
   onUseText: (text: string) => void;
+  /** Hold-to-talk through the server. Absent when that path is off. */
+  talk?: {
+    available: boolean;
+    recording: boolean;
+    disabled: boolean;
+    note: string | null;
+    onPressIn: () => void;
+    onPressOut: () => void;
+  };
 };
 
 function Button({
@@ -57,8 +69,10 @@ function Button({
   hint?: string;
 }) {
   return (
-    <Pressable
+    <HoldPressable
       testID={testID}
+      overview={hint ?? label}
+      theme={theme}
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityHint={hint}
@@ -85,7 +99,7 @@ function Button({
       >
         {label}
       </Text>
-    </Pressable>
+    </HoldPressable>
   );
 }
 
@@ -206,8 +220,10 @@ export function MediaIndicators({
           <Text style={[styles.chipText, { color: theme.labelText }]}>
             {item.text}
           </Text>
-          <Pressable
+          <HoldPressable
             testID={`stop-${item.key}`}
+            overview={item.stopLabel}
+            theme={theme}
             accessibilityRole="button"
             accessibilityLabel={item.stopLabel}
             onPress={item.onStop}
@@ -216,7 +232,7 @@ export function MediaIndicators({
             <Text style={[styles.stopText, { color: theme.controlText }]}>
               Stop
             </Text>
-          </Pressable>
+          </HoldPressable>
         </View>
       ))}
     </View>
@@ -230,6 +246,7 @@ export function MediaPanel({
   textOnly,
   captionsOn,
   onUseText,
+  talk,
 }: MediaPanelProps) {
   const [open, setOpen] = useState(false);
   const muted = { color: theme.labelMuted };
@@ -271,10 +288,12 @@ export function MediaPanel({
         </Text>
       ) : null}
 
-      <Pressable
+      <HoldPressable
         testID="media-toggle"
+        overview="Opens the microphone. Replies can be read aloud from here."
+        theme={theme}
         accessibilityRole="button"
-        accessibilityLabel="Voice and camera"
+        accessibilityLabel="Voice"
         accessibilityState={{ expanded: open }}
         onPress={() => {
           if (!open) media.loadCapabilities();
@@ -285,17 +304,8 @@ export function MediaPanel({
           { backgroundColor: theme.surface, borderColor: theme.surfaceEdge },
         ]}
       >
-        <Svg width={18} height={18} viewBox="0 0 16 16">
-          <Path
-            d="M6 2.5 H10 V8 A2 2 0 0 1 6 8 Z M4 7.5 A4 4 0 0 0 12 7.5 M8 11.5 V14"
-            fill="none"
-            stroke={theme.labelText}
-            strokeWidth={1.5}
-            strokeLinejoin="miter"
-            strokeLinecap="square"
-          />
-        </Svg>
-      </Pressable>
+        <Mic color={theme.labelText} size={18} strokeWidth={2.4} />
+      </HoldPressable>
 
       {open ? (
         <ScrollView
@@ -314,7 +324,7 @@ export function MediaPanel({
             <Text style={[styles.small, muted]}>
               {caps !== null
                 ? caps.disclosures.local.join(" ")
-                : "The microphone and camera stay on this device. No audio, video or photo is saved or sent."}
+                : "The microphone stays on this device. No audio is saved or sent."}
             </Text>
             <Text style={[styles.small, muted]}>
               {caps !== null
@@ -343,9 +353,49 @@ export function MediaPanel({
             </Text>
           ) : null}
 
+          {caps?.spoken_reply !== undefined ? (
+            <Text testID="spoken-reply-status" style={[styles.small, muted]}>
+              {`Hold to talk: ${caps.spoken_reply.status}. ${caps.spoken_reply.detail}`}
+            </Text>
+          ) : null}
+          {talk?.available ? (
+            <Pressable
+              testID="hold-to-talk"
+              accessibilityRole="button"
+              accessibilityLabel={talk.recording ? "Release to send" : "Hold to talk"}
+              accessibilityHint="Records while held, then sends the recording to the tutor"
+              accessibilityState={{ disabled: talk.disabled, selected: talk.recording }}
+              disabled={talk.disabled}
+              onPressIn={talk.onPressIn}
+              onPressOut={talk.onPressOut}
+              style={[
+                styles.button,
+                {
+                  backgroundColor: talk.recording ? theme.controlBackground : theme.surface,
+                  borderColor: theme.controlEdge,
+                  opacity: talk.disabled ? 0.55 : 1,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.buttonText,
+                  { color: talk.recording ? theme.controlText : theme.labelText },
+                ]}
+              >
+                {talk.recording ? "Release to send" : "Hold to talk"}
+              </Text>
+            </Pressable>
+          ) : null}
+          {talk?.note !== null && talk?.note !== undefined ? (
+            <Text testID="talk-note" accessibilityLiveRegion="polite" style={[styles.small, text]}>
+              {talk.note}
+            </Text>
+          ) : null}
+
           {textOnly ? (
             <Text testID="media-text-only" style={[styles.small, muted]}>
-              Text-only mode is on, so the microphone and camera stay off.
+              Text-only mode is on, so the microphone stays off.
             </Text>
           ) : null}
 
@@ -362,29 +412,6 @@ export function MediaPanel({
               }
               onPress={media.startMicrophone}
             />
-            <Button
-              theme={theme}
-              testID="camera-start-student"
-              label="Camera facing me"
-              hint="Asks the device for camera permission"
-              disabled={textOnly || camera.status === "requesting"}
-              selected={
-                camera.status === "on" &&
-                camera.orientation === "student_facing"
-              }
-              onPress={() => media.startCamera("student_facing")}
-            />
-            <Button
-              theme={theme}
-              testID="camera-start-work"
-              label="Camera facing my work"
-              hint="Asks the device for camera permission"
-              disabled={textOnly || camera.status === "requesting"}
-              selected={
-                camera.status === "on" && camera.orientation === "work_facing"
-              }
-              onPress={() => media.startCamera("work_facing")}
-            />
           </View>
           {notes.map((note) => (
             <Text
@@ -399,27 +426,35 @@ export function MediaPanel({
           {microphone.status === "on" ? (
             <Text testID="mic-note" style={[styles.small, muted]}>
               {media.transcriptionAvailable
-                ? "The microphone is open."
+                ? "Listening. Words appear below for you to check. They are not a submitted step until you use them."
                 : "The microphone is open, but voice transcription is not configured: nothing is recorded or turned into text."}
             </Text>
           ) : null}
-          {camera.status === "on" ? (
-            <View style={styles.cameraRow}>
-              {media.renderPreview({
-                orientation: camera.orientation ?? "work_facing",
-                label: `Camera preview, ${ORIENTATION_LABEL[camera.orientation ?? "work_facing"]}`,
-                onFault: media.cameraFault,
-              })}
-              <Button
-                theme={theme}
-                testID="take-photo"
-                label="Take photo of my work"
-                hint="Takes one still; the photo is not saved"
-                onPress={media.takePhoto}
-              />
+          {media.voice.source === "device" &&
+          (media.voice.provisional !== null || media.voice.final !== null) ? (
+            <View testID="live-transcript">
+              {media.voice.provisional !== null ? (
+                <Text testID="live-provisional" style={[styles.body, text]}>
+                  {`Hearing: ${media.voice.provisional}`}
+                </Text>
+              ) : null}
+              {media.voice.final !== null ? (
+                <EditableOffer
+                  key={media.voice.final}
+                  theme={theme}
+                  testID="live-final"
+                  label="Transcribed text. Check and edit before using it."
+                  initial={media.voice.final}
+                  onUse={onUseText}
+                />
+              ) : null}
+              {media.voice.note !== null ? (
+                <Text testID="live-note" style={[styles.small, muted]}>
+                  {media.voice.note}
+                </Text>
+              ) : null}
             </View>
           ) : null}
-
           <Text style={[styles.small, muted]}>Tutor replies</Text>
           <View style={styles.row}>
             {VOICE_OPTIONS.filter(
@@ -565,7 +600,7 @@ const styles = StyleSheet.create({
     paddingLeft: 12,
     paddingRight: 6,
     paddingVertical: 4,
-    borderRadius: 0,
+    borderRadius: radius.lg,
     borderWidth: 1,
     alignSelf: "flex-start",
   },
@@ -575,22 +610,23 @@ const styles = StyleSheet.create({
     minHeight: 44,
     minWidth: 56,
     paddingHorizontal: 12,
-    borderRadius: 0,
+    borderRadius: radius.lg,
     alignItems: "center",
     justifyContent: "center",
   },
   stopText: { fontSize: 14, fontWeight: "700" },
-  caption: { padding: 10, borderRadius: 0, borderWidth: 1, gap: 2 },
+  caption: { padding: 10, borderRadius: radius.lg, borderWidth: 1, gap: 2 },
   toggle: {
     minHeight: 44,
     minWidth: 44,
     paddingHorizontal: 10,
-    borderWidth: 1,
+    borderWidth: 2,
+    borderRadius: radius.pill,
     alignItems: "center",
     justifyContent: "center",
     alignSelf: "flex-start",
   },
-  panelScroll: { maxHeight: 300, borderRadius: 0, borderWidth: 1 },
+  panelScroll: { maxHeight: 300, borderRadius: radius.lg, borderWidth: 1 },
   panel: { gap: 8, padding: 12 },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   cameraRow: {
@@ -602,7 +638,7 @@ const styles = StyleSheet.create({
   button: {
     minHeight: 44,
     paddingHorizontal: 12,
-    borderRadius: 0,
+    borderRadius: radius.lg,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -610,12 +646,12 @@ const styles = StyleSheet.create({
   buttonText: { fontSize: 14, fontWeight: "600" },
   body: { fontSize: 15, lineHeight: 21 },
   small: { fontSize: 13, lineHeight: 18 },
-  outcome: { gap: 8, padding: 10, borderRadius: 0, borderWidth: 1 },
+  outcome: { gap: 8, padding: 10, borderRadius: radius.lg, borderWidth: 1 },
   offer: { gap: 6 },
   input: {
     minHeight: 44,
     borderWidth: 1,
-    borderRadius: 0,
+    borderRadius: radius.lg,
     paddingHorizontal: 12,
     fontSize: 16,
     fontFamily: "monospace",
