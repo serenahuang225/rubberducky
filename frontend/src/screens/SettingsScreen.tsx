@@ -1,5 +1,5 @@
 /**
- * Settings: the tutor's look and style (server seven-day rule), comfort (always immediate),
+ * Settings: which rubber duck teaches (server seven-day rule), comfort (always immediate),
  * and motion, sound, haptics, text-only and caption preferences (always immediate).
  *
  * The lock is whatever the server reports; this screen only renders the server's UTC instant
@@ -13,10 +13,8 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import {
   ANIMATION_PREFERENCES,
-  APPEARANCES,
   PERSONALITIES,
   type AnimationPreference,
-  type Appearance,
   type ComfortOverride,
   type HandholdMode,
   type Personality,
@@ -29,7 +27,7 @@ import { ScreenFrame } from "../components/ScreenFrame";
 import { describeAvailability, formatInstant } from "../persona/availability";
 import type { LearnerSettings } from "../state/useLearnerSettings";
 
-import { APPEARANCE_INFO, PERSONALITY_INFO } from "./OnboardingScreen";
+import { PERSONALITY_INFO } from "./OnboardingScreen";
 
 export type SettingsScreenProps = {
   settings: LearnerSettings;
@@ -123,7 +121,6 @@ export function SettingsScreen({
   locale,
 }: SettingsScreenProps) {
   const { persona, accessibility, refresh } = settings;
-  const [pickedAppearance, setAppearance] = useState<Appearance | null>(null);
   const [pickedPersonality, setPersonality] = useState<Personality | null>(
     null,
   );
@@ -134,24 +131,17 @@ export function SettingsScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const storedAppearance = persona?.appearance ?? null;
   const storedPersonality = persona?.personality ?? null;
   const availability =
     persona === null
       ? null
       : describeAvailability(persona, { timeZone, locale });
   const locked = availability?.locked ?? true;
-  // A pick is only shown while the server allows a change; otherwise the stored pair is.
-  const appearance = locked
-    ? storedAppearance
-    : (pickedAppearance ?? storedAppearance);
+  // A pick is only shown while the server allows a change; otherwise the stored duck is.
   const personality = locked
     ? storedPersonality
     : (pickedPersonality ?? storedPersonality);
-  const changed =
-    appearance !== null &&
-    personality !== null &&
-    (appearance !== storedAppearance || personality !== storedPersonality);
+  const changed = personality !== null && personality !== storedPersonality;
   const canSave =
     persona !== null && !locked && changed && !settings.savingPair;
   const comfortUpdated =
@@ -194,7 +184,6 @@ export function SettingsScreen({
         ) : (
           <>
             <Text style={[styles.note, text]}>
-              {APPEARANCE_INFO[persona.appearance].name} ·{" "}
               {PERSONALITY_INFO[persona.personality].name}
             </Text>
             <Text
@@ -204,29 +193,6 @@ export function SettingsScreen({
             >
               {availability?.summary}
             </Text>
-            <Text style={[styles.groupLabel, text]}>Look</Text>
-            <View
-              accessibilityRole="radiogroup"
-              accessibilityLabel="Tutor look"
-              style={styles.cardRow}
-            >
-              {APPEARANCES.map((option) => (
-                <RadioCard
-                  key={option}
-                  testID={`settings-appearance-${option}`}
-                  label={APPEARANCE_INFO[option].name}
-                  selected={appearance === option}
-                  disabled={locked}
-                  theme={theme}
-                  onPress={() => setAppearance(option)}
-                  style={styles.choiceCard}
-                >
-                  <Text style={[styles.cardTitle, text]}>
-                    {APPEARANCE_INFO[option].name}
-                  </Text>
-                </RadioCard>
-              ))}
-            </View>
             <Text style={[styles.groupLabel, text]}>Rubber duck</Text>
             <View
               accessibilityRole="radiogroup"
@@ -267,18 +233,18 @@ export function SettingsScreen({
             <Pressable
               testID="settings-save-persona"
               accessibilityRole="button"
-              accessibilityLabel="Save look and style"
+              accessibilityLabel="Save rubber duck"
               accessibilityHint={
                 locked
                   ? "Unavailable until the time shown above"
-                  : "Uses up this week’s style change"
+                  : "Uses up this week’s duck change"
               }
               accessibilityState={{ disabled: !canSave }}
               aria-disabled={!canSave}
               disabled={!canSave}
               onPress={() => {
-                if (appearance !== null && personality !== null) {
-                  void settings.changePair(appearance, personality);
+                if (persona !== null && personality !== null) {
+                  void settings.changePair(persona.appearance, personality);
                 }
               }}
               style={[
@@ -290,7 +256,7 @@ export function SettingsScreen({
               ]}
             >
               <Text style={[styles.buttonText, { color: theme.controlText }]}>
-                {settings.savingPair ? "Saving…" : "Save look and style"}
+                {settings.savingPair ? "Saving…" : "Save rubber duck"}
               </Text>
             </Pressable>
           </>
@@ -360,7 +326,7 @@ export function SettingsScreen({
         </View>
         {comfortUpdated !== null ? (
           <Text style={[styles.note, muted]}>
-            Comfort last changed: {comfortUpdated.local ?? comfortUpdated.utc}
+            Last changed {comfortUpdated.local ?? comfortUpdated.utc}
           </Text>
         ) : null}
         {settings.comfortError !== null ? (
@@ -478,13 +444,12 @@ export function SettingsScreen({
           </Text>
         </Pressable>
       </View>
-
     </ScreenFrame>
   );
 }
 
 const styles = StyleSheet.create({
-  section: { padding: 16, gap: 10, borderRadius: 14, borderWidth: 1 },
+  section: { padding: 16, gap: 10, borderRadius: 28, borderWidth: 2 },
   sectionTitle: { fontSize: 20, fontWeight: "700" },
   groupLabel: { fontSize: 16, fontWeight: "700" },
   note: { fontSize: 15, lineHeight: 21 },
@@ -497,7 +462,7 @@ const styles = StyleSheet.create({
   button: {
     minHeight: 48,
     paddingHorizontal: 20,
-    borderRadius: 12,
+    borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
     alignSelf: "flex-start",

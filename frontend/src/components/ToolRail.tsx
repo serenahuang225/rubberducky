@@ -5,13 +5,14 @@
  */
 
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import Svg, { Path } from "react-native-svg";
+import { StyleSheet, Text, View } from "react-native";
+import { Eraser, Pencil, Redo2, RotateCcw, Undo2 } from "lucide-react-native";
 
 import type { BoardTheme } from "../board/palette";
-import { font } from "../theme/tokens";
+import { font, radius } from "../theme/tokens";
 
 import type { BoardInputMode } from "./BoardInputLayer";
+import { HoldPressable } from "./HoldPressable";
 
 export type ToolRailProps = {
   theme: BoardTheme;
@@ -41,29 +42,6 @@ type ToolButtonProps = {
   testID?: string;
 };
 
-function ToolIcon({
-  color,
-  d,
-  filled = false,
-}: {
-  color: string;
-  d: string;
-  filled?: boolean;
-}) {
-  return (
-    <Svg width={24} height={24} viewBox="0 0 16 16">
-      <Path
-        d={d}
-        fill={filled ? color : "none"}
-        stroke={filled ? "none" : color}
-        strokeWidth={1.5}
-        strokeLinejoin="miter"
-        strokeLinecap="square"
-      />
-    </Svg>
-  );
-}
-
 function ToolButton({
   label,
   accessibilityLabel,
@@ -78,8 +56,10 @@ function ToolButton({
   testID,
 }: ToolButtonProps) {
   return (
-    <Pressable
+    <HoldPressable
       testID={testID}
+      overview={hint ?? label}
+      theme={theme}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
       accessibilityHint={hint}
@@ -118,7 +98,7 @@ function ToolButton({
           {label}
         </Text>
       )}
-    </Pressable>
+    </HoldPressable>
   );
 }
 
@@ -155,7 +135,7 @@ export function ToolRail({
         theme={theme}
         column={column}
         iconsOnly={column}
-        icon={<ToolIcon color={ink(mode === "draw")} d="M2 14 L5 8 L11 2 L14 5 L8 11 Z M5 8 L8 11" />}
+        icon={<Pencil color={ink(mode === "draw")} size={22} strokeWidth={2.4} />}
         onPress={() => onModeChange("draw")}
       />
       <ToolButton
@@ -166,7 +146,7 @@ export function ToolRail({
         theme={theme}
         column={column}
         iconsOnly={column}
-        icon={<ToolIcon color={ink(mode === "erase")} d="M3 3 H13 V13 H3 Z" />}
+        icon={<Eraser color={ink(mode === "erase")} size={22} strokeWidth={2.4} />}
         onPress={() => onModeChange("erase")}
       />
       <ToolButton
@@ -177,7 +157,7 @@ export function ToolRail({
         theme={theme}
         column={column}
         iconsOnly={column}
-        icon={<ToolIcon color={theme.labelText} d="M7 3 H3 V7 M3 3 C6 8 8 12 13 12" />}
+        icon={<Undo2 color={theme.labelText} size={22} strokeWidth={2.4} />}
         onPress={onUndo}
       />
       <ToolButton
@@ -188,7 +168,7 @@ export function ToolRail({
         theme={theme}
         column={column}
         iconsOnly={column}
-        icon={<ToolIcon color={theme.labelText} d="M9 3 H13 V7 M13 3 C10 8 8 12 3 12" />}
+        icon={<Redo2 color={theme.labelText} size={22} strokeWidth={2.4} />}
         onPress={onRedo}
       />
       <ToolButton
@@ -200,7 +180,7 @@ export function ToolRail({
         theme={theme}
         column={column}
         iconsOnly={column}
-        icon={<ToolIcon color={theme.labelText} d="M3 3 H10 V6 H13 V13 H6 V10 H3 Z" />}
+        icon={<RotateCcw color={theme.labelText} size={22} strokeWidth={2.4} />}
         onPress={onUndoTutorMove}
       />
     </View>
@@ -221,14 +201,14 @@ const styles = StyleSheet.create({
     gap: 2,
     alignItems: "stretch",
     paddingVertical: 8,
-    borderLeftWidth: StyleSheet.hairlineWidth,
   },
   button: {
     minHeight: 44,
     minWidth: 44,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderWidth: 1,
+    borderWidth: 2,
+    borderRadius: radius.pill,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",

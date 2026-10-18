@@ -1,15 +1,17 @@
 /**
- * The fixed, accessible session palette.
+ * The session palette is three colors: white, blue, and yellow.
  *
- * There is exactly one student pen and one tutor mark color per theme. Scene objects store
- * a server-assigned color *role* (never a free color), so re-entry and restoration always
- * map the same role to the same ink, and every implemented theme keeps the two roles
- * visually distinct. Author labels, not color, carry authorship for assistive technology.
- *
- * The warm canvas is near-white; the chalkboard is deep charcoal, not pure black. Controls
- * use one pine accent — deep on the canvas, pale on the chalkboard — kept off the blue
- * student ink and the sienna tutor ink.
+ * Scene objects store a color *role* (never a free color), so re-entry always maps the same
+ * role to the same ink. Paper is a white board with blue writing and yellow accents. The
+ * other theme flips the board to blue, with white writing and the same yellow accent.
+ * Author labels, not color alone, carry authorship.
  */
+
+export const BRAND = {
+  white: "#FFFFFF",
+  blue: "#1985d0",
+  yellow: "#fdc92a",
+} as const;
 
 export type ColorRole = "student" | "tutor";
 export type BoardThemeName = "paper" | "slate";
@@ -33,7 +35,7 @@ export type BoardTheme = {
   labelMuted: string;
   surface: string;
   surfaceEdge: string;
-  /** Boundary of inputs and unselected choices; 3:1 against the surface (WCAG 1.4.11). */
+  /** Boundary of inputs and unselected choices. */
   controlEdge: string;
   controlBackground: string;
   controlText: string;
@@ -45,42 +47,42 @@ export const BOARD_THEMES: Record<BoardThemeName, BoardTheme> = {
   paper: {
     name: "paper",
     label: "Paper",
-    board: "#F4F0E6",
-    boardEdge: "#D4CDBF",
-    boardGrain: "#E7E1D4",
-    studentInk: "#1A4E96",
-    tutorInk: "#B4481C",
-    highlightFill: "rgba(180, 72, 28, 0.14)",
-    focusOutline: "#1E4538",
-    labelText: "#2C2824",
-    labelMuted: "#5A544C",
-    surface: "#F8F5EE",
-    surfaceEdge: "#D8D1C3",
-    controlEdge: "#5C564E",
-    controlBackground: "#1E4538",
-    controlText: "#F6F2E9",
-    controlDisabled: "#8A8478",
-    danger: "#9C2F28",
+    board: BRAND.white,
+    boardEdge: BRAND.blue,
+    boardGrain: BRAND.yellow,
+    studentInk: BRAND.blue,
+    tutorInk: BRAND.yellow,
+    highlightFill: "rgba(253, 201, 42, 0.45)",
+    focusOutline: BRAND.blue,
+    labelText: BRAND.blue,
+    labelMuted: BRAND.blue,
+    surface: BRAND.white,
+    surfaceEdge: BRAND.blue,
+    controlEdge: BRAND.blue,
+    controlBackground: BRAND.blue,
+    controlText: BRAND.white,
+    controlDisabled: BRAND.blue,
+    danger: BRAND.blue,
   },
   slate: {
     name: "slate",
     label: "Chalkboard",
-    board: "#2E3431",
-    boardEdge: "#46504B",
-    boardGrain: "#262B28",
-    studentInk: "#8FCBF2",
-    tutorInk: "#E7B07A",
-    highlightFill: "rgba(231, 176, 122, 0.22)",
-    focusOutline: "#E6D4B0",
-    labelText: "#F3EEE4",
-    labelMuted: "#C9C2B4",
-    surface: "#383F3B",
-    surfaceEdge: "#4C564F",
-    controlEdge: "#B4BEB6",
-    controlBackground: "#D7E3DA",
-    controlText: "#1A2621",
-    controlDisabled: "#6C756F",
-    danger: "#FFB4AA",
+    board: BRAND.blue,
+    boardEdge: BRAND.white,
+    boardGrain: BRAND.white,
+    studentInk: BRAND.white,
+    tutorInk: BRAND.yellow,
+    highlightFill: "rgba(253, 201, 42, 0.55)",
+    focusOutline: BRAND.yellow,
+    labelText: BRAND.white,
+    labelMuted: BRAND.white,
+    surface: BRAND.blue,
+    surfaceEdge: BRAND.white,
+    controlEdge: BRAND.white,
+    controlBackground: BRAND.yellow,
+    controlText: BRAND.blue,
+    controlDisabled: BRAND.white,
+    danger: BRAND.yellow,
   },
 };
 

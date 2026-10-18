@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { fetchServiceStatus, type ServiceStatus } from '../api/health';
+import { BRAND } from '../board/palette';
 import { getApiBaseUrl } from '../config/apiBaseUrl';
 
 type LoadState =
@@ -74,32 +75,32 @@ export function StatusScreen({ loadStatus = defaultLoadStatus }: Props) {
 const styles = StyleSheet.create({
   page: {
     flex: 1,
-    backgroundColor: '#fcfcfa',
+    backgroundColor: BRAND.white,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 32,
     gap: 16,
   },
-  title: { fontSize: 32, fontWeight: '600', color: '#1f2933' },
-  subtitle: { fontSize: 18, color: '#3e4c59' },
+  title: { fontSize: 32, fontWeight: '700', color: BRAND.blue },
+  subtitle: { fontSize: 18, color: BRAND.blue },
   card: {
     minWidth: 320,
     padding: 20,
     gap: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#d9dde1',
-    backgroundColor: '#ffffff',
+    borderRadius: 28,
+    borderWidth: 2,
+    borderColor: BRAND.blue,
+    backgroundColor: BRAND.white,
   },
-  status: { fontSize: 18, color: '#1f2933' },
-  detail: { fontSize: 16, color: '#3e4c59' },
+  status: { fontSize: 18, color: BRAND.blue },
+  detail: { fontSize: 16, color: BRAND.blue },
   button: {
     alignSelf: 'flex-start',
     minHeight: 44,
     paddingHorizontal: 16,
     justifyContent: 'center',
-    borderRadius: 8,
-    backgroundColor: '#2f4858',
+    borderRadius: 999,
+    backgroundColor: BRAND.blue,
   },
-  buttonText: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
+  buttonText: { color: BRAND.white, fontSize: 16, fontWeight: '700' },
 });

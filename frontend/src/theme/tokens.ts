@@ -1,30 +1,23 @@
 /**
  * Shared measure for the learning workspace.
  *
- * Two families only: an editorial serif for short headings, and one sans for controls,
- * conversation, instructions, and mathematical text. Corners stay square. Motion durations
- * are short and shared so panels, tools, and tutor marks move the same way.
+ * Nunito is the one face: a rounded sans for headings, controls, conversation, and
+ * mathematical text. Corners are round. Motion durations are short and shared so panels,
+ * tools, and tutor marks move the same way.
  */
 
 import { Platform, type TextStyle } from "react-native";
 
-const displayFamily =
+const roundedFamily =
   Platform.OS === "web"
-    ? '"Newsreader", "Iowan Old Style", Palatino, "Palatino Linotype", Georgia, serif'
+    ? '"Nunito", "Avenir Next", "Segoe UI", sans-serif'
     : Platform.OS === "ios"
-      ? "Iowan Old Style"
-      : "serif";
-
-const sansFamily =
-  Platform.OS === "web"
-    ? '"Source Sans 3", "Avenir Next", "Segoe UI", sans-serif'
-    : Platform.OS === "ios"
-      ? "Avenir Next"
+      ? "ui-rounded"
       : "sans-serif";
 
 export const font = {
-  display: displayFamily,
-  sans: sansFamily,
+  display: roundedFamily,
+  sans: roundedFamily,
 };
 
 export const space = {
@@ -37,8 +30,13 @@ export const space = {
   xxxl: 48,
 } as const;
 
-/** Every control and surface uses square corners. */
-export const radius = 0;
+/** Round corners for controls, cards, and pills. */
+export const radius = {
+  sm: 14,
+  md: 20,
+  lg: 28,
+  pill: 999,
+} as const;
 
 export const motionMs = {
   fast: 120,
@@ -50,13 +48,13 @@ const display = (size: number, lineHeight: number): TextStyle => ({
   fontFamily: font.display,
   fontSize: size,
   lineHeight,
-  fontWeight: "500",
+  fontWeight: "700",
 });
 
 const sans = (
   size: number,
   lineHeight: number,
-  weight: TextStyle["fontWeight"] = "400",
+  weight: TextStyle["fontWeight"] = "500",
 ): TextStyle => ({
   fontFamily: font.sans,
   fontSize: size,
@@ -69,13 +67,13 @@ export const type = {
   title: display(22, 28),
   heading: display(18, 24),
   prompt: display(20, 26),
-  name: display(16, 20),
+  name: display(16, 22),
   body: sans(16, 22),
-  control: sans(15, 20, "500"),
-  small: sans(13, 18),
-  meta: sans(12, 16, "500"),
+  control: sans(15, 20, "700"),
+  small: sans(13, 18, "600"),
+  meta: sans(12, 16, "700"),
   math: {
-    ...sans(16, 22),
+    ...sans(16, 22, "700"),
     fontVariant: ["tabular-nums"],
   } satisfies TextStyle,
 };

@@ -6,12 +6,14 @@
  */
 
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import type { TutorTurnResult } from '../api/contracts';
 import type { BoardTheme } from '../board/palette';
 import { describeTurn, type DiagnosticView } from '../state/turnInsight';
-import { font, type } from '../theme/tokens';
+import { font, radius, type } from '../theme/tokens';
+
+import { HoldPressable } from './HoldPressable';
 
 export type TeachingContextProps = {
   theme: BoardTheme;
@@ -168,8 +170,10 @@ export function TeachingContext({ theme, turn }: TeachingContextProps) {
       ) : null}
       {insight.diagnostic !== null ? (
         <>
-          <Pressable
+          <HoldPressable
             testID="diagnostic-toggle"
+            overview="Shows why the tutor chose this move, and what else it considered."
+            theme={theme}
             accessibilityRole="button"
             accessibilityLabel={open ? 'Hide why this move' : 'Why this move?'}
             accessibilityState={{ expanded: open }}
@@ -177,7 +181,7 @@ export function TeachingContext({ theme, turn }: TeachingContextProps) {
             style={[styles.toggle, { borderColor: theme.controlEdge }]}
           >
             <Text style={[styles.toggleText, text]}>{open ? 'Hide details' : 'Why this move?'}</Text>
-          </Pressable>
+          </HoldPressable>
           {open ? <DiagnosticPanel theme={theme} diagnostic={insight.diagnostic} /> : null}
         </>
       ) : null}
@@ -201,7 +205,8 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     minHeight: 44,
     paddingHorizontal: 12,
-    borderWidth: 1,
+    borderWidth: 2,
+    borderRadius: radius.pill,
     justifyContent: 'center',
   },
   toggleText: type.meta,

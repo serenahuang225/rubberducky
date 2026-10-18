@@ -8,8 +8,7 @@
  * - Help me uses /help (not synthesized work) and works before any timer expires.
  * - Verifier and reasoning judgments, disclosure and representation are shown as the server
  *   reported them, with a read-only diagnostic inspector.
- * - The tutor's provider identity is shown honestly (the mock says it is a mock), and
- *   "Finish for today" really ends the session and hands control back to the app.
+ * - "Finish for today" really ends the session and hands control back to the app.
  */
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -244,8 +243,6 @@ describe("WorkspaceScreen", () => {
       expect(screen.getByTestId("prompt-problem")).toBeTruthy(),
     );
     expect(textOf(screen.getByTestId("prompt-problem"))).toBe("2(x + 3) = 14");
-    const boardLabel =
-      screen.getByTestId("whiteboard").props.accessibilityLabel;
 
     // The learner has an unfinished typed draft and taps Still thinking twice.
     fireEvent.changeText(typedStepInput(screen), "2x +");
@@ -273,9 +270,8 @@ describe("WorkspaceScreen", () => {
     expect(typedStepInput(screen).props.value).toBe("2x +");
     expect(textOf(screen.getByTestId("prompt-problem"))).toBe("2(x + 3) = 14");
     expect(screen.getByTestId("whiteboard").props.accessibilityLabel).toBe(
-      boardLabel,
+      "Whiteboard, empty",
     );
-    expect(boardLabel).toBe("Whiteboard: 0 of your marks, 1 tutor marks");
     // No tutor words, representation or diagnostic appeared from a wait signal.
     expect(screen.queryByTestId("prompt-tutor")).toBeNull();
     expect(screen.queryByTestId("teaching-context")).toBeNull();
@@ -478,16 +474,16 @@ describe("WorkspaceScreen", () => {
     });
   });
 
-  it("labels the tutor provider honestly, straight from the service", async () => {
+  it("does not put the tutor provider in the workspace header", async () => {
     const { fetchImpl } = makeFakeApi();
     const screen = renderWorkspace(fetchImpl);
     await waitFor(() =>
-      expect(
-        screen.getByText(/Deterministic mock tutor \(not a language model\)/),
-      ).toBeTruthy(),
+      expect(screen.getByTestId("prompt-problem")).toBeTruthy(),
     );
-    const chip = screen.getByTestId("provider-label");
-    expect(chip.props.accessibilityLabel).toMatch(/mock/i);
+    expect(screen.queryByTestId("provider-label")).toBeNull();
+    expect(
+      screen.queryByText(/Deterministic mock tutor \(not a language model\)/),
+    ).toBeNull();
   });
 
   it("Finish for today really ends the session and hands back to the app", async () => {

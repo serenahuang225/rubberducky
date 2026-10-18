@@ -303,7 +303,7 @@ export function ExplanationManipulative({ released, theme }: ExplanationManipula
 }
 
 const styles = StyleSheet.create({
-  card: { borderWidth: 1, padding: 16, gap: 8 },
+  card: { borderWidth: 2, borderRadius: 28, padding: 16, gap: 8 },
   sourceLabel: { ...type.meta },
   note: { ...type.small },
   title: { ...type.heading },
@@ -314,7 +314,8 @@ const styles = StyleSheet.create({
   stepButton: {
     minWidth: 44,
     minHeight: 44,
-    borderWidth: 1,
+    borderWidth: 2,
+    borderRadius: 999,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -323,7 +324,7 @@ const styles = StyleSheet.create({
   stepperValue: { ...type.math, minWidth: 28, textAlign: "center" },
   figure: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginVertical: 8 },
   figureRow: { flexDirection: "row", alignItems: "flex-start", marginVertical: 8 },
-  groupBox: { borderWidth: 1, padding: 4 },
+  groupBox: { borderWidth: 2, borderRadius: 20, padding: 4 },
   partGap: { width: 12 },
   readout: { ...type.math },
 });

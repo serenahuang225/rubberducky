@@ -15,7 +15,7 @@ html, body, #root {
   width: 100%;
   height: 100%;
   margin: 0;
-  background: var(--rd-canvas, #F4F0E6);
+  background: var(--rd-canvas, #FFFFFF);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -45,7 +45,7 @@ html, body { overflow: hidden; }
 [role="switch"]:focus-visible,
 input:focus-visible,
 textarea:focus-visible {
-  outline: 2px solid var(--rd-focus, #1E4538) !important;
+  outline: 2px solid var(--rd-focus, #1985d0) !important;
   outline-offset: 2px;
 }
 [data-status] { transition: background-color 160ms cubic-bezier(0.2, 0, 0, 1), border-color 160ms cubic-bezier(0.2, 0, 0, 1), opacity 160ms cubic-bezier(0.2, 0, 0, 1); }
@@ -91,7 +91,7 @@ export function installWebTheme(): void {
   const link = document.createElement("link");
   link.rel = "stylesheet";
   link.href =
-    "https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&family=Source+Sans+3:ital,wght@0,400;0,500;0,600;1,400&display=swap";
+    "https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,500;0,600;0,700;0,800;1,500&display=swap";
   document.head.appendChild(link);
   const style = document.createElement("style");
   style.setAttribute("data-rubberducky-theme", "true");

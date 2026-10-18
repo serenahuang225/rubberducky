@@ -190,6 +190,10 @@ describe("App navigation", () => {
 
   it("deletes the profile, clears the sign-in and shows what was removed", async () => {
     await openWorkspace();
+    fireEvent.press(screen.getByRole("button", { name: "Open settings" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("settings-screen")).toBeTruthy(),
+    );
     fireEvent.press(
       screen.getByRole("button", { name: "Open private memory" }),
     );
