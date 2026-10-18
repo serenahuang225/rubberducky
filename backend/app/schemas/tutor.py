@@ -133,6 +133,7 @@ class WorkRequest(_Request):
     expected_revision: Annotated[int, Field(ge=0)]
     text: Annotated[str, Field(min_length=1, max_length=MAX_WORK_CHARS)]
     input_mode: WorkInputMode = "typed"
+    boxed_answer: bool = False
     handhold: HandholdMode = "balanced"
 
 
@@ -187,6 +188,7 @@ class TutorDraft(ContractModel):
     hint_level: Annotated[int, Field(ge=0, le=5)]
     answer_revealed: bool
     drawing_actions: Annotated[list[dict[str, Any]], Field(max_length=24)]
+    board_scene_revision: Annotated[int, Field(ge=0)] | None = None
     expected_student_action: Annotated[str, Field(min_length=1, max_length=160)]
     proposed_memory_updates: Annotated[list[dict[str, Any]], Field(max_length=10)]
     # The provider's own reading of the learner's step. It can never override the verifier.

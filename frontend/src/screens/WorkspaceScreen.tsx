@@ -10,6 +10,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
+  Modal,
+  ScrollView,
   Platform,
   Pressable,
   StyleSheet,
@@ -18,7 +20,7 @@ import {
 } from "react-native";
 import {
   CircleHelp,
-  Flag,
+  CircleCheck,
   Hourglass,
   Moon,
   Settings,
@@ -60,6 +62,7 @@ import { deriveAvatarStatus } from "../state/avatarStatus";
 import { DEFAULT_ACCESSIBILITY } from "../state/useLearnerSettings";
 import { useProgressiveReveal } from "../state/useProgressiveReveal";
 import { useWaitAgency } from "../state/useWaitAgency";
+import { useBoardReading } from "../state/useBoardReading";
 import { useWorkspace } from "../state/useWorkspace";
 import { radius, type } from "../theme/tokens";
 
@@ -176,14 +179,20 @@ export function WorkspaceScreen({
   const [themeName, setThemeName] = useState<BoardThemeName>("paper");
   const [mode, setMode] = useState<BoardInputMode>("draw");
   const [draft, setDraft] = useState("");
+  const boardReading = useBoardReading({
+    client, sessionId, scene: workspace.scene,
+    revision: workspace.state?.session.revision ?? null,
+    attemptId: workspace.state?.current_problem?.attempt_id ?? null,
+    blocked: boardHidden || workspace.needsCheckIn || workspace.busyLabel !== null ||
+      workspace.pendingCount > 0 || workspace.settlingStrokes.length > 0 || draft.trim().length > 0,
+    onRead: (text, boxedAnswer) => workspace.submitWork(text, handhold, "confirmed_ink", boxedAnswer),
+  });
   const [recording, setRecording] = useState(false);
   const [talkNote, setTalkNote] = useState<string | null>(null);
   const recorderRef = useRef(createTalkRecorder());
   const talkFailed = useRef(false);
   const holding = useRef(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(true);
-  const [showPictureStatement, setShowPictureStatement] = useState(false);
   const [noted, setNoted] = useState(false);
   const [ending, setEnding] = useState(false);
   const [endError, setEndError] = useState<string | null>(null);
@@ -217,11 +226,9 @@ export function WorkspaceScreen({
 
   const theme = useMemo(() => getTheme(themeName), [themeName]);
   const notedTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pictureTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   React.useEffect(
     () => () => {
       if (notedTimer.current !== null) clearTimeout(notedTimer.current);
-      if (pictureTimer.current !== null) clearTimeout(pictureTimer.current);
     },
     [],
   );
@@ -439,18 +446,7 @@ export function WorkspaceScreen({
 
   const styleInfo = PERSONALITY_INFO[persona.personality];
   const scene = workspace.scene;
-  const statementId = workspace.state?.current_problem?.statement_object_id ?? null;
-  const visibleObjects = scene.objects.filter((object) => {
-    if (hiddenIds.has(object.id)) return false;
-    if (
-      statementId !== null &&
-      object.id === statementId &&
-      !showPictureStatement
-    ) {
-      return false;
-    }
-    return true;
-  });
+  const visibleObjects = scene.objects.filter((object) => !hiddenIds.has(object.id));
   const avatarStatus = deriveAvatarStatus({
     busy: workspace.busyLabel !== null,
     connectionLost: workspace.connectionLost,
@@ -496,39 +492,27 @@ export function WorkspaceScreen({
             </Text>
           </View>
         </View>
-        <HoldPressable
-          testID="workspace-menu"
-          overview="Opens help, waiting, voice, and settings."
+        <View style={styles.headerActions}>
+        <SquareButton
+          testID="check-answer"
           theme={theme}
-          accessibilityRole="button"
-          accessibilityLabel={menuOpen ? "Close more" : "More"}
-          accessibilityState={{ expanded: menuOpen }}
-          onPress={() => setMenuOpen((open) => !open)}
-          style={[styles.more, { borderColor: theme.controlEdge }]}
+          label="Check answer"
+          hint="Checks your typed answer, or reads and checks your latest board answer."
+          disabled={workspace.needsCheckIn || workspace.busyLabel !== null ||
+            (draft.trim().length === 0 && !workspace.scene?.objects.some((object) => object.author_role === "student"))}
+          onPress={() => {
+            if (draft.trim()) {
+              const answer = draft.trim();
+              media.cancelSpeech("new_work");
+              void workspace.submitWork(answer, handhold, "typed", true).then((outcome) => {
+                if (outcome === "resolved") setDraft((current) => current.trim() === answer ? "" : current);
+              });
+            } else boardReading.checkAnswer();
+          }}
+          icon={<CircleCheck color={theme.labelText} size={18} strokeWidth={2.4} />}
         >
-          <Text style={[styles.moreText, { color: theme.labelText }]}>
-            {menuOpen ? "Close" : "More"}
-          </Text>
-        </HoldPressable>
-      </View>
-      <PromptBar
-        theme={theme}
-        status={
-          workspace.busyLabel ??
-          stillThinkingStatusText(wait.stillThinkingStatus)
-        }
-      />
-      {workspace.state.current_problem?.statement ? (
-        <Text
-          testID="prompt-problem"
-          style={[styles.problemRow, { color: theme.studentInk }]}
-        >
-          {workspace.state.current_problem.statement}
-        </Text>
-      ) : null}
-      <View
-        style={[styles.menu, !menuOpen && styles.menuClosed]}
-      >
+          Check answer
+        </SquareButton>
         <SquareButton
           testID="help-me"
           theme={theme}
@@ -582,8 +566,27 @@ export function WorkspaceScreen({
           hint="Ends this session and returns to the welcome screen"
           disabled={ending || workspace.busyLabel !== null}
           onPress={() => void finishSession()}
-          icon={<Flag color={theme.labelText} size={18} strokeWidth={2.4} />}
-        />
+        >
+          Finish session
+        </SquareButton>
+        </View>
+      </View>
+      <PromptBar
+        theme={theme}
+        status={
+          workspace.busyLabel ??
+          stillThinkingStatusText(wait.stillThinkingStatus)
+        }
+      />
+      {workspace.state.current_problem?.statement ? (
+        <Text
+          testID="prompt-problem"
+          style={[styles.problemRow, { color: theme.studentInk }]}
+        >
+          {workspace.state.current_problem.statement}
+        </Text>
+      ) : null}
+      <View style={styles.menu}>
         <MediaPanel
           theme={theme}
           media={media}
@@ -606,6 +609,8 @@ export function WorkspaceScreen({
         <WaitControls
           theme={theme}
           hintAvailable={wait.hintAvailable}
+          waitState={workspace.busyLabel === null && workspace.phase === "ready" ? wait.waitState : null}
+          partnerName={styleInfo.name}
           preference={wait.preference}
           preferenceError={wait.preferenceError}
           onChangeSeconds={(seconds) => void wait.setWaitSeconds(seconds)}
@@ -621,6 +626,11 @@ export function WorkspaceScreen({
         </Text>
       ) : null}
 
+      {boardReading.note !== null ? (
+        <Text accessibilityLiveRegion="polite" style={[styles.loadingText, { color: theme.tutorInk }]}>
+          {boardReading.note}
+        </Text>
+      ) : null}
       <TeachingContext theme={theme} turn={workspace.lastTurn} />
 
       {workspace.errorMessage !== null ? (
@@ -667,19 +677,22 @@ export function WorkspaceScreen({
       ) : null}
 
       {workspace.needsCheckIn ? (
+        <Modal transparent visible animationType="fade">
+          <View style={styles.modalBackdrop}>
+            <ScrollView contentContainerStyle={styles.modalContent} keyboardShouldPersistTaps="handled">
         <QuestionIntake
           theme={theme}
           busy={workspace.busyLabel !== null}
           onStart={(input) => {
-            const fromPicture = input.image != null;
-            if (pictureTimer.current !== null) clearTimeout(pictureTimer.current);
-            setShowPictureStatement(fromPicture);
-            if (fromPicture) {
-              pictureTimer.current = setTimeout(() => setShowPictureStatement(false), 5000);
-            }
             void workspace.checkIn({ ...input, handhold });
           }}
         />
+              {workspace.errorMessage !== null ? (
+                <Text accessibilityRole="alert" style={[styles.errorText, { color: theme.danger, backgroundColor: theme.surface, padding: 20, borderRadius: radius.md, maxWidth: 640 }]}>{workspace.errorMessage}</Text>
+              ) : null}
+            </ScrollView>
+          </View>
+        </Modal>
       ) : null}
 
       <View style={styles.stage}>
@@ -711,6 +724,7 @@ export function WorkspaceScreen({
           theme={theme}
           mode={mode}
           inputDisabled={workspace.penLocked}
+          onInkActivity={boardReading.onInkActivity}
           onStroke={(points) => void workspace.commitStroke(points)}
           onDoubleTap={() => {
             if (scene.student_undo_available) {
@@ -764,6 +778,7 @@ export function WorkspaceScreen({
       {chatOpen ? (
       <TutorChat
         theme={theme}
+        partnerName={styleInfo.name}
         messages={messagesFromTurns(
           chatTurns.length > 0
             ? chatTurns
@@ -834,6 +849,7 @@ const styles = StyleSheet.create({
   },
   saveRetryText: type.control,
   retryButton: {
+    borderRadius: radius.pill,
     minHeight: 44,
     paddingHorizontal: 20,
     alignItems: "center",
@@ -842,23 +858,19 @@ const styles = StyleSheet.create({
   retryText: type.control,
   header: {
     flexDirection: "row",
-    flexWrap: "nowrap",
+    flexWrap: "wrap",
     alignItems: "center",
     gap: 8,
-    paddingTop: 8,
-    paddingBottom: 4,
+    paddingTop: 16,
+    paddingBottom: 16,
   },
   headerText: { maxWidth: 280, flexShrink: 1 },
+  headerActions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginLeft: "auto", justifyContent: "flex-end" },
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(20, 27, 38, 0.55)" },
+  modalContent: { flexGrow: 1, justifyContent: "center", alignItems: "center", padding: 24 },
   headerMeta: { flexDirection: "row", alignItems: "center", gap: 8 },
   tutorName: type.name,
   headerSub: type.small,
-  more: {
-    minHeight: 44,
-    paddingHorizontal: 12,
-    borderWidth: 2,
-    borderRadius: radius.pill,
-    justifyContent: "center",
-  },
   moreText: type.control,
   menu: {
     flexDirection: "row",
@@ -867,33 +879,30 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingBottom: 8,
   },
-  menuClosed: {
-    height: 0,
-    paddingBottom: 0,
-    overflow: "hidden",
-  },
   problemRow: { ...type.prompt, paddingBottom: 6 },
   stage: {
     flex: 1,
     minHeight: 0,
     flexDirection: "row",
     alignItems: "stretch",
+    gap: 24,
+    paddingBottom: 20,
   },
   boardArea: { flex: 1, minHeight: 0, position: "relative" },
   toolDock: {
     position: "absolute",
-    right: -26,
-    top: 0,
-    bottom: 0,
+    right: 12,
+    top: 12,
     justifyContent: "center",
     alignItems: "center",
     zIndex: 4,
     gap: 8,
   },
   toolCard: {
-    borderWidth: 2,
-    borderRadius: radius.lg,
-    paddingVertical: 4,
+    borderWidth: 1,
+    borderRadius: radius.pill,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
   },
   showChat: {
     borderWidth: 2,

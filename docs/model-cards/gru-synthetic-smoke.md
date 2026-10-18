@@ -1,5 +1,9 @@
 # GRU synthetic smoke model card
 
+Historical offline smoke-run record. Checkpoints are ignored local artifacts and may need
+regeneration. These measurements were not rerun for the current documentation update, and
+this model is not used by the hosted demo.
+
 This artifact is a **synthetic** execution check of a causal GRU on generated interactions.
 It is **not calibrated mastery** and it is not evidence that a learner improved. Do not read a
 lower log loss than BKT as an educational result. On this run the GRU log loss is lower and the

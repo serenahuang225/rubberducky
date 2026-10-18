@@ -181,6 +181,6 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   notice: { ...type.small, color: BRAND.white, flexBasis: "100%" },
-  barButton: { minHeight: 44, justifyContent: "center", paddingHorizontal: 8 },
+  barButton: { minHeight: 44, borderRadius: 999, justifyContent: "center", paddingHorizontal: 16, paddingVertical: 10 },
   barText: { ...type.control, color: BRAND.white },
 });

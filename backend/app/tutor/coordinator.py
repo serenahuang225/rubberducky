@@ -36,8 +36,8 @@ from app.learner.memory import episodic_notes
 from app.learner.memory_updates import ProposalScope, apply_memory_updates
 from app.learner.pairing import LearnerScope, new_id
 from app.pedagogy.handhold import CONTROL_LABELS, HOLD_JUSTIFICATION, HOLD_NEXT, HOLD_TEACHING
-from app.pedagogy.persona import effective_personality
 from app.pedagogy.intents import HelpIntent
+from app.pedagogy.persona import effective_personality
 from app.pedagogy.policy import Persona, TurnPlan, WorkFacts, plan_check_in, plan_work
 from app.pedagogy.problems import (
     CALCULUS_ORDER,
@@ -97,7 +97,8 @@ from app.tutor.evidence import (
     statement_object_id,
 )
 from app.tutor.validation import citable_for_turn, validate_draft
-from app.whiteboard.scene import retire_tutor_objects, visible_tutor_object_ids
+from app.whiteboard.reading import ink_views, read_ink
+from app.whiteboard.scene import retire_tutor_objects, scene_snapshot, visible_tutor_object_ids
 from app.whiteboard.tools import apply_tool_actions
 
 SYSTEM_TEXT = (
@@ -105,7 +106,11 @@ SYSTEM_TEXT = (
     "Answer with a TutorDraft JSON object that follows the plan exactly: the public "
     "utterance, the cited evidence IDs, bounded drawing actions and memory proposals. "
     "Never reveal an answer or a completed step the learner has not produced, and cite "
-    "only IDs that appear in the provided context."
+    "only IDs that appear in the provided context. "
+    "Keep utterances to 1-2 short sentences, ideally under 35 words. Expand only when necessary. "
+    "Use add_math drawing actions for equations and highlight actions with a term for "
+    "specific parts of existing equations. Keep prose in the chat utterance. "
+    "For a welcome or check-in, use one short sentence without repeating the visible question."
 )
 
 MAX_TURN_EVENTS = 50
@@ -222,6 +227,7 @@ def _plan_check_in_turn(
                     **plan.message_params,
                     "learner_authored": "yes",
                     "teaching": prepared.teaching,
+                    "board_actions": json.dumps(prepared.drawing_actions),
                 },
                 "expected_student_action": prepared.next_step,
                 "forbidden_disclosures": [],
@@ -629,9 +635,7 @@ def _reserve_in_transaction(
         turn_id = new_id()
         if kind == "check_in":
             assert isinstance(body, CheckInRequest)  # noqa: S101 - narrowed by caller
-            plan, student_input = _plan_check_in_turn(
-                repo, session, body, turn_id, now, prepared
-            )
+            plan, student_input = _plan_check_in_turn(repo, session, body, turn_id, now, prepared)
         else:
             assert isinstance(body, WorkRequest | HelpRequest)  # noqa: S101 - narrowed by caller
             plan, student_input = _plan_work_turn(repo, session, body, turn_id, now)
@@ -698,6 +702,8 @@ def _learner_text(body: CheckInRequest | WorkRequest | HelpRequest) -> str:
         if label:
             return f"[help_button] {label}"
         return f"[help_button] mode={body.mode}"
+    if body.boxed_answer:
+        return f"[boxed_final_answer] {body.text}: check correctness against the original problem."
     return f"[{body.input_mode}] {body.text}"
 
 
@@ -710,6 +716,8 @@ def _draft_from_teaching(
     approach: str = "",
     contradiction: str = "",
     explained_failure: bool = False,
+    board_actions: tuple[dict[str, object], ...] = (),
+    board_scene_revision: int | None = None,
 ) -> TutorDraft:
     """Package Claude's displayed note as a draft that matches the stored plan."""
     return TutorDraft(
@@ -717,11 +725,12 @@ def _draft_from_teaching(
         session_revision=session_revision,
         action_type=plan.action_type,
         utterance=teaching,
+        board_scene_revision=board_scene_revision,
         target_concept_ids=list(plan.target_concept_ids),
         evidence_ids=list(dict.fromkeys(plan.required_evidence_ids)),
         hint_level=plan.hint_level,
         answer_revealed=plan.reveal_allowed,
-        drawing_actions=[dict(action) for action in plan.drawing_actions],
+        drawing_actions=[dict(action) for action in plan.drawing_actions] + list(board_actions),
         expected_student_action=next_step,
         proposed_memory_updates=[],
         step_assessment=plan.step_status,
@@ -755,7 +764,11 @@ def _infer(
             ),
             list(reserved.plan.required_evidence_ids),
         )
-    if reserved.plan.message_params.get("learner_authored") == "yes":
+    if reserved.plan.message_params.get("learner_authored") == "yes" or (
+        settings.tutor_provider == "claude"
+        and isinstance(body, HelpRequest)
+        and body.learner_control != "still_exploring"
+    ):
         return _infer_brought_question(database, scope, session_id, reserved, body, settings), list(
             reserved.plan.required_evidence_ids
         )
@@ -809,10 +822,37 @@ def _infer_brought_question(
             )
         elif isinstance(body, WorkRequest):
             learner_text = body.text
+            if body.boxed_answer:
+                learner_text += (
+                    "\nThe learner boxed this as their final answer. Check it against the "
+                    "original problem now and clearly say whether it is correct. "
+                    "If correct, start with Good job! If incorrect, identify one issue or "
+                    "ask one checking question; do not pretend it is correct."
+                )
         else:
             learner_text = (body.question_text or "").strip()
         handhold = body.handhold if isinstance(body, HelpRequest | WorkRequest) else "balanced"
         control = body.learner_control if isinstance(body, HelpRequest) else "none"
+        board_context = None
+        board_images = None
+        board_revision = None
+        if isinstance(body, HelpRequest):
+            with database.new_session() as board_db:
+                snapshot = scene_snapshot(ScopedRepository(board_db, scope), session_id)
+            if any(obj.author_role == "student" for obj in snapshot.objects):
+                board_revision = snapshot.scene_revision
+                reading, agreed = read_ink(settings, snapshot, verify=True, whole_board=True)
+                board_images = ink_views(snapshot)
+                board_context = (
+                    f"Board checked with independent vision reads. Student work:\n{reading}\n"
+                    "Use every written line to choose one small hint. This is visual context, "
+                    "not a new student submission or proof of mastery."
+                    if agreed
+                    else "Independent board reads disagree or writing is unfinished. "
+                    "Inspect the "
+                    "attached board and ask one brief clarification about the ambiguous part. "
+                    "Do not assume any missing symbols or write a worked answer."
+                )
         displayed = follow_up_display(
             settings,
             statement=statement,
@@ -821,6 +861,8 @@ def _infer_brought_question(
             handhold=handhold,
             control=control,
             personality=effective_personality(plan.personality, plan.comfort_override),
+            board_context=board_context,
+            board_images=board_images,
         )
         teaching = displayed.teaching
         next_step = displayed.next_step
@@ -832,8 +874,16 @@ def _infer_brought_question(
             approach=displayed.approach,
             contradiction=displayed.contradiction,
             explained_failure=displayed.explained_failure,
+            board_actions=displayed.drawing_actions,
+            board_scene_revision=board_revision,
         )
-    return _draft_from_teaching(plan, reserved.base_revision + 1, teaching, next_step)
+    return _draft_from_teaching(
+        plan,
+        reserved.base_revision + 1,
+        teaching,
+        next_step,
+        board_actions=tuple(json.loads(plan.message_params.get("board_actions", "[]"))),
+    )
 
 
 def _latest_utterance(database: Database, scope: LearnerScope, session_id: str) -> str | None:
@@ -1001,7 +1051,9 @@ def _commit(
                     for item in applied
                 ]
                 if plan.message_params.get("learner_authored") == "yes":
-                    note_id = place_teaching_note(repo, session_id, row.id, draft.utterance, now)
+                    note_id = place_teaching_note(
+                        repo, session_id, row.id, draft.utterance, now, action_index=len(actions)
+                    )
                     drawings.append(
                         CommittedDrawing(
                             object_id=note_id, tool="text", semantic_role="teaching_note"

@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import Field, TypeAdapter, ValidationError
+from pydantic import Field, TypeAdapter, ValidationError, model_validator
 from sqlalchemy import select
 
 from app.db.models import SceneObjectRow
@@ -26,6 +26,7 @@ from app.whiteboard.geometry import (
     MIN_SHAPE_EXTENT,
     Point,
 )
+from app.whiteboard.layout import Bounds, place_equation
 from app.whiteboard.scene import log_tutor_add, log_tutor_erase
 
 MAX_ACTIONS_PER_TURN = 6
@@ -37,9 +38,7 @@ _NAMESPACE = uuid.UUID("9d4f1f8e-2b6a-4c47-8c0e-5e3a71b2d9a4")
 SemanticRole = Literal["problem_statement", "grouping_mark", "emphasis", "annotation", "focus"]
 ShapeKind = Literal["circle", "rectangle", "line", "bracket", "arrow"]
 # Digits, single-letter variables, + - * / = parentheses, spaces and a decimal point only.
-SafeMathText = Annotated[
-    str, Field(min_length=1, max_length=80, pattern=r"^[0-9a-z+\-*/=(). ]+$")
-]
+SafeMathText = Annotated[str, Field(min_length=1, max_length=80, pattern=r"^[0-9a-z+\-*/=(). ]+$")]
 TermText = Annotated[str, Field(min_length=1, max_length=40, pattern=r"^[0-9a-z+\-*/=(). ]+$")]
 
 
@@ -62,6 +61,13 @@ class AddMath(ContractModel):
     semantic_role: SemanticRole
     at: Point
     text: SafeMathText
+    highlight_term: TermText | None = None
+
+    @model_validator(mode="after")
+    def highlight_exists(self) -> "AddMath":
+        if self.highlight_term is not None and self.highlight_term not in self.text:
+            raise ValueError("highlight_term must be part of the equation")
+        return self
 
 
 class Highlight(ContractModel):
@@ -244,6 +250,16 @@ def apply_tool_actions(
     can rebuild the board in order.
     """
     applied: list[AppliedDrawing] = []
+    objects = list(
+        repo.db.execute(
+            select(SceneObjectRow).where(
+                SceneObjectRow.learner_id == repo.learner_id,
+                SceneObjectRow.session_id == session_id,
+                SceneObjectRow.deleted_at.is_(None),
+            )
+        ).scalars()
+    )
+    occupied: list[Bounds] = []
     for index, action in enumerate(actions):
         if isinstance(action, EraseTutorObject):
             row = repo.db.get(SceneObjectRow, action.target_object_id)
@@ -259,6 +275,11 @@ def apply_tool_actions(
         object_id = tutor_object_id(turn_id, index)
         kind = action.shape if isinstance(action, DrawShape) else action.tool
         payload = _payload(action)
+        if isinstance(action, AddMath):
+            placed = place_equation(payload, objects, occupied)
+            if placed is None:
+                continue
+            payload = placed
         repo.db.add(
             SceneObjectRow(
                 id=object_id,

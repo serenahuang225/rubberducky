@@ -1,23 +1,19 @@
 /**
  * Shared measure for the learning workspace.
  *
- * Nunito is the one face: a rounded sans for headings, controls, conversation, and
+ * Quicksand is the one face: a rounded sans for headings, controls, conversation, and
  * mathematical text. Corners are round. Motion durations are short and shared so panels,
  * tools, and tutor marks move the same way.
  */
 
 import { Platform, type TextStyle } from "react-native";
 
-const roundedFamily =
-  Platform.OS === "web"
-    ? '"Nunito", "Avenir Next", "Segoe UI", sans-serif'
-    : Platform.OS === "ios"
-      ? "ui-rounded"
-      : "sans-serif";
+const roundedFamily = "Quicksand";
 
 export const font = {
   display: roundedFamily,
   sans: roundedFamily,
+  mono: Platform.OS === "ios" ? "Menlo" : "monospace",
 };
 
 export const space = {

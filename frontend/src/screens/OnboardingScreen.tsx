@@ -13,11 +13,14 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
 
 import type { Personality } from "../api/contracts";
 import { PERSONALITIES } from "../api/contracts";
 import { getTheme } from "../board/palette";
+
+import { font } from "../theme/tokens";
 
 import { RadioCard } from "../components/ChoiceControls";
 import { DuckPortrait } from "../components/DuckPortrait";
@@ -68,6 +71,8 @@ export function OnboardingScreen({
   showNameField,
   onComplete,
 }: OnboardingScreenProps) {
+  const { width } = useWindowDimensions();
+  const compact = width < 700;
   const [displayName, setDisplayName] = useState("");
   const [personality, setPersonality] = useState<Personality | null>(null);
 
@@ -75,13 +80,16 @@ export function OnboardingScreen({
 
   return (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.page}>
-      <View style={styles.column}>
+      <View style={[styles.column, compact && styles.compactColumn]}>
+      <View style={styles.header}>
       <Text role="heading" style={styles.title}>
-        Welcome to Rubberducky
+        Welcome to Rubber Ducky
       </Text>
       <Text style={styles.subtitle}>
         Pick a rubber duck. Every duck stays respectful of you.
       </Text>
+
+      </View>
 
       {showNameField ? (
         <View style={styles.section}>
@@ -127,17 +135,25 @@ export function OnboardingScreen({
                 selected={selected}
                 theme={theme}
                 onPress={() => setPersonality(option)}
-                style={[styles.card, styles.personalityCard]}
+                style={[styles.card, compact && styles.compactCard, {
+                  backgroundColor: selected ? "#EDF6FF" : "#FFFFFF",
+                  borderColor: selected ? theme.controlBackground : "#DCE6EF",
+                  borderWidth: 2,
+                }]}
               >
+                <View style={styles.cardContent}>
                 <View style={styles.portrait}>
-                  <DuckPortrait personality={option} size={104} />
+                  <DuckPortrait personality={option} size={compact ? 80 : 96} />
                 </View>
+                <View style={styles.cardCopy}>
                 <Text style={[styles.cardTitle, { color: theme.labelText }]}>
                   {info.name}
                 </Text>
                 <Text style={[styles.cardBlurb, { color: theme.labelMuted }]}>
                   {info.blurb}
                 </Text>
+                </View>
+                </View>
               </RadioCard>
             );
           })}
@@ -188,29 +204,41 @@ const styles = StyleSheet.create({
   scroll: { flex: 1, alignSelf: "stretch", backgroundColor: theme.board },
   page: { width: "100%", flexGrow: 1 },
   column: {
-    padding: 24,
-    gap: 20,
+    paddingHorizontal: 40,
+    paddingTop: 56,
+    paddingBottom: 48,
+    gap: 36,
     alignItems: "stretch",
-    maxWidth: 900,
+    maxWidth: 1080,
     width: "100%",
     alignSelf: "center",
   },
-  title: { fontSize: 30, fontWeight: "700", color: theme.labelText },
-  subtitle: { fontSize: 16, lineHeight: 23, color: theme.labelMuted },
-  section: { gap: 10 },
-  sectionTitle: { fontSize: 19, fontWeight: "700", color: theme.labelText },
-  sectionNote: { fontSize: 14, color: theme.labelMuted },
-  cardRow: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
+  compactColumn: { paddingHorizontal: 20, paddingTop: 32, gap: 28 },
+  header: { gap: 12 },
+  title: { fontFamily: font.display, fontSize: 36, lineHeight: 44, fontWeight: "700", color: theme.labelText },
+  subtitle: { fontFamily: font.sans, fontSize: 17, lineHeight: 26, color: theme.labelMuted },
+  section: { gap: 14 },
+  sectionTitle: { fontFamily: font.display, fontSize: 21, lineHeight: 28, fontWeight: "700", color: theme.labelText },
+  sectionNote: { fontFamily: font.sans, fontSize: 15, lineHeight: 22, color: theme.labelMuted, marginBottom: 8 },
+  cardRow: { flexDirection: "row", flexWrap: "wrap", gap: 16 },
   card: {
-    width: 180,
-    alignItems: "center",
+    flexBasis: "47%",
+    flexGrow: 1,
+    maxWidth: "49%",
+    padding: 20,
+    gap: 12,
+    borderRadius: 24,
+    justifyContent: "space-between",
   },
-  personalityCard: { alignItems: "flex-start" },
-  portrait: { alignSelf: "center" },
-  cardTitle: { fontSize: 17, fontWeight: "700" },
-  cardBlurb: { fontSize: 14, lineHeight: 20, textAlign: "center" },
+  compactCard: { flexBasis: "100%", maxWidth: "100%", padding: 16 },
+  cardContent: { flexDirection: "row", alignItems: "center", gap: 18 },
+  portrait: { flexShrink: 0 },
+  cardCopy: { flex: 1, gap: 8 },
+  cardTitle: { fontFamily: font.display, fontSize: 20, lineHeight: 26, fontWeight: "700", textAlign: "left" },
+  cardBlurb: { fontFamily: font.sans, fontSize: 14, lineHeight: 22, textAlign: "left" },
   nameInput: {
-    minHeight: 48,
+    fontFamily: font.sans,
+    minHeight: 54,
     borderWidth: 2,
     borderRadius: 28,
     paddingHorizontal: 14,
@@ -218,7 +246,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     maxWidth: 360,
   },
-  error: { fontSize: 15 },
+  error: { fontFamily: font.sans, fontSize: 15 },
   startButton: {
     minHeight: 52,
     borderRadius: 999,
@@ -227,5 +255,5 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     paddingHorizontal: 28,
   },
-  startText: { fontSize: 17, fontWeight: "700" },
+  startText: { fontFamily: font.sans, fontSize: 17, fontWeight: "700" },
 });

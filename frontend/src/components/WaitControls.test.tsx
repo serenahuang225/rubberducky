@@ -1,9 +1,9 @@
-import { fireEvent, render } from '@testing-library/react-native';
+import { act, fireEvent, render } from '@testing-library/react-native';
 import React from 'react';
 
-import type { WaitPreference } from '../api/contracts';
+import type { WaitPreference, WaitState } from '../api/contracts';
 import { getTheme } from '../board/palette';
-import { WAIT_PREFERENCE } from '../testing/teachingFixtures';
+import { WAIT_PREFERENCE, WAIT_STATE } from '../testing/teachingFixtures';
 
 import { WaitControls } from './WaitControls';
 
@@ -65,5 +65,27 @@ describe('WaitControls', () => {
     fireEvent.press(screen.getByTestId('wait-settings-toggle'));
     expect(screen.getByTestId('wait-error')).toBeTruthy();
     expect(screen.getByTestId('wait-value').props.children).toContain('45');
+  });
+});
+
+
+describe('hint countdown', () => {
+  afterEach(() => jest.useRealTimers());
+
+  it('counts down from server timestamps and quietly offers help at zero', () => {
+    jest.useFakeTimers();
+    const waitState = { ...WAIT_STATE, now: '2026-10-17T16:39:23Z', quiet_hint_at: '2026-10-17T16:39:26Z' } as WaitState;
+    const screen = renderControls({ waitState, partnerName: 'Mary' });
+    expect(screen.getByText('Hint offer in 0:03')).toBeTruthy();
+    act(() => jest.advanceTimersByTime(2000));
+    expect(screen.getByText('Hint offer in 0:01')).toBeTruthy();
+    act(() => jest.advanceTimersByTime(1000));
+    expect(screen.getByText('Mary: Want a hint?')).toBeTruthy();
+    expect(screen.getByRole('progressbar').props.accessibilityValue.now).toBe(100);
+  });
+
+  it('does not invent a countdown when server timing is unavailable', () => {
+    const screen = renderControls();
+    expect(screen.queryByTestId('wait-countdown')).toBeNull();
   });
 });

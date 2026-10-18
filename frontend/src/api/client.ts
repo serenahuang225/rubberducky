@@ -383,6 +383,12 @@ export class ApiClient {
     );
   }
 
+  readBoard(sessionId: string, sceneRevision: number, checkAnswer = false) {
+    return this.request("POST", `/sessions/${sessionId}/scene/read`, z.object({
+      text: z.string().max(500), legible: z.boolean(), boxed_answer: z.boolean().default(false), scene_revision: z.number().int(),
+    }), { body: { scene_revision: sceneRevision, ...(checkAnswer ? { check_answer: true } : {}) }, timeoutMs: 120000 });
+  }
+
   submitWork(
     sessionId: string,
     idempotencyKey: string,
@@ -390,6 +396,7 @@ export class ApiClient {
     text: string,
     inputMode: "typed" | "confirmed_ink" | "unconfirmed_ink" = "typed",
     handhold?: HandholdMode,
+    boxedAnswer = false,
   ): Promise<TutorTurnResult> {
     return this.request(
       "POST",
@@ -401,6 +408,7 @@ export class ApiClient {
           expected_revision: expectedRevision,
           text,
           input_mode: inputMode,
+          ...(boxedAnswer ? { boxed_answer: true } : {}),
           ...handholdBody(handhold),
         },
         idempotencyKey,
@@ -455,7 +463,7 @@ export class ApiClient {
           ...handholdBody(handhold, learnerControl),
         },
         idempotencyKey,
-        timeoutMs: TUTOR_TURN_TIMEOUT_MS,
+        timeoutMs: 180000,
       },
     );
   }

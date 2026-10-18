@@ -15,6 +15,7 @@ from typing import Literal
 
 from pydantic import ValidationError
 
+from app.activity import activity
 from app.inference.errors import MalformedDraftError, StaleDraftError
 from app.inference.request import ProviderMessage
 from app.pedagogy.policy import TurnPlan
@@ -46,6 +47,13 @@ class EventRecorder:
     def emit(self, kind: EventKind, **fields: object) -> None:
         event = ProviderEvent(kind=kind, sequence=len(self.events), **fields)  # type: ignore[arg-type]
         self.events.append(event)
+        activity(
+            "provider." + kind,
+            attempt=event.attempt,
+            code=event.code,
+            sequence=event.sequence,
+            fragment_chars=len(event.text),
+        )
         if self.sink is not None:
             # An observer must not be able to break a turn.
             with contextlib.suppress(Exception):

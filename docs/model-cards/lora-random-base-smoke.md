@@ -1,5 +1,9 @@
 # LoRA random-base smoke model card
 
+Historical offline smoke-run record. Checkpoints are ignored local artifacts and may need
+regeneration. These measurements were not rerun for the current documentation update, and
+this model is not used by the hosted demo.
+
 This artifact is a **random**-base LoRA plumbing check. It is **not a tuned tutor**, not a
 pretrained-model run, and not evidence of better teaching. The base is initialized from a small
 Llama config. No weight file was downloaded.

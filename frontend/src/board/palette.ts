@@ -11,6 +11,7 @@ export const BRAND = {
   white: "#FFFFFF",
   blue: "#1985d0",
   yellow: "#fdc92a",
+  paperYellow: "#9A6700", // A readable gold shade of the tutor accent on white paper.
 } as const;
 
 export type ColorRole = "student" | "tutor";
@@ -51,7 +52,7 @@ export const BOARD_THEMES: Record<BoardThemeName, BoardTheme> = {
     boardEdge: BRAND.blue,
     boardGrain: BRAND.yellow,
     studentInk: BRAND.blue,
-    tutorInk: BRAND.yellow,
+    tutorInk: BRAND.paperYellow,
     highlightFill: "rgba(253, 201, 42, 0.45)",
     focusOutline: BRAND.blue,
     labelText: BRAND.blue,

@@ -8,7 +8,7 @@ import {
 } from "./palette";
 
 const THEME_NAMES = Object.keys(BOARD_THEMES) as BoardThemeName[];
-const BRAND_COLORS = new Set<string>([BRAND.white, BRAND.blue, BRAND.yellow]);
+const BRAND_COLORS = new Set<string>([BRAND.white, BRAND.blue, BRAND.yellow, BRAND.paperYellow]);
 
 describe("session palette", () => {
   it("exposes exactly the implemented themes, all with distinct student/tutor ink", () => {
@@ -19,7 +19,7 @@ describe("session palette", () => {
     }
   });
 
-  it("uses only white, blue, and yellow for solid colors", () => {
+  it("uses the brand palette with a readable gold accent on paper", () => {
     for (const theme of Object.values(BOARD_THEMES)) {
       for (const [key, value] of Object.entries(theme)) {
         if (key === "name" || key === "label" || key === "highlightFill") continue;
@@ -28,7 +28,7 @@ describe("session palette", () => {
     }
     expect(BOARD_THEMES.paper.board).toBe(BRAND.white);
     expect(BOARD_THEMES.paper.studentInk).toBe(BRAND.blue);
-    expect(BOARD_THEMES.paper.tutorInk).toBe(BRAND.yellow);
+    expect(BOARD_THEMES.paper.tutorInk).toBe(BRAND.paperYellow);
     expect(BOARD_THEMES.slate.board).toBe(BRAND.blue);
     expect(BOARD_THEMES.slate.studentInk).toBe(BRAND.white);
     expect(BOARD_THEMES.slate.tutorInk).toBe(BRAND.yellow);
@@ -76,4 +76,9 @@ describe("session palette", () => {
       );
     }
   });
+});
+
+
+it('keeps tutor writing legible on white paper', () => {
+  expect(contrastRatio(BOARD_THEMES.paper.tutorInk, BOARD_THEMES.paper.board)).toBeGreaterThanOrEqual(4.5);
 });

@@ -13,6 +13,7 @@ streams are reported as ``delta`` events and are never shown or committed.
 import threading
 from dataclasses import dataclass
 
+from app.activity import activity
 from app.config import Settings
 from app.inference.adapter import DraftAdapter
 from app.inference.cancel import CancelToken, Deadline
@@ -106,12 +107,8 @@ class RemoteAdapter(DraftAdapter):
         recorder = EventRecorder(inputs.on_event)
         deadline = Deadline(self.limits.timeout_seconds)
         call = CallContext(
-            messages=with_contract(
-                inputs.request.messages, inputs.plan, inputs.session_revision
-            ),
-            max_output_tokens=min(
-                inputs.request.max_output_tokens, self.limits.max_output_tokens
-            ),
+            messages=with_contract(inputs.request.messages, inputs.plan, inputs.session_revision),
+            max_output_tokens=min(inputs.request.max_output_tokens, self.limits.max_output_tokens),
             cancel=inputs.cancel,
             deadline=deadline,
             recorder=recorder,
@@ -121,6 +118,14 @@ class RemoteAdapter(DraftAdapter):
             inputs.cancel.raise_if_cancelled()
             deadline.raise_if_expired()
             try:
+                activity(
+                    "provider.request",
+                    provider=self.name,
+                    model=getattr(self, "model", None),
+                    attempt=attempt,
+                    request_chars=sum(len(m.content) for m in call.messages),
+                    max_output_tokens=call.max_output_tokens,
+                )
                 recorder.emit("started", attempt=attempt)
                 with self._counter_lock:
                     self.calls_made += 1
@@ -135,6 +140,14 @@ class RemoteAdapter(DraftAdapter):
             except ProviderError as error:
                 recorder.emit("failed", attempt=attempt, code=error.code)
                 raise
+            activity(
+                "provider.response",
+                provider=self.name,
+                attempt=attempt,
+                input_tokens=completion.input_tokens,
+                output_tokens=completion.output_tokens,
+                response_chars=len(completion.text),
+            )
             # Fence: a result that finished after a cancel or deadline is never returned.
             inputs.cancel.raise_if_cancelled()
             deadline.raise_if_expired()

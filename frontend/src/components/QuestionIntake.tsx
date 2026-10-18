@@ -11,7 +11,7 @@ import type { BoardTheme } from "../board/palette";
 import { QuestionCamera } from "../media/QuestionCamera";
 import { readQuestionFile, type QuestionImagePayload } from "../media/questionFile";
 import { WebQuestionCamera } from "../media/WebQuestionCamera";
-import { type } from "../theme/tokens";
+import { radius, type } from "../theme/tokens";
 
 const ENERGY_OPTIONS = [
   { value: "ready" as const, label: "Ready to go" },
@@ -47,8 +47,9 @@ function fileLabel(
         alignItems: "center",
         overflow: "hidden",
         minHeight: 44,
-        padding: "0 12px",
+        padding: "10px 16px",
         border: `1px solid ${theme.controlEdge}`,
+        borderRadius: radius.pill,
         background: theme.board,
         color: theme.labelText,
         fontFamily: type.control.fontFamily,
@@ -142,7 +143,7 @@ export function QuestionIntake({ theme, busy, onStart }: QuestionIntakeProps) {
       testID="question-intake"
       style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.surfaceEdge }]}
     >
-      <Text style={[styles.title, { color: theme.labelText }]}>What are you working on?</Text>
+      <Text style={[styles.title, { color: theme.labelText }]}>What are we working on?</Text>
       <Text style={[styles.sub, { color: theme.labelMuted }]}>
         {Platform.OS === "web"
           ? "Type the question, take a photo, upload a file, or paste a screenshot. Your tutor reads it and shows the explanation here."
@@ -313,26 +314,29 @@ export function QuestionIntake({ theme, busy, onStart }: QuestionIntakeProps) {
 }
 
 const styles = StyleSheet.create({
-  card: { borderWidth: 1, padding: 14, gap: 8, marginHorizontal: 16, marginBottom: 6 },
+  card: { width: "100%", maxWidth: 640, borderWidth: 1, borderRadius: radius.lg, padding: 28, gap: 16 },
   title: type.heading,
   sub: type.small,
   input: {
     ...type.body,
     borderWidth: 1,
-    minHeight: 72,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    borderRadius: radius.md,
+    minHeight: 120,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     textAlignVertical: "top",
   },
   row: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   attachedRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   button: {
     borderWidth: 1,
+    borderRadius: radius.pill,
     minHeight: 44,
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     justifyContent: "center",
   },
-  primary: { minHeight: 44, paddingHorizontal: 14, justifyContent: "center" },
+  primary: { borderRadius: radius.pill, minHeight: 48, paddingHorizontal: 20, paddingVertical: 12, justifyContent: "center" },
   buttonText: type.control,
   link: type.small,
 });

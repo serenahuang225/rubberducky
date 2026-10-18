@@ -97,9 +97,7 @@ def table_counts(database: Database, learner_id: str) -> dict[str, int]:
     with database.transaction() as db:
         return {
             name: db.execute(
-                select(func.count())
-                .select_from(model)
-                .where(model.learner_id == learner_id)
+                select(func.count()).select_from(model).where(model.learner_id == learner_id)
             ).scalar_one()
             for name, model in (
                 ("steps", StepRow),
@@ -133,9 +131,7 @@ def pair_seeded(database: Database, client: TestClient, learner_id: str) -> dict
 
 
 class TestPersona:
-    def test_options_offer_three_appearances_and_five_ducks(
-        self, client: TestClient
-    ) -> None:
+    def test_options_offer_three_appearances_and_five_ducks(self, client: TestClient) -> None:
         _, headers = bootstrap(client)
         response = client.get("/persona/options", headers=headers)
         assert response.status_code == 200
@@ -145,9 +141,7 @@ class TestPersona:
         assert body["comfort_overrides"] == ["none", "neutral_supportive", "reduced_sass"]
 
     @pytest.mark.parametrize("appearance", ["animal", "older_adult", "younger_adult"])
-    @pytest.mark.parametrize(
-        "personality", ["vincent", "zeeshan", "tony", "janelle", "mary"]
-    )
+    @pytest.mark.parametrize("personality", ["vincent", "zeeshan", "tony", "janelle", "mary"])
     def test_first_run_appearance_and_personality_are_independently_selectable(
         self, client: TestClient, appearance: str, personality: str
     ) -> None:
@@ -174,9 +168,7 @@ class TestPersona:
         )
         session_id = start_session(client, headers)
         result = check_in(client, headers, session_id)
-        assert result["utterance"] == (
-            "Tell me what you're thinking. Here's the problem: 2(x + 3) = 14. What's your first step?"
-        )
+        assert result["utterance"] == ("What's your first step?")
 
     def test_comfort_override_applies_immediately(self, client: TestClient) -> None:
         _, headers = bootstrap(client)
@@ -212,7 +204,7 @@ class TestCheckIn:
         assert result["action_type"] == "check_in_and_pose"
         assert result["provider"]["is_mock"] is True
         assert "mock" in result["provider"]["label"].lower()
-        assert "2(x + 3) = 14" in result["utterance"]
+        assert "2(x + 3) = 14" not in result["utterance"]
         assert "2x + 6" not in result["utterance"]
         assert "x = 4" not in result["utterance"]
         assert result["answer_revealed"] is False
@@ -340,9 +332,7 @@ class TestWorkFeedback:
         assert result["student_input"]["classification"] == "valid_step"
         assert result["student_input"]["verification"]["status"] == "valid"
 
-    def test_invalid_step_is_marked_not_equivalent_without_blame(
-        self, client: TestClient
-    ) -> None:
+    def test_invalid_step_is_marked_not_equivalent_without_blame(self, client: TestClient) -> None:
         _, headers = bootstrap(client)
         session_id = start_session(client, headers)
         check_in(client, headers, session_id)
@@ -599,12 +589,20 @@ class TestIdempotencyAndRevisions:
         session_id = start_session(client, headers)
         check_in(client, headers, session_id)
         first = post_turn(
-            client, headers, session_id, "work",
-            {"expected_revision": 1, "text": "x + 3 = 7"}, key("seq"),
+            client,
+            headers,
+            session_id,
+            "work",
+            {"expected_revision": 1, "text": "x + 3 = 7"},
+            key("seq"),
         )
         second = post_turn(
-            client, headers, session_id, "work",
-            {"expected_revision": 1, "text": "2x + 6 = 14"}, key("seq"),
+            client,
+            headers,
+            session_id,
+            "work",
+            {"expected_revision": 1, "text": "2x + 6 = 14"},
+            key("seq"),
         )
         assert first.status_code == 200 and first.json()["status"] == "committed"
         assert second.status_code == 409
@@ -624,8 +622,12 @@ class TestIdempotencyAndRevisions:
         def submit(name: str, text: str) -> None:
             barrier.wait(timeout=10)
             results[name] = post_turn(
-                client, headers, session_id, "work",
-                {"expected_revision": 1, "text": text}, key("race"),
+                client,
+                headers,
+                session_id,
+                "work",
+                {"expected_revision": 1, "text": text},
+                key("race"),
             )
 
         threads = [
@@ -708,8 +710,12 @@ class TestProviderMatrix:
         )
         before = table_counts(database, learner_id)
         response = post_turn(
-            client, headers, session_id, "work",
-            {"expected_revision": 1, "text": "2x + 3 = 14"}, key("double"),
+            client,
+            headers,
+            session_id,
+            "work",
+            {"expected_revision": 1, "text": "2x + 3 = 14"},
+            key("double"),
         )
         assert response.status_code == 200, response.text
         after = table_counts(database, learner_id)
@@ -737,7 +743,9 @@ class TestProviderMatrix:
         self, client: TestClient, database: Database, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _, result, before, after = self._run_with_double(
-            client, database, monkeypatch,
+            client,
+            database,
+            monkeypatch,
             lambda draft: draft.model_copy(update={"utterance": "It becomes 2x + 6 = 14."}),
         )
         assert result["status"] == "rejected"
@@ -753,7 +761,9 @@ class TestProviderMatrix:
         self, client: TestClient, database: Database, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _, result, _, _ = self._run_with_double(
-            client, database, monkeypatch,
+            client,
+            database,
+            monkeypatch,
             # The verifier said the step is invalid; the provider claims it is valid.
             lambda draft: draft.model_copy(update={"step_assessment": "valid"}),
         )
@@ -805,7 +815,9 @@ class TestProviderMatrix:
         self, client: TestClient, database: Database, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _, result, _, _ = self._run_with_double(
-            client, database, monkeypatch,
+            client,
+            database,
+            monkeypatch,
             lambda draft: draft.model_copy(
                 update={"evidence_ids": [*draft.evidence_ids, "observation.invented"]}
             ),
@@ -826,12 +838,14 @@ class TestProviderMatrix:
         _, headers = bootstrap(client)
         session_id = start_session(client, headers)
         check_in(client, headers, session_id)
-        monkeypatch.setattr(
-            "app.tutor.coordinator.get_provider", lambda settings: Broken()
-        )
+        monkeypatch.setattr("app.tutor.coordinator.get_provider", lambda settings: Broken())
         response = post_turn(
-            client, headers, session_id, "work",
-            {"expected_revision": 1, "text": "2x + 3 = 14"}, key("broken"),
+            client,
+            headers,
+            session_id,
+            "work",
+            {"expected_revision": 1, "text": "2x + 3 = 14"},
+            key("broken"),
         )
         assert response.status_code == 200
         result = response.json()
@@ -859,9 +873,7 @@ class TestProviderMatrix:
                 assert release.wait(timeout=15)
                 return mock.draft(inputs)
 
-        monkeypatch.setattr(
-            "app.tutor.coordinator.get_provider", lambda settings: Blocking()
-        )
+        monkeypatch.setattr("app.tutor.coordinator.get_provider", lambda settings: Blocking())
         _, headers = bootstrap(client)
         session_id = start_session(client, headers)
         outcome: dict[str, object] = {}
@@ -915,9 +927,7 @@ class TestScopeAndState:
             row = db.get(SessionRow, session_id)
             assert row is not None and row.revision == 1
 
-    def test_session_state_supports_resume(
-        self, client: TestClient, database: Database
-    ) -> None:
+    def test_session_state_supports_resume(self, client: TestClient, database: Database) -> None:
         _, headers = bootstrap(client)
         session_id = start_session(client, headers)
         check_in(client, headers, session_id, energy="tired")
@@ -945,14 +955,16 @@ class TestScopeAndState:
         assert [event["turn_id"] for event in events] == [first["turn_id"], second["turn_id"]]
         assert all(event["status"] == "committed" for event in events)
 
-    def test_turns_require_an_active_session_and_a_posed_problem(
-        self, client: TestClient
-    ) -> None:
+    def test_turns_require_an_active_session_and_a_posed_problem(self, client: TestClient) -> None:
         _, headers = bootstrap(client)
         session_id = start_session(client, headers)
         response = post_turn(
-            client, headers, session_id, "work",
-            {"expected_revision": 0, "text": "x"}, key("early"),
+            client,
+            headers,
+            session_id,
+            "work",
+            {"expected_revision": 0, "text": "x"},
+            key("early"),
         )
         assert response.status_code == 409
         assert response.json()["error"]["code"] == "no_active_problem"
@@ -971,7 +983,7 @@ class TestScopeAndState:
         headers = pair_seeded(database, client, DEMO_LEARNER_ADA)
         session_id = start_session(client, headers)
         result = check_in(client, headers, session_id)
-        assert "Last time, grouping both terms helped after a hint." in result["utterance"]
+        assert "Last time, grouping helped;" in result["utterance"]
         # The reminder cites the actual note, which remains labeled as its own evidence.
         assert result["evidence_ids"]
         layers = client.get(
@@ -1025,10 +1037,7 @@ class TestReturningSessionAdaptation:
             second = start_session(restarted, headers)
             assert second != first
             returning = check_in(restarted, headers, second)
-            assert (
-                "Last time, grouping both terms helped after a hint."
-                in returning["utterance"]
-            )
+            assert "Last time, grouping helped;" in returning["utterance"]
             # The concise justification cites the actual stored note as its source.
             assert note_id in returning["evidence_ids"]
             assert returning["decision_justification"] == (

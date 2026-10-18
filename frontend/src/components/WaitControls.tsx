@@ -4,11 +4,11 @@
  * a hint can be asked for. Help me works whether or not it is shown.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Timer } from 'lucide-react-native';
 
-import type { WaitPreference } from '../api/contracts';
+import type { WaitPreference, WaitState } from '../api/contracts';
 import type { BoardTheme } from '../board/palette';
 import { radius, type } from '../theme/tokens';
 
@@ -19,6 +19,8 @@ export const WAIT_STEP_SECONDS = 15;
 export type WaitControlsProps = {
   theme: BoardTheme;
   hintAvailable: boolean;
+  waitState?: WaitState | null;
+  partnerName?: string;
   preference: WaitPreference | null;
   preferenceError: string | null;
   onChangeSeconds: (seconds: number) => void;
@@ -27,6 +29,8 @@ export type WaitControlsProps = {
 export function WaitControls({
   theme,
   hintAvailable,
+  waitState = null,
+  partnerName = "Your thinking partner",
   preference,
   preferenceError,
   onChangeSeconds,
@@ -41,8 +45,15 @@ export function WaitControls({
       <View style={styles.row}>
         {hintAvailable ? (
           <Text testID="quiet-hint" style={[styles.hintNote, muted]}>
-            A hint is ready whenever you want it.
+            {`${partnerName}: Want a hint? It’s ready whenever you are.`}
           </Text>
+        ) : waitState !== null ? (
+          <WaitCountdown
+            key={`${waitState.session_id}:${waitState.now}:${waitState.quiet_hint_at}`}
+            theme={theme}
+            state={waitState}
+            partnerName={partnerName}
+          />
         ) : null}
         <HoldPressable
           testID="wait-settings-toggle"
@@ -145,8 +156,47 @@ export function WaitControls({
   );
 }
 
+function WaitCountdown({ theme, state, partnerName }: { theme: BoardTheme; state: WaitState; partnerName: string }) {
+  // Use the server's time difference, rather than comparing against the device clock.
+  const duration = Date.parse(state.quiet_hint_at) - Date.parse(state.now);
+  const initialMs = Number.isFinite(duration) ? Math.max(0, duration) : 0;
+  const [remainingMs, setRemainingMs] = useState(initialMs);
+  useEffect(() => {
+    if (initialMs === 0) return;
+    const started = Date.now();
+    const timer = setInterval(() => {
+      const next = Math.max(0, initialMs - (Date.now() - started));
+      setRemainingMs(next);
+      if (next === 0) clearInterval(timer);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [initialMs]);
+  const seconds = Math.ceil(remainingMs / 1000);
+  const fraction = Math.min(1, Math.max(0, 1 - remainingMs / Math.max(1000, state.wait_seconds * 1000)));
+  return (
+    <View testID="wait-countdown" style={styles.countdown}>
+      <Text style={[styles.hintNote, { color: theme.labelMuted }]}>
+        {seconds > 0
+          ? `Hint offer in ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+          : `${partnerName}: Want a hint?`}
+      </Text>
+      <View
+        accessible
+        accessibilityRole="progressbar"
+        accessibilityLabel={`${partnerName}'s next hint offer`}
+        accessibilityValue={{ min: 0, max: 100, now: Math.round(fraction * 100), text: `${seconds} seconds remaining` }}
+        style={[styles.progressTrack, { backgroundColor: theme.surfaceEdge }]}
+      >
+        <View style={{ width: `${fraction * 100}%`, height: '100%', borderRadius: 3, backgroundColor: theme.tutorInk }} />
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   wrapper: { gap: 6 },
+  countdown: { flex: 1, maxWidth: 230, gap: 5 },
+  progressTrack: { height: 4, borderRadius: 3, overflow: "hidden" },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   hintNote: { ...type.small, flex: 1 },
   toggle: {
@@ -165,12 +215,13 @@ const styles = StyleSheet.create({
     padding: 20,
     backgroundColor: 'rgba(44, 40, 36, 0.45)',
   },
-  backdropHit: { ...StyleSheet.absoluteFillObject },
+  backdropHit: { ...StyleSheet.absoluteFill },
   dialog: {
     width: '100%',
     maxWidth: 420,
     gap: 12,
-    padding: 20,
+    padding: 24,
+    borderRadius: radius.lg,
     borderWidth: 1,
     zIndex: 1,
   },
@@ -184,6 +235,7 @@ const styles = StyleSheet.create({
   close: {
     minHeight: 44,
     paddingHorizontal: 16,
+    borderRadius: radius.pill,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -194,6 +246,7 @@ const styles = StyleSheet.create({
   stepButton: {
     minHeight: 44,
     minWidth: 64,
+    borderRadius: radius.pill,
     paddingHorizontal: 12,
     alignItems: 'center',
     justifyContent: 'center',

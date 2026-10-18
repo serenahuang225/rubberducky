@@ -12,6 +12,7 @@ from typing import Any
 import anthropic
 import httpx2
 
+from app.activity import activity
 from app.config import Settings
 from app.inference.cancel import CancelToken
 from app.inference.errors import (
@@ -92,6 +93,13 @@ class ClaudeAdapter(RemoteAdapter):
         timeout: float,
     ) -> str:
         """One finished Messages call. Image blocks are allowed; the key stays in the client."""
+        activity(
+            "provider.request",
+            provider=self.name,
+            model=self.model,
+            operation="complete_blocks",
+            max_output_tokens=max_tokens,
+        )
         user_content: Any = content
         try:
             message = self._client.messages.create(
@@ -104,7 +112,16 @@ class ClaudeAdapter(RemoteAdapter):
         except ProviderError:
             raise
         except Exception as error:
+            activity("provider.failed", provider=self.name, error_type=type(error).__name__)
             raise _translate(error, CancelToken()) from None
+        activity(
+            "provider.response",
+            provider=self.name,
+            operation="complete_blocks",
+            input_tokens=message.usage.input_tokens,
+            output_tokens=message.usage.output_tokens,
+            stop_reason=message.stop_reason,
+        )
         if message.stop_reason is None or message.stop_reason == "max_tokens":
             raise MalformedDraftError("claude reply was cut off before it finished")
         parts: list[str] = []

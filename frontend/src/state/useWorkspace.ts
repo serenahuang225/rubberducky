@@ -123,7 +123,7 @@ export type WorkspaceController = {
    * 'stale': the problem or session changed, nothing was sent for the old one. 'ignored':
    * another command was running.
    */
-  submitWork: (text: string, handhold?: HandholdMode) => Promise<WorkSubmitOutcome>;
+  submitWork: (text: string, handhold?: HandholdMode, inputMode?: "typed" | "confirmed_ink", boxedAnswer?: boolean) => Promise<WorkSubmitOutcome>;
   /**
    * Hold-to-talk. The clip is transcribed and answered by the tutor. `playback` is the
    * tutor's reply audio, when the server spoke it.
@@ -658,6 +658,10 @@ export function useWorkspace(
       }
       let result: TutorTurnResult | "stopped";
       try {
+        if (!(await flushPending())) {
+          setErrorMessage("Your board is not saved yet. Retry saving before asking the tutor.");
+          return "retained";
+        }
         try {
           result = await sendOrStop(command.key, command.expectedRevision);
         } catch (error) {
@@ -725,19 +729,19 @@ export function useWorkspace(
   );
 
   const submitWork = useCallback(
-    async (text: string, handhold?: HandholdMode): Promise<WorkSubmitOutcome> => {
+    async (text: string, handhold?: HandholdMode, inputMode: "typed" | "confirmed_ink" = "typed", boxedAnswer = false): Promise<WorkSubmitOutcome> => {
       const trimmed = text.trim();
       if (trimmed.length === 0) return "ignored";
       return sendLogical({
         label: "Thinking…",
         command: pendingWorkRef,
-        fingerprint:
+        fingerprint: boxedAnswer ? `boxed:${inputMode}:${trimmed}|${handhold ?? "balanced"}` : inputMode === "confirmed_ink" ? `ink:${boxedAnswer ? "boxed:" : ""}${trimmed}|${handhold ?? "balanced"}` :
           handhold !== undefined && handhold !== "balanced"
             ? `${trimmed}|${handhold}`
             : trimmed,
         fenceProblem: true,
         send: (key, revision) =>
-          client.submitWork(sessionId, key, revision, trimmed, "typed", handhold),
+          client.submitWork(sessionId, key, revision, trimmed, inputMode, handhold, boxedAnswer),
         uncertainMessage: WORK_UNCERTAIN_MESSAGE,
         staleMessage: WORK_STALE_MESSAGE,
         failureMessage: "The tutor turn failed to send.",
@@ -802,10 +806,11 @@ export function useWorkspace(
       mode: "hint" | "explain" = "hint",
       options?: { handhold?: HandholdMode; learnerControl?: LearnerControl },
     ) => {
+      await strokeQueueRef.current;
       const control = options?.learnerControl;
       const handhold = options?.handhold;
       await sendLogical({
-        label: "Thinking…",
+        label: "Reading the board…",
         command: pendingHelpRef,
         fingerprint: control
           ? `help:${mode}:${control}:${handhold ?? "balanced"}`

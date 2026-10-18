@@ -11,11 +11,13 @@ one whole teaching move without disturbing the student's own history.
 from typing import Annotated
 
 from fastapi import APIRouter, Query
+from pydantic import Field
 
-from app.api.deps import ScopedRepo
+from app.api.deps import ScopedRepo, SettingsDep
 from app.api.errors import ApiError, ErrorEnvelope
 from app.api.sessions import SessionIdPath
 from app.clock import utc_now
+from app.schemas.common import ContractModel
 from app.schemas.scene import (
     MAX_REPLAY_OPERATIONS,
     SceneOperationRequest,
@@ -23,6 +25,8 @@ from app.schemas.scene import (
     SceneOperationsPage,
     SceneSnapshot,
 )
+from app.tutor.brought_question import BroughtQuestionError
+from app.whiteboard.reading import has_answer_box, read_ink
 from app.whiteboard.scene import (
     SceneCommandError,
     commit_operation,
@@ -81,3 +85,45 @@ def post_scene_operation(
     # globally as the same 404 not_found, so no existence oracle leaks.
     repo.db.commit()
     return result
+
+
+class BoardReadRequest(ContractModel):
+    scene_revision: Annotated[int, Field(ge=0)]
+    check_answer: bool = False
+
+
+class BoardReadResult(ContractModel):
+    text: str
+    legible: bool
+    boxed_answer: bool = False
+    scene_revision: int
+
+
+@router.post("/sessions/{session_id}/scene/read", response_model=BoardReadResult)
+def read_board(
+    session_id: SessionIdPath,
+    body: BoardReadRequest,
+    repo: ScopedRepo,
+    settings: SettingsDep,
+) -> BoardReadResult:
+    snapshot = scene_snapshot(repo, session_id)
+    if snapshot.scene_revision != body.scene_revision:
+        raise ApiError(409, "revision_conflict", "The board changed before it could be read.")
+    if settings.tutor_provider != "claude" or not settings.external_integrations_enabled:
+        raise ApiError(503, "tutor_not_configured", "Board reading needs the Claude tutor.")
+    # Release the read transaction before the remote request.
+    repo.db.rollback()
+    boxed_answer = body.check_answer or has_answer_box(snapshot)
+    try:
+        if boxed_answer:
+            text, legible = read_ink(settings, snapshot, verify=True)
+        else:
+            text, legible = read_ink(settings, snapshot)
+    except BroughtQuestionError as error:
+        raise ApiError(502, "board_read_failed", error.message) from error
+    return BoardReadResult(
+        text=text,
+        legible=legible,
+        boxed_answer=boxed_answer,
+        scene_revision=snapshot.scene_revision,
+    )

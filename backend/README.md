@@ -1,207 +1,146 @@
-# Tutor backend
+# Thinking-partner backend
 
-Python3.12 FastAPI application at `app.main:app`. Start with the
-[handoff index](../docs/agent-handoff/README.md) and
-[working-tree rules](../docs/agent-handoff/working-tree/README.md).
-These are setup/reference instructions, **not authorization to resume the paused mission**.
-No services, tests, installs or live calls were run for this documentation handoff.
+Python 3.12 / FastAPI / SQLAlchemy / Alembic. SQLite stores scoped learners, sessions,
+evidence, memory, and the whiteboard. Start with the [root guide](../README.md) or
+[hosted deployment guide](../deploy/chalk/README.md).
 
-## Environment and safe setup
+## Configuration and startup
 
-Use `backend/.venv`, never the user's root Chalk `.venv`/uv project. On this machine it is
-a symlink to an existing Python3.12 readiness environment; do not replace it. On a new,
-authorized development checkout only:
+Settings are defined in [app/config.py](app/config.py). Process variables take precedence;
+`TUTOR_ENV_FILE=/absolute/path/to/.env.local` explicitly loads a private file. The root `.env`
+is not automatically loaded. Never dump configuration values or put credentials in client code.
+
+Useful settings:
+
+- `DATABASE_URL`: defaults to `sqlite:///./data/tutor.db`, relative to the process directory.
+- `TUTOR_PROVIDER`: `mock` by default; `claude`, `endpoint`, and `transformers` are optional.
+- `EXTERNAL_INTEGRATIONS_ENABLED`: false by default; required for remote providers.
+- `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, optional `ANTHROPIC_WORKSPACE_ID`: Claude settings.
+- `TUTOR_CORS_ORIGINS`: allowed browser origins; defaults to loopback web port 3101.
+- `DEMO_BOOTSTRAP_ENABLED`: permits new fictional learners; true by default.
+- `XAI_SPEECH_ENABLED` and `XAI_API_KEY`: optional hold-to-talk, also requiring external enable.
+- Factory, Daytona, Chalk evaluations, local loading, and downloads have independent gates.
+
+The hosted wrapper explicitly enables Claude behind its passcode and creates a second,
+isolated mock app for public scripted practice. Those are deployment overrides, not defaults.
+
+From the repository root, after installing backend dependencies:
 
 ```sh
-cd /Users/huangrh/workspace/rubberducky
-python3.12 -m venv backend/.venv
-backend/.venv/bin/python -m pip install --require-hashes -r backend/requirements.lock
+export PYTHONPATH="$PWD/backend"
+export TUTOR_ENV_FILE="$PWD/.env.local"
+backend/.venv/bin/python -m app.cli migrate
+backend/.venv/bin/python -m app.cli seed
+backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 3100
 ```
 
-The hash lock targets macOS arm64 CPython3.12. Other platforms need a reviewed platform
-lock or the exact-version `backend/requirements.in`; do not silently discard hash failures.
-Large Torch/Transformers packages are dependencies, not permission to download model weights.
-Optional PostgreSQL driver: `backend/requirements-optional.in`; SQLite is the tested store.
-No Redis/graph database/server is needed.
+Migrations create/update schema; do not replace them with `create_all` or rewrite old migrations.
+Seeds are fictional and idempotent. Keep the same database URL and process working directory
+for CLI and API operations. PostgreSQL configuration exists but has not been validated here.
 
-`app/config.py` reads process environment only, unless explicitly opted into a file through
-`TUTOR_ENV_FILE`. Do not inspect/load `.env` or `.env.local` during agent checks. A present
-credential does not activate an integration. The root README includes manual developer/live
-configuration examples; current agent permissions in the handoff take precedence.
+## Request and state flow
 
-| Setting group | Current behavior |
-| --- | --- |
-| `DATABASE_URL` | Defaults to `sqlite:///./data/tutor.db`; **override for every agent command** |
-| `TUTOR_PROVIDER` | `mock` default; also `transformers`, `endpoint`, `claude` |
-| `EXTERNAL_INTEGRATIONS_ENABLED` | false default; selected remote provider remains unavailable when disabled |
-| Local model | load/download false; CPU float32, pinned SmolLM2 candidate; lazy first-use only |
-| Local limits | context8192, new tokens512, queue2 behind one generation, timeout120s |
-| Remote limits | overall30s, max3 attempts, backoff0.5s, output512 tokens, request32000 chars |
-| Endpoint | explicit base/model/key; streaming true; remote HTTPS and disclosure, no redirects/fallback |
-| Claude | explicit model/key; optional workspace ID, never a guessed live model |
-| Factory/Daytona | individual enable flags false, plus global gate; explicit runtime/model/key/config |
-| Chalk | individual enable false, explicit client ID/secret/environment; max40 rows,600s; judge separately gated/model required |
-| Media | simulated fixtures enabled, real transcription/perception unconfigured; capture not automatic |
-| Pairing/bootstrap | fictional demo bootstrap true; code TTL600s (60..3600) |
-| CORS | loopback web3101 origins; no permission for public exposure |
+1. `POST /demo/bootstrap` creates a new fictional learner. `pair --learner ada` issues a
+   one-time code for an existing local learner; `POST /pairing/redeem` exchanges it for a
+   credential. The API stores credential hashes and derives scope from the bearer token.
+2. `POST /sessions` starts a session. `GET /sessions/{id}/state` supplies the current revision.
+3. `POST /sessions/{id}/check-in`, `/work`, and `/help` require `expected_revision` and an
+   `Idempotency-Key`. Retries reuse the same key and body; changed content under that key is
+   a conflict. Foreign records do not expose another learner's history.
+4. `app.tutor.coordinator.execute_turn` reserves a turn, builds bounded context and policy,
+   infers outside the transaction, validates, and rechecks scope/revision/cancellation before
+   committing. A failed provider does not silently switch to a different provider.
+5. Claude brought-question intake uses `CheckInRequest.question_text` and the dedicated
+   brought-question path. Later typed work continues the stored question. Not every kind of
+   turn uses an identical context builder or token budget.
+6. `GET /sessions/{id}/events` is polling, not client SSE. Scene operations have a separate
+   monotonic scene revision and operation ID; student history and grouped partner-mark undo
+   preserve authorship. Unconfirmed ink is not automatically graded as handwriting.
+7. Memory routes expose sources, uncertainty, correction, and removal. The graph and BKT
+   estimates are evidence-derived context, not calibrated claims about a learner's ability.
 
-Keep keys server-side, out of `EXPO_PUBLIC_*`, logs, command transcripts and commits.
-Inspect names/types/defaults in [config](app/config.py), not real environment values.
+Routes above are unprefixed for standalone FastAPI. The Chalk demo mounts them under `/api`.
+`GET /health` checks liveness; `/health/model` inspects configuration without a provider call.
 
-## Fresh isolated database and existing CLI
+## Local administration and offline checks
 
-Future local verification after assignment; commands deliberately use a new `/tmp` directory,
-clean environment, disabled providers, and **do not open user data or bind a port**:
+The CLI uses direct local database access; it is not a learner authentication endpoint.
+Use a fresh database for experiments and tests, not a user's working database. The database
+argument is a top-level option before the subcommand:
 
 ```sh
-cd /Users/huangrh/workspace/rubberducky
-RUN_DIR="$(mktemp -d /tmp/rubberducky-cli.XXXXXX)"
-cli() {
-  env -i PATH="$PATH" HOME="$HOME" PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH="$PWD/backend" TUTOR_ENV_FILE="" TUTOR_PROVIDER=mock \
-    EXTERNAL_INTEGRATIONS_ENABLED=false TUTOR_LOCAL_MODEL_LOAD_ENABLED=false \
-    TUTOR_LOCAL_ALLOW_DOWNLOAD=false OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 \
-    "$PWD/backend/.venv/bin/python" -m app.cli \
-    --database-url "sqlite:///$RUN_DIR/tutor.db" "$@"
-}
-cli migrate
-cli seed
-cli seed                    # idempotent; do not invent expected row counts
-cli learners
-cli graph validate
-cli graph prerequisites --concept concept.linear_equations
-cli graph neighborhood --concept concept.distribution --max-hops 1
-cli graph context --learner ada --concept concept.distribution --max-evidence 2 --format text
-cli history --learner ada
-cli memory layers --learner ada
-cli memory context --learner ada --concept concept.distribution --max-chars 1500 --format text
-cli tracing fixture
-cli tracing replay --learner bkt-fixture --format text
-cli tracing state --learner bkt-fixture
-cli tracing readiness --learner bkt-fixture
-cli interactives status
-cli interactives prevetted --component grouping
-cli interactives generate --concept concept.distribution --misconception "Only multiplies the first term"
-cli evaluation status
-cli evaluation cases
-cli evaluation run --candidate fixture:good
-cli evaluation chalk-plan --candidate fixture:good
-cli demo
+export PYTHONPATH="$PWD/backend"
+backend/.venv/bin/python -m app.cli --database-url sqlite:////tmp/rubberducky-check.db migrate
+backend/.venv/bin/python -m app.cli --database-url sqlite:////tmp/rubberducky-check.db seed
+backend/.venv/bin/python -m app.cli --help
 ```
 
-Keep that shell and `RUN_DIR` for related invocations; fresh Execute calls do not inherit shell
-functions. `--database-url` is a **top-level option before the subcommand**.
-Migrate uses Alembic to current head `0012_duck_personalities`; do not use `create_all` or edit
-old migrations. Seeds are fictional/idempotent and respect deletion tombstones.
-History/graph/memory CLI is local administrative file access, not authenticated HTTP.
-`pair --learner ada` prints a short-lived one-time code: handle privately, never paste
-tokens/codes in reports. `history` supports ada/ben aliases; use `learners` to get the actual
-UUID for the BKT fixture.
-
-There is **no tutor-turn CLI, GRU train CLI, dataset pipeline or LoRA CLI in this snapshot**.
-Do not invent flags. Use the actual API/coordinator for a tutor turn and integrate delivered
-external experiment commands later; see [delivery](../docs/agent-handoff/delivery-and-acceptance/README.md).
-Never add `--confirm-live` to “see if it works.”
-
-## Module map
-
-| Module | Responsibility / interface |
-| --- | --- |
-| [main](app/main.py), [api](app/api/) | App creation, lifespan recovery, scoped HTTP routes, shared `error.v1` and sanitized422 |
-| [schemas](app/schemas/) | Versioned Pydantic contracts, UTC/confidence/missingness; not statistical models |
-| [db](app/db/), [migrations](migrations/) | SQLAlchemy, composite learner FKs, SQLite transactions, Alembic, fictional seeds |
-| [learner](app/learner/) | Pairing/scope, memory layers/proposals/inspection, correction/deletion/derived repair, persona/preferences |
-| [graph](app/graph/) | NetworkX curated prerequisite DAG; separate personal support/contradiction links and bounded context |
-| [tracing](app/tracing/) | NumPy BKT, eligibility ledger/replay/readiness and common predictor protocol |
-| [verification](app/verification/) | Allowlisted bounded grammar constructs SymPy; no untrusted eval/parse_expr/sympify |
-| [pedagogy](app/pedagogy/) | Deterministic plan, tentative diagnosis, scaffold/fade/transfer, respectful styles |
-| [tutor](app/tutor/) | Reserve/infer/recheck/commit coordinator, evidence/state, waiting, epoch cancellation and question intake |
-| [inference](app/inference/) | Bounded source-linked context/request, mock/local/endpoint/Claude, lazy loading/retry/deadline/cancel |
-| [whiteboard](app/whiteboard/) | Six validated tool families,1600×1200 logical geometry,3-unit pen, author-safe operation log |
-| [multimodal](app/multimodal/) | Uncertain bounded session/revision events, not live perception |
-| [interactives](app/interactives/) | Constrained Droid generation, trusted Daytona checks, labeled release/fallback; CLI, not HTTP/UI wiring |
-| [tutoring_eval](app/tutoring_eval/) | Seven-case/nine-turn causal fictional replay, rubric/Candidate, explicit Chalk adapter |
-| [redaction](app/redaction.py), [tests](tests/) | Shared log/error redaction and actual module/SQLite/SDK fixture checks |
-
-No production Photon bridge/voice worker or experiment package exists yet. Their assignments
-describe planned work rather than pretending those paths/commands are present.
-
-## Request, event and persistence flow
-
-1. `POST /demo/bootstrap` creates a new empty **fictional** learner; existing seeded history
-   requires `POST /pairing/redeem` with a one-time locally issued code. Only token hashes are
-   stored. Normal routes derive learner scope from the bearer credential; foreign IDs return
-   the same404 as missing. `POST /auth/revoke` revokes it.
-2. Configure via `PUT /me/tutor-configuration`; independent comfort/accessibility routes do not
-   consume the atomic server-UTC604800s durable-pair cooldown.
-3. `POST /sessions` with `{}` starts a session. `GET /sessions/{id}/state` supplies current
-   revision/problem. Check-in/work/help require `Idempotency-Key` and `expected_revision`.
-   Example work body: `{"expected_revision":N,"text":"2x + 6 = 14","input_mode":"typed"}`.
-   Unconfirmed ink only prompts confirmation, never creates a graded step.
-4. [execute_turn](app/tutor/coordinator.py) reserves in a short transaction, builds bounded
-   graph/memory context and policy/verifier plan, infers outside the transaction, then rechecks
-   learner/session/revision/cancellation epoch before atomically committing a valid draft.
-   One malformed/stale/unsafe draft commits no tutor text/tools/memory. Raw submitted evidence
-   and provider proposals remain distinct.
-5. `GET /sessions/{id}/events` is a bounded **polling** turn feed, not SSE. Remote provider
-   streaming is adapter-internal; do not confuse it with learner HTTP streaming.
-   `GET /sessions/{id}/turns/{turn_id}` inspects an outcome.
-6. Scene `GET/POST /sessions/{id}/scene/operations` and scene snapshot preserve monotonic
-   scene revisions and original operation IDs. Identical retries replay, changed content/key
-   conflicts, student history and grouped tutor undo stay separate.
-7. Interrupt body is `{"observed_epoch":N,"reason":"student_interrupt"}` on
-   `POST /sessions/{id}/interrupt`; it replays by observed epoch, **not** a made-up
-   `expected_epoch`/pending-turn field. Startup settles interrupted pending work honestly.
-   Correction/deletion/new work/problem/session changes also fence stale effects.
-8. Verified independent assessments alone enter BKT; hints/revelations/self-report/explanations
-   are retained but not automatic mastery. Memory proposals need current own source IDs.
-   Inspection/correction/session/profile deletion replay/invalidate derived dependencies;
-   local active-store deletion is not secure disk/backup/vendor erasure.
-
-Media `/media/capabilities` and scoped `/sessions/{id}/media/events` never make uncertain
-recognition authoritative. Limits: image262144 bytes/2048px edge,3 images/minute and12/session;
-all events120/minute and500/session; transcript500 chars. No default raw-media storage/logging.
-Opening-question screenshot is a **different**, externally edited check-in path (schema
-allows2200000 base64 chars), not the bounded media-event photo path. Preserve its owner;
-do not conflate it with completed live camera/perception support.
-
-## Testing and runtime limits
-
-After an implementation assignment, run focused module tests, then applicable gates:
+Available command families include `learners`, `pair`, `revoke`, `history`, `graph`, `memory`,
+`tracing`, `interactives`, `evaluation`, and `demo`. Use each command's `--help` for supported
+flags. Offline integration examples:
 
 ```sh
-cd /Users/huangrh/workspace/rubberducky
-OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 backend/.venv/bin/python -m pytest backend/tests -q
+PYTHONPATH=backend backend/.venv/bin/python -m app.cli interactives status
+PYTHONPATH=backend backend/.venv/bin/python -m app.cli interactives prevetted --component grouping
+PYTHONPATH=backend backend/.venv/bin/python -m app.cli evaluation run --candidate fixture:good
+PYTHONPATH=backend backend/.venv/bin/python -m app.cli evaluation chalk-plan --candidate fixture:good
+PYTHONPATH=backend backend/.venv/bin/python -m app.cli demo
+```
+
+`interactives status` is configuration-only. `generate --confirm-live` can contact Factory and
+Daytona when configured; the flag is not a hard cost cap. The recorded live attempt failed at
+Factory and never created a Daytona sandbox. The hosted service leaves both integrations off.
+Chalk evaluation live runs are separate from hosting and require their own configuration.
+
+## Modules
+
+- `api`, `schemas`, `db`: HTTP contracts, scope, persistence, and migrations.
+- `learner`, `graph`, `tracing`: identity, sourced memory, curriculum retrieval, and NumPy BKT.
+- `tutor`, `pedagogy`, `verification`, `inference`: turn coordination, policy, bounded algebra
+  verification, mock/local/endpoint/Claude adapters, and brought-question inference.
+- `whiteboard`: validated partner tools, scene operations, and author-safe history.
+- `multimodal`: bounded session/revision events and uncertain capture candidates.
+- `speech`: xAI recording transcription and speech of committed partner replies.
+- `interactives`: constrained Factory generation, trusted Daytona checks, and fallback specs.
+- `tutoring_eval`, `demos`: fictional replay scoring, optional Chalk evaluation, and walkthroughs.
+- `experiments`: offline GRU, reviewed shared-example preparation, and tiny LoRA plumbing;
+  see [experiment commands and model cards](../docs/experiments.md).
+
+## Checks and limits
+
+```sh
+PYTHONPATH=backend backend/.venv/bin/python -m pytest backend/tests -q
 backend/.venv/bin/python -m mypy --config-file backend/pyproject.toml backend/app
 backend/.venv/bin/python -m ruff check backend
 ```
 
-Root mypy ignores errors: omitting the backend config gives a meaningless gate.
-Tests use temporary migrated SQLite and intercepted provider transports. Claude SDK uses
-httpx2; endpoint uses httpx. A tiny random Transformer test is not pretrained execution.
-Historical `b76811e` checks:1074 backend tests/mypy134/Ruff exit0, **not fresh current gates**.
+The working tree changes independently of the hosted release. Earlier test totals are
+historical; run applicable checks on the revision being reviewed. A fixture pass does not
+verify a live service, trained-model quality, learning gains, or physical device behavior.
+Raw media is not stored by default; retained submitted text/evidence is distinct from raw media.
 
-Do not start a server now. After explicit resumption, use mission `services.yaml` and its
-derived `start-test-api.sh`/`stop-test-api.sh`, with fixed3102 DB and clean environment, then
-owned web3101 with explicit API override. Owner/birth/UID/command/cwd checks govern shutdown.
-Manual trusted-LAN API3100/Expo8081 is a separate user-assisted route, not permission to
-adopt existing processes. PostgreSQL URL `postgresql+psycopg://...` uses the same migration CLI
-after an authorized driver install; actual PostgreSQL deployment is **untested**.
+## Watch backend and model activity live
 
-## Remaining assignments and honest limits
+Start the backend normally, then in another terminal from the same directory run:
 
-- [Photon](../docs/agent-handoff/photon-messaging/README.md) and
-  [voice](../docs/agent-handoff/livekit-voice/README.md): absent production implementation.
-- [Interactive wiring](../docs/agent-handoff/interactive-wiring/README.md): backend release
-  pipeline exists, learner mount absent. Credits monitoring is not a hard spend cap;
-  sandbox deletion is attempted and failures logged, never guaranteed.
-- [Media](../docs/agent-handoff/media-validation/README.md): retained implementation, paused
-  visible validation; fixtures do not establish real STT/perception/acoustic barge-in.
-- [Modeling](../docs/agent-handoff/modeling-integration/README.md): receive external code,
-  do not duplicate implementation. Handset BKT is uncalibrated.
-- Chalk deploy modules `chalk_functions.py`/`chalk_judge.py` **deploy on import**; only the
-  gated adapter loader may import them. Local fixture reports have
-  `trained_model_result=false`, `learning_gain_claim=false`; cloud enablement, shipping,
-  judge-column/cost/latency remain unverified.
-- [Delivery](../docs/agent-handoff/delivery-and-acceptance/README.md): fresh evidence,
-  formal validation, guides/research/cards and actual iPad participation remain.
+```sh
+tail -F data/logs/activity.jsonl
+```
+
+The file is created on the first HTTP request. Each JSON line has a UTC timestamp,
+request ID, and event name. `http.started` / `http.completed` show incoming traffic,
+route templates, HTTP status, and elapsed milliseconds. `provider.request` shows the
+Claude or endpoint model, attempt, and request size; `provider.delta` shows streaming
+progress as character counts; response events include token counts when available.
+Retries and failures are recorded too. Claude image/board-reading calls use
+`operation: complete_blocks`. These events show provider activity, not hidden model reasoning.
+The `X-Request-ID` response header matches the file so you can trace a browser request.
+
+Files rotate at 5 MB, retaining three backups. The default path is relative to the
+backend process working directory, and `data/` is gitignored. Set
+`TUTOR_ACTIVITY_LOG_PATH=/absolute/path/activity.jsonl` to choose another location,
+or set it to an empty string to disable logging. Use one file per server process
+when running multiple workers. Logging records metadata only: prompts, generated text,
+request bodies, headers, query strings, credentials, and media are excluded.
+The log follows work handled within HTTP requests, including work propagated into
+worker threads; standalone CLI jobs are not captured.

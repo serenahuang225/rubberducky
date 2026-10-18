@@ -1,6 +1,5 @@
 /**
- * Web-only type, focus, and motion. Native uses the same token families and falls back
- * to faces that ship with the device. Animations run only when the resolved motion mode
+ * Web-only focus and motion. The shared Quicksand font is bundled at the app entrypoint. Animations run only when the resolved motion mode
  * is full; an explicit full choice still runs if the system asks for less motion.
  */
 
@@ -19,7 +18,8 @@ html, body, #root {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
-html, body { overflow: hidden; }
+html, body { overflow: hidden; font-family: Quicksand, sans-serif; }
+input, textarea, [dir="auto"] { font-family: Quicksand, sans-serif; }
 #root {
   display: flex;
   min-height: 100dvh;
@@ -88,11 +88,6 @@ export function installWebTheme(): void {
     return;
   }
   installed = true;
-  const link = document.createElement("link");
-  link.rel = "stylesheet";
-  link.href =
-    "https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,500;0,600;0,700;0,800;1,500&display=swap";
-  document.head.appendChild(link);
   const style = document.createElement("style");
   style.setAttribute("data-rubberducky-theme", "true");
   style.textContent = WEB_CSS;

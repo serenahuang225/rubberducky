@@ -3,7 +3,7 @@
  * this panel keeps the thread, including a "Good job!" when the question is solved.
  */
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import type { BoardTheme } from "../board/palette";
@@ -14,6 +14,7 @@ import { HoldPressable } from "./HoldPressable";
 
 export type TutorChatProps = {
   theme: BoardTheme;
+  partnerName?: string;
   messages: readonly ChatMessage[];
   draft: string;
   busy: boolean;
@@ -30,6 +31,7 @@ export type TutorChatProps = {
 
 export function TutorChat({
   theme,
+  partnerName = "Your thinking partner",
   messages,
   draft,
   busy,
@@ -43,14 +45,11 @@ export function TutorChat({
   onHide,
   noted = false,
 }: TutorChatProps) {
-  const scrollRef = useRef<ScrollView>(null);
   const [moreAbove, setMoreAbove] = useState(false);
   const canSend = canReply && !busy && draft.trim().length > 0;
   const controlsReady = canReply && !busy;
 
-  useEffect(() => {
-    scrollRef.current?.scrollToEnd({ animated: false });
-  }, [messages, thinking]);
+
 
   return (
     <View
@@ -78,7 +77,6 @@ export function TutorChat({
         <View pointerEvents="none" style={[styles.moreAbove, { backgroundColor: theme.surface }]} />
       ) : null}
       <ScrollView
-        ref={scrollRef}
         testID="tutor-chat-log"
         style={styles.log}
         contentContainerStyle={styles.logContent}
@@ -87,7 +85,7 @@ export function TutorChat({
       >
         {messages.length === 0 ? (
           <Text style={[styles.empty, { color: theme.labelMuted }]}>
-            Your question and the tutor’s replies will show up here.
+            Your question and {partnerName}’s replies will show up here.
           </Text>
         ) : (
           messages.map((message, index) => {
@@ -99,25 +97,24 @@ export function TutorChat({
               <View
                 key={message.id}
                 testID={praise ? "chat-good-job" : `chat-${message.role}`}
-                style={
-                  praise
-                    ? [styles.praise, { borderLeftColor: theme.tutorInk }]
-                    : undefined
-                }
+                style={[
+                  message.role === "tutor" ? [styles.tutorMessage, { borderLeftColor: theme.tutorInk }] : undefined,
+                  praise ? [styles.praise, { borderLeftColor: theme.tutorInk }] : undefined,
+                ]}
               >
                 <Text
                   style={[
                     styles.who,
-                    { color: message.role === "you" ? theme.studentInk : theme.tutorInk },
+                    { color: message.role === "tutor" ? theme.tutorInk : theme.studentInk },
                   ]}
                 >
-                  {message.role === "you" ? "You" : "Tutor"}
+                  {message.role === "you" ? "You" : partnerName}
                 </Text>
                 <Text
                   testID={lastTutor ? "prompt-tutor" : undefined}
                   style={[
                     styles.text,
-                    { color: message.role === "you" ? theme.studentInk : theme.tutorInk },
+                    { color: message.role === "tutor" ? theme.tutorInk : theme.studentInk },
                   ]}
                 >
                   {message.text}
@@ -185,7 +182,7 @@ export function TutorChat({
           editable={canReply && !busy}
           placeholder={canReply ? "Write your step" : "Start with a question first"}
           placeholderTextColor={theme.labelMuted}
-          accessibilityLabel="Reply to the tutor"
+          accessibilityLabel={`Reply to ${partnerName}`}
           onSubmitEditing={() => {
             if (canSend) onSend();
           }}
@@ -213,12 +210,13 @@ export function TutorChat({
 
 const styles = StyleSheet.create({
   panel: {
-    width: 360,
+    width: 400,
     minWidth: 220,
     flexShrink: 1,
     minHeight: 0,
     overflow: "hidden",
-    borderLeftWidth: 2,
+    borderWidth: 1,
+    borderRadius: radius.lg,
     borderTopLeftRadius: radius.lg,
     borderBottomLeftRadius: radius.lg,
     paddingTop: 16,
@@ -227,13 +225,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
+    paddingHorizontal: 28,
     marginBottom: 8,
     gap: 8,
   },
   title: type.name,
   hide: {
-    minHeight: 36,
+    minHeight: 44,
     paddingHorizontal: 12,
     borderWidth: 2,
     borderRadius: radius.pill,
@@ -256,28 +254,30 @@ const styles = StyleSheet.create({
   },
   controls: {
     flexDirection: "row",
-    flexWrap: "nowrap",
+    flexWrap: "wrap",
     gap: 6,
-    paddingHorizontal: 12,
-    paddingBottom: 8,
+    paddingHorizontal: 28,
+    paddingBottom: 16,
   },
   controlButton: {
-    flex: 1,
-    minWidth: 0,
+    flexGrow: 1,
+    minWidth: 96,
     borderWidth: 2,
     borderRadius: 999,
-    paddingHorizontal: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     minHeight: 44,
     justifyContent: "center",
     alignItems: "center",
   },
   control: { ...type.small, fontSize: 12, lineHeight: 16, textAlign: "center" },
   log: { flex: 1, minHeight: 0 },
-  logContent: { paddingHorizontal: 16, paddingBottom: 12, gap: 16 },
+  logContent: { paddingHorizontal: 28, paddingBottom: 12, gap: 16 },
   empty: type.small,
   who: { ...type.meta, marginBottom: 2 },
   text: type.body,
-  praise: { borderLeftWidth: 3, paddingLeft: 8 },
+  tutorMessage: { paddingLeft: 14, borderLeftWidth: 3 },
+  praise: { borderLeftWidth: 3, paddingLeft: 14 },
   thinking: type.small,
   noted: type.meta,
   composer: {
@@ -285,8 +285,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 16,
-    minHeight: 52,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    minHeight: 72,
   },
   input: { ...type.body, flex: 1, minHeight: 44, paddingVertical: 8 },
   send: type.control,

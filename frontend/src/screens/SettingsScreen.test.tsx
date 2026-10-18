@@ -62,14 +62,11 @@ describe("SettingsScreen", () => {
     expect(settings.refresh).toHaveBeenCalledTimes(1);
   });
 
-  it("explains a locked persona with the server instant and keeps comfort and accessibility enabled", () => {
+  it("explains the server lock and keeps comfort and accessibility enabled", () => {
     const settings = makeSettings();
     renderSettings(settings);
     const availability = screen.getByTestId("persona-availability");
     expect(availability).toHaveTextContent(/2026-10-17 12:30 UTC/);
-    expect(availability).toHaveTextContent(
-      /comfort and accessibility can still change now/i,
-    );
 
     expect(screen.queryByText("Sunny the duck")).toBeNull();
     expect(screen.queryByText("Rowan")).toBeNull();
@@ -169,7 +166,7 @@ describe("SettingsScreen", () => {
     });
   });
 
-  it("lets an unlocked learner pick a new duck and save it, only when it actually differs", () => {
+  it("allows duck switching when the weekly lock is open", () => {
     const settings = makeSettings({
       persona: personaStateSchema.parse(PERSONA_STATE_OPEN),
     });

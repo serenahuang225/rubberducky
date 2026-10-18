@@ -54,6 +54,15 @@ def validate_draft(
             )
         ]
     rejections: list[TurnRejection] = []
+    if draft.board_scene_revision is not None and (
+        repo.require_session(session_id).scene_revision != draft.board_scene_revision
+    ):
+        return [], [
+            TurnRejection(
+                code="board_changed",
+                message="The board changed while the hint was being prepared. Ask again.",
+            )
+        ]
     if (
         draft.action_type != plan.action_type
         or draft.hint_level != plan.hint_level

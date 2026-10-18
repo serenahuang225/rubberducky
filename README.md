@@ -1,608 +1,177 @@
 # Rubberducky
 
-Rubberducky is an iPad-first math tutor that helps learners think a problem through instead of
-handing over answers. The client is an Expo (SDK 57) React Native app that runs in Expo Go on an
-iPad and as a web build of the same components. The backend is a Python 3.12 FastAPI service that
-runs on your Mac.
+Rubberducky is a math thinking partner with a shared whiteboard, conversation, and
+learner-specific evidence, memory, and concept graph. The client is an Expo React Native app
+for web and iPad; the backend is FastAPI with SQLite. Choose Vincent, Zeeshan, Tony, Janelle,
+or Mary as your thinking partner. Their name appears beside their chat replies.
 
-This is an early prototype. The shared client runs the first unit's full learning loop: first-run
-onboarding (appearance and teaching style are independent choices), a short check-in and goal, one
-concise teaching move at a time on a nearly white shared whiteboard, typed/confirmed work
-submissions with bounded verification, partial hints with visible tutor marks, grounded feedback,
-assistance-aware fresh transfer problems and a short concept explanation. A "Finish for today"
-control ends the session; the next session's instruction adapts to the earlier saved evidence.
-"Still thinking" is a local acknowledgement only, and "Help me" stays reachable beside the typed
-input. The default tutor is a deterministic mock, labeled as such everywhere ("Demo mode" in the
-client, `is_mock` in the API). No language model is downloaded or contacted, and every external
-integration is disabled until you activate it explicitly.
+## Try the hosted demo
 
-## Repository layout
+[Open Rubberducky](https://srnb0d1efa84-rubberducky-demo.mdwje5.svls.customers.gcp.chalk.ai/demo-login).
 
-| Path | Contents |
-| --- | --- |
-| `backend/app/` | FastAPI application (`app.main:app`), typed settings in `app/config.py` |
-| `backend/experiments/` | Offline GRU, shared-example preparation and tiny LoRA commands |
-| `backend/tests/` | Backend tests (pytest) |
-| `docs/experiments.md` | Commands and measured smoke results for those experiments |
-| `backend/pyproject.toml` | Tutor backend dependencies and pytest/mypy/Ruff configuration |
-| `backend/requirements.lock` | Hash-pinned Python lock (macOS arm64, CPython 3.12) |
-| `frontend/` | Expo app, `package-lock.json`, Jest/ESLint/TypeScript configuration |
-| `pyproject.toml`, `uv.lock`, `chalk.yaml` | The Chalk project scaffold (see [Chalk](#chalk)) |
+- **Try the scripted demo** needs no passcode. It uses the deterministic mock, a separate
+  temporary database, and no paid provider. Its history resets when the container is replaced.
+- **Unlock Claude** uses the demo passcode and supports bringing your own question. Its
+  learner history is checkpointed to a dedicated Chalk volume.
+- **Demo options** lets you switch modes. Browser credentials are kept separately for each.
 
-## Requirements
+Both the web export and API run on the Chalk `rubberducky-demo` Scaling Group. Vercel is not
+used. API requests on this deployment use `/api`; the same routes on the standalone backend
+have no `/api` prefix. See [deployment and operations](deploy/chalk/README.md).
 
-- Python **3.12** (not 3.13/3.14).
-- Node.js **22** (`frontend/package.json` declares `>=22 <23`). Newer Node releases are not
-  supported by the selected tooling. You do not need to change your global Node; put a Node 22
-  `bin` directory first on `PATH` for the commands below.
-- For the iPad: Expo Go for SDK 57, on the same trusted Wi-Fi network as the Mac.
+The demo passcode is in the local, ignored `.env.demo-access` file. Never commit that file,
+provider keys, pairing codes, or learner tokens. Use fictional learner information in the demo.
 
-Do not use globally installed legacy `expo-cli` or `react-native` commands. Every frontend command
-runs the project-local Expo CLI through npm.
+## What is implemented
 
-## Setup
+- Brought questions through Claude: typed text, text files, and supported photo/screenshot
+  intake. Follow-up work continues the active session with its stored question and context.
+- A scripted algebra practice flow that works without a model or API key.
+- A shared whiteboard with student pen/eraser, undo/redo, and separate undo for partner marks.
+  The selected pen or eraser has a shaded circle in the vertical toolbar.
+- Server-owned scene revisions, learner scope, idempotent turns, and a durable client stroke
+  outbox. Raw ink is not automatically treated as verified mathematical work.
+- A quiet hint countdown and progress bar using the server's timestamps. At the deadline it
+  offers a hint using the thinking partner's name; it does not send a paid request or speak
+  automatically. “Still thinking” can extend the waiting period.
+- Source-linked memory inspection/correction/deletion, a curriculum and learner knowledge
+  map, bounded context retrieval, and a NumPy BKT baseline.
+- Teaching-style and accessibility preferences, interruption/cancellation, and optional
+  device media controls.
+- Offline fictional walkthroughs of Chalk, Factory Droid, and Daytona, available in Settings.
+- Offline GRU, reviewed shared-example preparation, and random-base LoRA experiments.
+
+Implementation and the hosted release are distinct: the working tree also contains ongoing
+whiteboard, typography, and UI changes. The last UI releases were built from an isolated source
+snapshot plus the partner-name, countdown, and selected-tool changes; uncommitted work is not
+implicitly deployed.
+
+## Integration status
+
+**Claude:** a protected own-question turn was verified on the hosted demo. The server-side key
+is injected from a Chalk secret. The scripted option never routes requests to that Claude app.
+
+**Factory Droid and Daytona:** generation/check adapters and trusted release gates exist. The
+one live attempt on 18 October 2026 returned `generation_failed` and used the labeled pre-vetted
+fallback. Daytona was not reached and no sandbox was created. They are disabled on the hosted
+demo. Offline learner-explanation wiring exists in `agent/interactive-wiring` and
+`pr/learner-explanations`; it is not mounted in this checkout's learner UI.
+
+**Photon:** this checkout's `integrations/photon` still uses Stable Spectrum packages. Beta
+work using `@photon-ai/api` is on `pr/photon-beta` and `pr/photon-on-master`. Neither a live
+Beta connection nor real-message delivery is verified, and Photon is not deployed with the
+demo. See [Photon handoff](docs/agent-handoff/photon-messaging/README.md).
+
+**Voice:** xAI hold-to-talk code is present but disabled on the hosted demo. LiveKit/Deepgram/
+Photon calling is a separate, unfinished integration. Do not describe the demo as live voice chat.
+
+**Chalk:** hosts the demo and also has a separate optional tutoring-evaluation adapter.
+Scoring fictional replay cases does not train a model or establish improved learning.
+
+## Repository map
+
+- [Backend guide](backend/README.md): API, configuration, database, commands, and checks.
+- [Frontend guide](frontend/README.md): app flow, web/iPad development, timing, and media.
+- [Deployment guide](deploy/chalk/README.md): Chalk service, secrets, persistence, and shutdown.
+- [Experiments](docs/experiments.md): reproducible offline commands and historical smoke results.
+- [Remaining work](docs/agent-handoff/README.md): integration gaps and verification boundaries.
+- [Product scope](project_description.md): intended experience and architectural boundaries.
+- `AGENTS.md` and `.agents/`: Chalk development guidance and skills; not runtime app code.
+
+## Local setup
+
+Use Python **3.12** and Node **22**. Run these commands from the repository root:
+
+```sh
+python3.12 -m venv backend/.venv
+backend/.venv/bin/python -m pip install --require-hashes -r backend/requirements.lock
+npm --prefix frontend ci
+```
+
+`backend/requirements.lock` targets macOS arm64/CPython 3.12. On another platform use the
+pinned `backend/requirements.in` or generate a platform-specific lock. Model-training
+packages are large; installation does not download pretrained weights. The root Python
+project and `.venv` belong to the separate Chalk scaffold; do not mix them with `backend/.venv`.
+
+The backend reads process variables. To opt into a private file, set `TUTOR_ENV_FILE` to its
+absolute path. It never automatically reads the repository-root `.env`. See `.env.example`.
+Do not place secrets in `EXPO_PUBLIC_*`; those values are compiled into the client.
+
+For local Claude, set these privately:
+
+```dotenv
+TUTOR_PROVIDER=claude
+EXTERNAL_INTEGRATIONS_ENABLED=true
+ANTHROPIC_API_KEY=<your key>
+ANTHROPIC_MODEL=<model available to your key>
+ANTHROPIC_WORKSPACE_ID=<workspace id when required by your key>
+```
+
+For scripted local practice, use `TUTOR_PROVIDER=mock` and leave external integrations off.
+Other optional providers are `endpoint` and `transformers`; local model loading and downloads
+require their own flags. Keys alone do not enable providers.
+
+Initialize a local database and start the API:
+
+```sh
+export PYTHONPATH="$PWD/backend"
+export TUTOR_ENV_FILE="$PWD/.env.local"
+backend/.venv/bin/python -m app.cli migrate
+backend/.venv/bin/python -m app.cli seed
+backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 3100
+```
+
+In another terminal, from the repository root:
+
+```sh
+EXPO_NO_DOTENV=1 EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:3100 npm --prefix frontend run web
+```
+
+Web uses port **3101** and the API uses **3100**. Coordinate occupied ports; do not stop an
+unrelated process. A developer's local `.env.local` is not automatically copied into Chalk.
+
+## Learner identity and continuity
+
+`POST /demo/bootstrap` creates a new fictional learner and returns its credential once; it
+does not attach existing history. Pair to an existing local learner with:
+
+```sh
+PYTHONPATH=backend backend/.venv/bin/python -m app.cli pair --learner ada
+```
+
+Redeem the short-lived code once with `POST /pairing/redeem`. Later API requests send the
+resulting bearer credential. The server derives learner scope from it; a phone number, caller
+ID, or user-supplied record ID is not authentication. Pairing CLI and API must use the same
+database. Local pairing does not issue a credential for the hosted database.
+
+`execute_turn` reserves, infers, validates, and commits a scoped turn. Clients use the active
+session's `expected_revision` and reuse the same idempotency key only for the same logical
+request/body. The backend loads its stored question, bounded history, graph, and evidence;
+clients do not maintain a separate authoritative transcript. Details are in the backend guide.
+
+## Verification
 
 From the repository root:
 
 ```sh
-# Backend environment (tutor-owned, separate from the Chalk scaffold's root .venv)
-python3.12 -m venv backend/.venv
-backend/.venv/bin/python -m pip install --require-hashes -r backend/requirements.lock
-
-# Frontend dependencies (with Node 22 on PATH)
-npm --prefix frontend ci
-```
-
-The tutor backend always uses `backend/.venv`. The root `.venv` belongs to the Chalk scaffold (it is
-managed by uv from the root `pyproject.toml`); do not install tutor packages into it.
-`backend/.venv` may also be a symlink to an existing Python 3.12 environment; it is git-ignored
-either way.
-
-`backend/requirements.lock` pins exact versions and wheel hashes for macOS on Apple silicon. On
-another platform, install from `backend/requirements.in` (same versions, without hashes) or
-regenerate a lock for that platform. The PyTorch and Transformers wheels are large, so check free
-disk space first. Installing packages does not download any model weights.
-
-`backend/requirements-optional.in` holds the optional PostgreSQL driver. SQLite is the default and
-the only tested database. For PostgreSQL, install that driver, set
-`DATABASE_URL=postgresql+psycopg://user:password@host/dbname` and run the same `app.cli migrate`;
-this path is documented but untested.
-
-## Configuration
-
-The backend reads settings from process environment variables (see `.env.example`). It never reads
-the repository-root `.env` file. To load a file, point `TUTOR_ENV_FILE` at it, for example
-`TUTOR_ENV_FILE=.env.local`. `.env.local` is git-ignored; keep real credentials there and never in
-`EXPO_PUBLIC_*` variables or client code.
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `TUTOR_PROVIDER` | `mock` | `mock`, `transformers`, `endpoint` or `claude` |
-| `EXTERNAL_INTEGRATIONS_ENABLED` | `false` | Required before any remote provider is used |
-| `DATABASE_URL` | `sqlite:///./data/tutor.db` | SQLAlchemy database URL |
-| `TUTOR_CORS_ORIGINS` | `http://127.0.0.1:3101,http://localhost:3101` | Allowed web origins |
-| `DEMO_BOOTSTRAP_ENABLED` | `true` | Allow `POST /demo/bootstrap` to create new fictional learners |
-| `PAIRING_CODE_TTL_SECONDS` | `600` | Lifetime of one-time pairing codes (60 to 3600) |
-| `TUTOR_LOCAL_MODEL_LOAD_ENABLED` | `false` | Opt-in for lazy local model loading |
-| `TUTOR_LOCAL_MODEL_ID` / `_REVISION` | SmolLM2-135M-Instruct, pinned revision | Local model selection |
-| `TUTOR_LOCAL_DEVICE` / `_DTYPE` | `cpu` / `float32` | `cpu`, `mps` or `cuda`; `float32`, `bfloat16` or `float16` (not on CPU) |
-| `TUTOR_LOCAL_ALLOW_DOWNLOAD` | `false` | Without it, weights load from the local Hugging Face cache only |
-| `TUTOR_LOCAL_CONTEXT_WINDOW_TOKENS` / `_MAX_NEW_TOKENS` | `8192` / `512` | Prompt plus output ceiling and output ceiling |
-| `TUTOR_LOCAL_MAX_QUEUE` / `_TIMEOUT_SECONDS` | `2` / `120` | Turns allowed to wait behind the running one; per-call deadline |
-| `TUTOR_REMOTE_TIMEOUT_SECONDS` / `_MAX_ATTEMPTS` / `_BACKOFF_SECONDS` | `30` / `3` / `0.5` | Remote deadline (all attempts), attempts and base backoff |
-| `TUTOR_REMOTE_MAX_OUTPUT_TOKENS` / `_MAX_REQUEST_CHARS` | `512` / `32000` | Remote output and request-size ceilings |
-| `TUTOR_ENDPOINT_BASE_URL` / `_MODEL` / `_API_KEY` / `_STREAMING` | unset / unset / unset / `true` | OpenAI-compatible server (`.../chat/completions`) |
-| `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` / `ANTHROPIC_WORKSPACE_ID` | unset | Claude; no default model is guessed. A key that is not scoped to one workspace must send the `wrkspc_` id |
-| `TUTOR_MEDIA_FIXTURES_ENABLED` | `true` | Shows the labeled simulated voice and photo fixtures in the app; real capture is unaffected |
-
-## Optional voice and camera
-
-Voice and camera are off until the learner opens the "Voice and camera" panel and presses a start
-button. Nothing asks for a permission, opens a device or calls the media routes before that.
-Typing and the board always work without media. A denied or missing device, a backgrounded app,
-Stop, an interruption, new work, a new problem, mute and text-only mode all release the device and
-cancel any speech. A speech or caption callback that arrives after that is ignored.
-
-- `GET /media/capabilities` reports what the server can do. It accepts text from the
-  browser's speech recognizer and does not receive the audio. Photo perception is **not
-  configured**. An open microphone is "listening" only when this browser can actually
-  transcribe (Safari and Chrome). Expo Go has no speech engine, so the microphone can be on
-  there without being called listening. A student-facing or work-facing camera choice is the
-  learner's.
-- `POST /sessions/{id}/media/events` accepts bounded, uncertain events: at most 262144 bytes and
-  2048 px per image edge, 500 characters of transcript, 3 image events per minute and 12 per
-  session, and 120 events per minute and 500 per session overall. Excess, stale (old session
-  revision) and foreign-session events are rejected. Interim transcripts stay provisional; a final
-  transcript is idempotent. A recognized transcript or photo reading is a candidate that the
-  learner edits and confirms before it is used. Digital strokes stay authoritative. Nothing infers
-  emotion, identity or disability.
-- Raw audio, video and image bytes are not stored or logged by default. Only a size and an
-  optional width and height leave the device for a photo.
-- The simulated voice sequence and photo events (interim, revised interim, final, duplicate final,
-  late interim) are deterministic fixtures, labeled "simulated" in the app. They are not live
-  transcription, and the deterministic speech events are not live acoustic barge-in.
-- Logs and error bodies share one redaction path (`backend/app/redaction.py`). Request-validation
-  failures return the same `error.v1` envelope as other errors, keep safe field-level diagnostics
-  and never echo the submitted input.
-
-## Tutor language-model providers
-
-The default is `TUTOR_PROVIDER=mock`, a labeled deterministic tutor that is not a language model.
-With `TUTOR_PROVIDER=claude` and `EXTERNAL_INTEGRATIONS_ENABLED=true` in the file loaded by
-`TUTOR_ENV_FILE`, the opening screen accepts a typed question, a text file, a screenshot, or a photo from the iPad camera.
-Claude reads it and the reply is shown in the prompt and as a note on the board. The picture
-is sent for that turn and is not stored. The built-in algebra unit is still available as
-"Use a practice problem".
-Every provider, mock or not, only *proposes* a draft. The coordinator commits it only when it is a
-complete, valid draft for the current turn and session revision; a truncated, malformed, stale or
-rejected draft fails the turn with no tutor text, drawings, hints or memory written. A provider
-failure never switches to another provider, and there is no paid fallback.
-
-**Local Transformers (`TUTOR_PROVIDER=transformers`).** Opt-in and CPU-first. Nothing is imported
-or downloaded at startup, health or readiness (`/health/model` reports `disabled`, `not_loaded`,
-then `ready`). With `TUTOR_LOCAL_MODEL_LOAD_ENABLED=true`, the first turn loads the model once per
-process on a dedicated worker thread, so the event loop and health stay responsive; later turns
-reuse it. One generation runs at a time, at most `TUTOR_LOCAL_MAX_QUEUE` more wait, and any further
-turn is refused at once. A deadline or cancel stops generation between tokens and a late result is
-discarded, never committed. Loading is cache-only and also switches the Hugging Face Hub offline
-while it runs; `TUTOR_LOCAL_ALLOW_DOWNLOAD=true` is the only way weights are fetched, and it is
-not set by default. Decoding is greedy (no sampling), `trust_remote_code` is off, and a request
-whose prompt plus output ceiling exceeds the configured window is refused rather than truncated.
-An unavailable `cuda`/`mps` device or half precision on CPU is a typed `device_unavailable` error.
-
-| | |
-| --- | --- |
-| Candidate (as of 2026-10-17) | `HuggingFaceTB/SmolLM2-135M-Instruct` |
-| Pinned revision | `12fd25f77366fa6b3b4b768ec3050bf629380bac` |
-| License | Apache-2.0, as published on the model card; confirm it when you download |
-| Weight memory (estimate) | about 135M parameters: roughly 0.54 GB in `float32`, 0.27 GB in `bfloat16`, plus runtime overhead. Not measured here |
-| Context | The 8192-token default is a configured ceiling, not read from the model. Check the model's `config.json` for the pinned revision before raising it |
-| Limits | A 135M model gives weak, sometimes off-plan tutoring; the coordinator's validation, not the model, enforces what the learner sees. Tests do **not** run these weights: they use instrumented loaders and a tiny random-weight model, so no pretrained quality, latency or memory is claimed |
-
-To use it, download the weights yourself first (this is the one step that touches the network):
-
-```sh
-HF_HOME=~/.cache/huggingface backend/.venv/bin/python -c "from huggingface_hub import snapshot_download as d; d('HuggingFaceTB/SmolLM2-135M-Instruct', revision='12fd25f77366fa6b3b4b768ec3050bf629380bac')"
-TUTOR_PROVIDER=transformers TUTOR_LOCAL_MODEL_LOAD_ENABLED=true  # then start the API
-```
-
-**Remote providers (`endpoint`, `claude`).** Disabled until `EXTERNAL_INTEGRATIONS_ENABLED=true`
-*and* the provider is configured; a selected but disabled provider answers turns with
-`503 provider_unavailable`. Readiness is `disabled`, then `unverified` (never "ready", because
-nothing contacts the provider at startup). Keys are read only server-side from the environment,
-never returned by the API and never put in events or errors. The label and `/health/model`
-`transmission` field say where learner context goes: `remote_provider` (sent to Anthropic or a
-remote server) or `loopback` (an `http://127.0.0.1` server on this machine). A non-loopback endpoint
-must use `https`, and redirects are not followed so a key cannot leave the configured host.
-
-Both adapters use one overall deadline per turn, a bounded number of attempts (only transient
-failures such as 429, 5xx and dropped connections are retried, honoring `Retry-After` within the
-deadline), and an output-token ceiling. Streams may arrive in arbitrary fragments; a stream that
-ends before its completion marker is retried and never committed. A completed but malformed,
-oversized, truncated or stale answer is rejected without a second call. The OpenAI-compatible
-adapter uses `httpx`; Claude uses the official `anthropic` SDK, which in the installed version
-runs on `httpx2`. Their tests use in-process transport fixtures with outbound sockets blocked,
-so they establish request shapes and failure handling, not live provider behavior or quality.
-Live calls are deferred and unverified.
-
-The frontend finds the API at `EXPO_PUBLIC_API_BASE_URL` if set. Otherwise the web build uses
-`http://127.0.0.1:3100`, and Expo Go uses the Mac's LAN address that served the bundle, on port 3100.
-
-## Running
-
-Ports: API **3100**, web **3101**, Expo native development server **8081**.
-
-```sh
-# API on loopback. TUTOR_ENV_FILE loads .env.local (Claude key and model). Without it the
-# tutor stays the scripted mock and cannot read a question the learner brings.
-TUTOR_ENV_FILE=.env.local PYTHONPATH=backend backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 3100
-
-# Web build of the client on loopback
-cd frontend && EXPO_NO_DOTENV=1 npx expo start --web --localhost --port 3101
-```
-
-Check the API:
-
-```sh
-curl http://127.0.0.1:3100/health        # application liveness
-curl http://127.0.0.1:3100/health/model  # tutor model readiness, reported separately
-```
-
-Always start Expo from `frontend/` with `EXPO_NO_DOTENV=1`. Expo otherwise loads `.env` files from
-its project root, and the repository-root `.env` is not meant for the client.
-
-`/health/model` only inspects configuration. It never loads a model or contacts a provider.
-
-### Database, fictional seeds and pairing
-
-The schema is created only by Alembic migrations (`backend/migrations/`), never `create_all`.
-Run these from the repository root before starting the API (the manifest's API start runs both):
-
-```sh
-PYTHONPATH=backend backend/.venv/bin/python -m app.cli migrate   # upgrade to head; safe to repeat
-PYTHONPATH=backend backend/.venv/bin/python -m app.cli seed      # insert missing fictional records
-```
-
-Seed records are invented demo content with fixed IDs and `provenance: "fictional_seed"`. Events
-created through the running API are `provenance: "submitted"`. Re-seeding inserts nothing new.
-
-Every learner is a labeled fictional demo learner. A device gets a credential in one of two ways:
-
-- `POST /demo/bootstrap` with `{"display_name": "..."}` creates a new, empty fictional learner and
-  returns a bearer token once. It never returns or links existing history. Disable it with
-  `DEMO_BOOTSTRAP_ENABLED=false`.
-- For a seeded learner with fictional history (`ada` or `ben`), issue a one-time code locally and
-  redeem it from the device:
-
-  ```sh
-  PYTHONPATH=backend backend/.venv/bin/python -m app.cli pair --learner ada
-  curl -X POST http://127.0.0.1:3100/pairing/redeem -H 'Content-Type: application/json' \
-    -d '{"code": "<code from the pair command>"}'
-  ```
-
-Send the token as `Authorization: Bearer <token>`. The server stores only its SHA-256 digest.
-Learner scope always comes from the token. No route takes a learner ID, and a record owned by
-another learner returns the same `404 not_found` as a record that does not exist.
-`POST /auth/revoke` revokes the current token; `app.cli revoke --learner <id>` revokes all of a
-learner's tokens. Errors use `{"schema_version": "error.v1", "error": {"code", "message"}}`.
-
-`app.cli history --learner <id|ada|ben>` prints a learner's recent records with provenance. It is
-a local administrative tool: it reads the database file directly with no credential check, so it
-offers nothing beyond file access and is not exposed over HTTP. Devices use `GET /me/history`.
-
-This is a private local prototype, not a production account or authentication system.
-
-### Concept graph and graph context
-
-The curated algebra curriculum is stored as rows in `concepts` and `prerequisite_edges`:
-multiplication → grouping → distribution → simple linear equations, plus equality operations →
-simple linear equations. Learning objectives include a procedure, a transfer check and a
-concept-explanation objective ("explain why 2(x + 3) equals 2x + 6"). `app/graph/curriculum.py`
-loads these rows into a NetworkX DAG for cycle checks, prerequisite traversal and bounded
-neighborhoods. No language model is involved.
-
-Personal evidence is stored separately in `evidence_links`. Each link says that one of a
-learner's observations `supports` or `contradicts` one of that learner's tentative hypotheses,
-with a strength value. Links have no concept-to-concept fields, so they can never add a
-curriculum prerequisite.
-
-```sh
-CLI="env PYTHONPATH=backend backend/.venv/bin/python -m app.cli"
-$CLI graph validate                                          # DAG check, isolated concepts, order
-$CLI graph prerequisites --concept concept.linear_equations  # all prerequisites with hop counts
-$CLI graph neighborhood --concept concept.distribution --max-hops 1
-$CLI graph add-edge --prerequisite concept.linear_equations --concept concept.grouping
-#   -> rejected: prerequisite cycle; stored edges are unchanged (use --dry-run to only validate)
-$CLI graph context --learner ada --concept concept.distribution --max-evidence 2 --format text
-```
-
-`graph context` selects a bounded context for one learner: the target concept, prerequisites and
-dependents within `--max-hops` (capped by `--max-nodes`), the learner's non-retracted hypotheses
-on those concepts, and recent evidence links (`--max-evidence`, optional `--max-age-days`). The
-evidence budget alternates between supporting and contradicting links, newest first, so a small
-budget keeps both sides. The output lists every selected concept, edge, hypothesis, link,
-observation and underlying source record ID, the confidence and alternatives of each hypothesis,
-and how many candidates the budget left out. `--now` fixes the reference time for reproducible
-output. Like `history`, this is a local administrative command.
-
-Devices use `GET /graph/context?concept_id=...` with the same bounds as query parameters. The
-learner scope comes from the bearer token, so another learner's request returns the same shared
-curriculum and none of the first learner's evidence.
-
-### Memory layers and bounded tutor context
-
-Learner memory is kept in six separate layers: raw evidence (attempts, steps, observations,
-hints, assessments), derived beliefs (hypotheses and mastery estimates with source IDs and
-algorithm/parameter versions), editable preferences (`updated_by` learner or operator), temporary
-session context, source-linked episodic notes (review date, expiry, correction state) and the
-persona configuration. Session context such as "tired today" applies to its own session only.
-Starting a new session or ending the session expires it, and the next context asks the tutor to
-check again instead of treating it as a fact.
-
-A provider can only *propose* memory updates: a session-context entry for the current session,
-an episodic note, or a review flag on an existing note. `app/learner/memory_updates.py` checks
-the whole batch (schema, learner, cited sources, session scope, expiry windows, evidence kind and
-confidence) before writing anything. One bad proposal rejects the batch. Proposals cannot name a
-table, change preferences, persona, evidence or curriculum, or cite another learner's records.
-
-`app/inference/context.py` builds the context a provider would see. It contains the bounded graph
-context, a few recent observations from a fixed window, current session context, usable notes,
-preferences and persona. It never includes the lifetime transcript. The context is serialized
-and measured. When it is over budget, free text is removed first and then low-priority items are
-dropped. Source IDs, polarity and status (curriculum, observed, verified, self-report, inference,
-derived estimate, learner setting) always remain. Omissions are counted, and a context that
-cannot fit is reported as `insufficient`. `app/inference/request.py` applies the provider's
-window, output reservation and character limit to the final assembled request. The default
-token counter counts UTF-8 bytes, which is an upper bound for byte-level BPE tokenizers.
-
-```sh
-$CLI memory layers --learner ada
-$CLI memory context --learner ada --concept concept.distribution --max-chars 1500 --format text
-$CLI memory context --learner ada --concept concept.distribution --assemble \
-    --context-window 2048 --max-output-tokens 256
-$CLI memory propose --learner ada --file proposals.json --turn-id turn-1 --dry-run
-```
-
-Devices use `GET /memory/layers` and `GET /memory/context?concept_id=...`. As with every
-learner route, the scope comes from the bearer token.
-### Knowledge tracing (NumPy BKT) and history replay
-
-`backend/app/tracing/` implements Bayesian Knowledge Tracing as small NumPy functions
-(`bkt.py`): predicted correctness `p(1-s) + (1-p)g`, the correct/incorrect posteriors and the
-learning transition `posterior + (1-posterior)T`. The predictor always predicts before it
-observes. Its response probability (`p_correct`, target `next_independent_response_correct`) is
-reported separately from its latent knowledge estimate (`latent_knowledge`). Guess and slip
-describe uncertainty in a single response; they are not labels for the learner.
-
-Parameters must be finite and in `[0, 1]`, with `p_guess + p_slip < 1`. Parameter sets are
-immutable and versioned. The default `bkt-handset.v1` (`p_init=.2, p_learn=.1, p_guess=.25,
-p_slip=.1`) is hand-chosen and uncalibrated. If a response has zero probability under the
-current state (for example `p=0, g=0` and a correct answer), the predictor records
-`impossible_observation` and does not update. It never produces NaN.
-
-Only independent, verified, non-explanation assessments update BKT. Hinted, answer-revealed,
-step-level, self-report and unknown-outcome evidence is kept and reported with a reason. One
-problem counts at most once per concept. Replay recomputes from raw observations starting at
-`p_init` and replaces the derived rows (`bkt_counted_opportunities`, `mastery_estimates`) for
-that learner and parameter version, so repeated replays never duplicate anything.
-
-```sh
-CLI="env PYTHONPATH=backend backend/.venv/bin/python -m app.cli"
-$CLI tracing fixture                                   # fictional 'bkt-fixture' learner
-$CLI tracing replay --learner bkt-fixture --format text  # two counted opportunities -> 0.82
-$CLI tracing state --learner bkt-fixture               # persisted ledger and estimate
-$CLI tracing parameters add --parameter-version bkt-handset-no-learn.v1 --p-init 0.2 \
-  --p-learn 0 --p-guess 0.25 --p-slip 0.1 --description "No-learning comparison"
-$CLI tracing replay --learner bkt-fixture --parameter-version bkt-handset-no-learn.v1  # 81/106
-$CLI tracing readiness --learner bkt-fixture           # qualitative bands, no probabilities
-```
-
-`--dry-run` computes without persisting, and `--state-out file.json` saves the predictor
-snapshot. Devices use `GET /tracing/readiness`, which returns only qualitative bands
-(`not_enough_evidence`, `emerging`, `developing`, `strong_so_far`) and a separate
-independent-transfer status. It never returns a mastery score.
-
-### Offline GRU, shared examples and tiny LoRA
-
-Training is not part of the API. The commands below use `backend/.venv`, at most two numerical
-threads, and synthetic or reviewed fictional text. They do not download weights or call a paid
-model. Model cards for the smoke runs recorded in this workspace are in
-[docs/experiments.md](docs/experiments.md). A lower loss than BKT, or a small adapter change on a
-random Transformer, is a pipeline check. It is not calibrated mastery and not evidence that a
-learner or a tutor improved.
-
-```sh
-EXP="env PYTHONPATH=backend OMP_NUM_THREADS=2 backend/.venv/bin/python"
-$EXP -m experiments.tracing train --synthetic --seed 17 --epochs 2 --output artifacts/gru-smoke
-$EXP -m experiments.tracing evaluate --checkpoint artifacts/gru-smoke \
-  --output artifacts/gru-smoke/eval.json
-$EXP -m experiments.tutor_data validate \
-  --input backend/experiments/tutor_data/fixtures/reviewed_shared.jsonl
-$EXP -m experiments.tutor_data prepare \
-  --input backend/experiments/tutor_data/fixtures/reviewed_shared.jsonl \
-  --output artifacts/tutor-data --seed 17
-$EXP -m experiments.tutor_data dry-run \
-  --input backend/experiments/tutor_data/fixtures/reviewed_shared.jsonl \
-  --output artifacts/tutor-data-dry --seed 17
-$EXP -m experiments.lora train --smoke --seed 17 --steps 2 \
-  --data artifacts/tutor-data --output artifacts/lora-smoke
-$EXP -m experiments.lora reload --checkpoint artifacts/lora-smoke
-$EXP -m experiments.lora evaluate --checkpoint artifacts/lora-smoke --data artifacts/tutor-data
-```
-
-`artifacts/` is git-ignored. Re-run the commands to reproduce checkpoints. Teacher generation stays
-off unless you pass `--activate`, a provider and a positive `--max-cost-usd`; generated rows are
-unreviewed and are not training data.
-### Whiteboard scene operations and author-safe history
-
-The board is a durable logical-coordinate scene (`1600x1200`, one fixed 3-unit student pen).
-Tutor drawing proposals pass through six validated tools (`draw_path`, `draw_shape` with
-circle/rectangle/line/bracket/arrow, `add_math`, `highlight`, `erase_tutor_object`,
-`focus_region`) with finite bounds, point/payload budgets and tutor ownership checks; one bad
-action rejects the whole turn draft before anything is committed. The student never gets a
-brush or color choice: the server assigns pen width and the locked `student`/`tutor` color
-roles, and every object carries id, author, semantic role, session, UTC time and optional
-teaching step. Tutor objects are board state, never student work or assessment evidence.
-
-Every visible change is one row in a per-session operation log with a monotonic
-`scene_revision`. Clients commit one operation per finished stroke or history action:
-
-- `POST /sessions/{id}/scene/operations` with `{"operation_id", "expected_scene_revision",
-  "action"}`; actions are `add_stroke`, `erase_object` (own objects only), `undo`, `redo`
-  and `undo_tutor_move`. Identical retries replay the stored outcome (`replayed: true`), a
-  reused id with different content is `409 idempotency_conflict`, and a stale expectation is
-  `409 revision_conflict`, so an offline outbox can resync and retry safely.
-- `GET /sessions/{id}/scene` returns the visible objects, current scene revision, board/pen
-  spec and the undo/redo/tutor-move availability flags.
-- `GET /sessions/{id}/scene/operations?after_seq=N` is the replay feed a reconnecting client
-  uses to catch up on missed operations in order.
-
-Histories are author-safe: student undo/redo walk only the student's own strokes and erases,
-while `undo_tutor_move` reverses one whole tutor teaching move (every object from that turn)
-as a group, leaving student objects and the student's history position untouched. Erased or
-undone objects stay hidden after a reload or restart; the operation log is authoritative and
-`scene_objects.deleted_at` is the materialized visibility updated in the same transaction.
-
-The client holds up its end with a durable per-session outbox and scene cache
-(`frontend/src/storage/outbox.ts`, `sceneCache.ts`, AsyncStorage on device and web). A finished
-stroke that cannot reach the server is queued under its original operation id, stays on the
-board as a faded dashed mark labeled "not saved yet", and is retried with the same id on
-reconnect or the next app load, so a lost acknowledgement replays instead of duplicating.
-History edits (erase/undo/redo/tutor-move undo) depend on current server state and are refused
-honestly while offline rather than queued. The last committed server snapshot is cached so
-re-entry paints real work immediately, and the board ignores input until its first real layout
-measurement so an early stroke can never be squashed into a corner. The board always says when
-work is unsaved; quiet means saved.
-### Persona rule, comfort override and accessibility preferences
-
-- `GET|PUT /me/tutor-configuration`: the first selection records server UTC time. A *different*
-  appearance or personality is accepted only at or after `last_changed_at + 604800 s`
-  (equality counts); earlier it is `409 persona_change_locked` with `Retry-After` and the exact
-  next UTC instant, and nothing (including a bundled comfort value) is written. Re-sending the
-  current pair is a no-op that never starts or resets the wait, before or after eligibility.
-  Competing requests use an atomic compare-and-swap, so only one can consume an eligibility.
-  Responses carry `outcome`, `persona_locked`, `server_now` and `next_change_available_at`.
-  Client clocks, headers and time zones are ignored.
-- `PUT /me/comfort-override` (`none | neutral_supportive | reduced_sass`): immediate, applies to
-  the next tutor turn, never locked, and writes only `comfort_override`/`comfort_updated_at`.
-- `GET|PATCH /me/accessibility-preferences` (`animation`, `sound_enabled`, `haptics_enabled`,
-  `text_only`, `captions_enabled`): partial, never locked, stored as learner preferences
-  (`a11y_*`) and independent of the persona row.
-
-### iPad over trusted Wi-Fi (Expo Go)
-
-Only do this on a private network you trust. There is no public tunnel.
-
-```sh
-PYTHONPATH=backend backend/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 3100
-cd frontend && EXPO_NO_DOTENV=1 npx expo start --lan --port 8081
-```
-
-Scan the QR code with the iPad camera to open the project in Expo Go. The status screen should say
-"Tutor service connected". If it does not, check that the Mac firewall allows ports 3100 and 8081.
-A standalone native build is not part of this route: Expo SDK 57 needs Xcode 26.4 or newer to
-compile natively, and Expo Go does not.
-
-## Checks
-
-Run from the repository root with Node 22 on `PATH`:
-
-```sh
-backend/.venv/bin/python -m pytest backend/tests -q && npm --prefix frontend test -- --runInBand
-backend/.venv/bin/python -m mypy --config-file backend/pyproject.toml backend/app && npm --prefix frontend run typecheck
-backend/.venv/bin/python -m ruff check backend && npm --prefix frontend run lint
-npm --prefix frontend run build:web
+PYTHONPATH=backend backend/.venv/bin/python -m pytest backend/tests -q
+backend/.venv/bin/python -m mypy --config-file backend/pyproject.toml backend/app
+backend/.venv/bin/python -m ruff check backend
+npm --prefix frontend test -- --runInBand
+npm --prefix frontend run typecheck
+npm --prefix frontend run lint
+EXPO_NO_DOTENV=1 npm --prefix frontend run build:web
 npm --prefix frontend run check:expo
+backend/.venv/bin/python -m pytest deploy/chalk/test_access.py -q
 ```
 
-mypy must use `--config-file backend/pyproject.toml`. The root `pyproject.toml` belongs to the Chalk
-scaffold and sets `ignore_errors = true`, which would make the check meaningless.
-`check:expo` verifies SDK dependency compatibility. `expo-doctor` additionally reports the Xcode
-version limitation described above.
+Use the backend mypy configuration; the root configuration is for Chalk. These are commands
+to run, not a claim that every current gate passes. On 18 October 2026, the focused waiting/
+chat checks passed (9 tests), the gate checks passed (3 tests), and the isolated release web
+build succeeded. A full frontend typecheck reported an unresolved `global` reference in
+`WorkspaceScreenMedia.test.tsx`. The earlier 65-test backend health/turn run predates subsequent
+working-tree edits. No new full-suite or physical iPad pass is claimed by this documentation.
 
-## Photon messaging
-
-`integrations/photon` is an optional Spectrum cloud bridge. It stays off unless
-`PHOTON_MESSAGING_ENABLED=true` and `SPECTRUM_PROJECT_ID` / `SPECTRUM_PROJECT_SECRET` are set.
-With those set, `npm --prefix integrations/photon start` connects to Spectrum cloud iMessage
-and continues a paired learner's session through the tutor API. A first message that is the
-pairing code from `python -m app.cli pair` links that chat. Later texts are submitted as
-typed work. Nothing is sent when the bridge is disabled, and this repository does not
-provision a phone line.
-
-```sh
-npm --prefix integrations/photon ci
-npm --prefix integrations/photon test
-```
-
-## Chalk
-
-The repository also contains a Chalk project scaffold created with `chalk init`:
-
-- `chalk.yaml` names the Chalk project and its environments.
-- The root `pyproject.toml` and `uv.lock` hold the Chalk project's Python dependencies, managed with
-  [uv](https://docs.astral.sh/uv/). They are separate from the tutor backend's dependencies.
-- `AGENTS.md` gives coding agents Chalk-specific instructions.
-
-The tutor does not need a Chalk environment. Learners, sessions, and the whiteboard stay in
-SQLite. Chalk is only an optional cloud copy of the tutoring-evaluation scores (math, diagnosis,
-disclosure, hint specificity, hint usefulness, respect, memory grounding, and latency). Those
-scores grade scripted replies on fictional cases. They do not update a model.
-
-The same scores already run on this machine, with nothing uploaded:
-
-```sh
-PYTHONPATH=backend backend/.venv/bin/python -m app.cli evaluation status
-PYTHONPATH=backend backend/.venv/bin/python -m app.cli evaluation run --candidate fixture:good
-PYTHONPATH=backend backend/.venv/bin/python -m app.cli evaluation chalk-plan --candidate fixture:good
-```
-
-`evaluation status` reads configuration only. While Chalk is off it reports `disabled`.
-`evaluation run` scores a scripted tutor locally. `evaluation chalk-plan` prints the rows a cloud
-run would upload and does not contact Chalk. Other scripted tutors are `fixture:leaky` and
-`fixture:ungrounded`.
-
-A labeled fictional walkthrough of Chalk, Factory Droid, and Daytona also stays on this machine:
-
-```sh
-PYTHONPATH=backend backend/.venv/bin/python -m app.cli demo
-```
-
-The same walkthrough is `GET /demo/integrations` while demo bootstrap is enabled, and in the
-app under Settings, “Fictional demos”.
-
-### A live Chalk evaluation
-
-Signing in creates the Chalk environment. Install the CLI, then log in and select the environment
-you want. A new account gets a project with a default environment. The dashboard is
-https://chalk.ai/projects.
-
-```sh
-curl -s -L https://api.chalk.ai/install.sh | sh
-chalk login
-chalk environment
-chalk environment <name>
-chalk config --format shell --show-secrets
-```
-
-`chalk config --format shell --show-secrets` prints `CHALK_CLIENT_ID`, `CHALK_CLIENT_SECRET`, and
-`CHALK_ENVIRONMENT`. Put those in the shell that runs the API or the CLI. The backend does not
-load a `.env` file and does not reuse `chalk login` on its own. Also set:
-
-```sh
-export EXTERNAL_INTEGRATIONS_ENABLED=true
-export CHALK_EVALUATIONS_ENABLED=true
-```
-
-`CHALK_API_SERVER` is optional. When set, it must be an `https` host on `chalk.ai`. The SDK
-default is `https://api.chalk.ai`.
-
-Check the settings, preview the upload, then run it. `--confirm-live` is required. That command
-uploads the fictional cases, deploys the scoring functions, and starts a paid Chalk run. Chalk
-must already have Evaluations and the async function queue enabled on that environment, plus an
-active deployment. Leave off `--include-judge` unless `CHALK_JUDGE_ENABLED=true` and
-`CHALK_JUDGE_MODEL` are set. That flag calls a paid model.
-
-```sh
-PYTHONPATH=backend backend/.venv/bin/python -m app.cli evaluation status
-PYTHONPATH=backend backend/.venv/bin/python -m app.cli evaluation chalk-plan --candidate fixture:good
-PYTHONPATH=backend backend/.venv/bin/python -m app.cli evaluation chalk-run \
-  --confirm-live \
-  --candidate fixture:good \
-  --name rubberducky-tutoring-replay-eval
-```
-
-`configured_unverified` means the settings are present. It does not mean a live call has
-succeeded. Without `--confirm-live`, `chalk-run` refuses and exits with code 2.
-
-Docs: https://docs.chalk.ai
-
----
-
-## Agent handoff — start here for remaining work
-
-**This is an additive documentation handoff, not permission to resume the paused mission,
-browser testing, live integrations or current development services.** The existing README
-above is preserved verbatim; its manual setup/live-provider/LAN examples are not current
-agent execution authorization.
-
-- **[Remaining-work index, assignment map and all37 pending assertions](docs/agent-handoff/README.md)**
-- **[Backend setup, isolated database, module/API flow and commands](backend/README.md)**
-- **[Frontend setup, shared-client flow, scripts and service safety](frontend/README.md)**
-- [Working-tree ownership and interrupted-worker recovery](docs/agent-handoff/working-tree/README.md)
-
-Snapshot at `904d965`: learning-loop is closed/validated33/33; formal total is33 passed/
-37 pending. Agency implementation is mostly complete, not formally finished. Factory/Daytona
-adapters/native component and Chalk evaluator are implemented; learner manipulative wiring,
-Photon messaging/LiveKit voice, remaining media validation, external modeling integration,
-delivery and actual user-iPad acceptance remain. The interrupted Photon worker only explored;
-its `in_progress` label does not mean a live worker or finished bridge.
-
-**Browser work is USER-PAUSED.** Do not start/stop/adopt user3100/3101/8081 services or use
-proposed3103. Future resumed mission tests use approved isolated API3102/separate DB and
-owner-coordinated web3101 with explicit override; see the index before any action.
-GRU/shared-dataset/LoRA implementation belongs to another agent: receive its commits/results,
-do not duplicate it. Historical tests are not fresh certification of current dirty UI, and
-fixtures are not live perception/delivery, trained-model quality, learning gains or physical
-iPad/Pencil evidence. Each assignment includes concrete scope, prerequisites, existing
-acceptance behavior, future verification and a copyable agent prompt.
+Live checks confirmed the two entry options, a scripted turn, protected Claude configuration,
+a committed own-question Claude turn before subsequent UI releases, and delivery of the latest
+UI bundles. API/build evidence does not establish physical iPad/Pencil behavior or learning gains.

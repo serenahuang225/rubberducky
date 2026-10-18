@@ -5,18 +5,18 @@
  * view adds an arrow from a memory.
  */
 
-import React from "react";
+import React, { useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import Svg, { Line } from "react-native-svg";
 
 import type { KnowledgeMap } from "../api/contracts";
 import type { BoardTheme } from "../board/palette";
 
-const NODE_W = 156;
-const NODE_H = 96;
-const GAP_X = 36;
-const GAP_Y = 16;
-const PAD = 8;
+const NODE_W = 248;
+const NODE_H = 120;
+const GAP_X = 64;
+const GAP_Y = 40;
+const PAD = 24;
 
 type Placed = {
   conceptId: string;
@@ -25,9 +25,10 @@ type Placed = {
   memories: string[];
   x: number;
   y: number;
+  height: number;
 };
 
-function place(map: KnowledgeMap): { nodes: Placed[]; width: number; height: number } {
+function place(map: KnowledgeMap, measured: Record<string, number>): { nodes: Placed[]; width: number; height: number } {
   const byId = new Map(map.nodes.map((node) => [node.concept_id, node]));
   const incoming = new Map<string, string[]>();
   for (const node of map.nodes) incoming.set(node.concept_id, []);
@@ -58,17 +59,23 @@ function place(map: KnowledgeMap): { nodes: Placed[]; width: number; height: num
     const ids = (columns.get(column) ?? []).sort((a, b) =>
       (byId.get(a)?.name ?? a).localeCompare(byId.get(b)?.name ?? b),
     );
-    ids.forEach((id, row) => {
+    let rowY = PAD;
+    ids.forEach((id) => {
       const node = byId.get(id);
       if (node === undefined) return;
+      const lines = (text: string) => Math.max(1, Math.ceil(text.length / 28));
+      const height = Math.max(NODE_H, measured[id] ?? 0, 64 + lines(node.name) * 20 +
+        lines(node.readiness_label) * 18 + node.memories.reduce((sum, text) => sum + lines(text) * 18 + 8, 0));
       placed.push({
         conceptId: id,
         name: node.name,
         readiness: node.readiness_label,
         memories: node.memories,
         x: PAD + column * (NODE_W + GAP_X),
-        y: PAD + row * (NODE_H + GAP_Y),
+        y: rowY,
+        height,
       });
+      rowY += height + GAP_Y;
     });
   }
   const width = Math.max(
@@ -76,7 +83,7 @@ function place(map: KnowledgeMap): { nodes: Placed[]; width: number; height: num
     PAD * 2,
   );
   const height = Math.max(
-    ...placed.map((node) => node.y + NODE_H + PAD),
+    ...placed.map((node) => node.y + node.height + PAD),
     PAD * 2,
   );
   return { nodes: placed, width, height };
@@ -89,7 +96,8 @@ export function KnowledgeGraph({
   map: KnowledgeMap;
   theme: BoardTheme;
 }) {
-  const layout = place(map);
+  const [measured, setMeasured] = useState<Record<string, number>>({});
+  const layout = place(map, measured);
   const at = new Map(layout.nodes.map((node) => [node.conceptId, node]));
   return (
     <View testID="knowledge-graph" style={styles.wrap}>
@@ -105,9 +113,9 @@ export function KnowledgeGraph({
                 <Line
                   key={`${edge.prerequisite_id}-${edge.concept_id}`}
                   x1={from.x + NODE_W}
-                  y1={from.y + NODE_H / 2}
+                  y1={from.y + from.height / 2}
                   x2={to.x}
-                  y2={to.y + NODE_H / 2}
+                  y2={to.y + to.height / 2}
                   stroke={theme.labelMuted}
                   strokeWidth={2}
                 />
@@ -118,6 +126,11 @@ export function KnowledgeGraph({
             <View
               key={node.conceptId}
               testID={`knowledge-node-${node.conceptId}`}
+              onLayout={(event) => {
+                const height = event.nativeEvent.layout.height;
+                setMeasured((previous) => Math.abs((previous[node.conceptId] ?? 0) - height) < 1
+                  ? previous : { ...previous, [node.conceptId]: height });
+              }}
               accessibilityLabel={`${node.name}. ${node.readiness}. ${node.memories.join(". ")}`}
               style={[
                 styles.node,
@@ -125,22 +138,21 @@ export function KnowledgeGraph({
                   left: node.x,
                   top: node.y,
                   width: NODE_W,
-                  height: NODE_H,
+                  minHeight: node.height,
                   backgroundColor: theme.surface,
                   borderColor: theme.surfaceEdge,
                 },
               ]}
             >
-              <Text numberOfLines={2} style={[styles.name, { color: theme.labelText }]}>
+              <Text style={[styles.name, { color: theme.labelText }]}>
                 {node.name}
               </Text>
-              <Text numberOfLines={2} style={[styles.readiness, { color: theme.labelMuted }]}>
+              <Text style={[styles.readiness, { color: theme.labelMuted }]}>
                 {node.readiness}
               </Text>
               {node.memories.map((memory) => (
                 <Text
                   key={memory}
-                  numberOfLines={1}
                   style={[styles.memory, { color: theme.labelText }]}
                 >
                   {memory}
@@ -161,9 +173,9 @@ const styles = StyleSheet.create({
     position: "absolute",
     borderWidth: 2,
     borderRadius: 16,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    gap: 2,
+    paddingHorizontal: 14,
+    paddingVertical: 18,
+    gap: 8,
   },
   name: { fontSize: 14, fontWeight: "700", lineHeight: 18 },
   readiness: { fontSize: 12, lineHeight: 16 },

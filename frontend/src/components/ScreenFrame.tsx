@@ -104,7 +104,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: space.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingBottom: space.sm,
+    paddingBottom: space.lg,
     paddingHorizontal: space.xl,
   },
   headingBox: { flex: 1, minHeight: 44, justifyContent: "center" },
@@ -122,6 +122,7 @@ const styles = StyleSheet.create({
   bodyContent: {
     width: "100%",
     flexGrow: 1,
+    paddingTop: space.md,
     paddingBottom: space.xxl,
   },
   column: {

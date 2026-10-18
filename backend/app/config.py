@@ -30,6 +30,8 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
+    # Empty string disables local activity files. Paths are relative to the server cwd.
+    tutor_activity_log_path: str = "./data/logs/activity.jsonl"
     tutor_provider: ProviderName = "mock"
     external_integrations_enabled: bool = False
     database_url: str = Field(default="sqlite:///./data/tutor.db", min_length=1)

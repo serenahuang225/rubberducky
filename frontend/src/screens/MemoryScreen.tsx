@@ -713,9 +713,9 @@ export function MemoryScreen({
 }
 
 const styles = StyleSheet.create({
-  group: { gap: 10 },
+  group: { gap: 16 },
   sectionTitle: { fontSize: 20, fontWeight: "700" },
-  card: { padding: 14, gap: 6, borderRadius: 28, borderWidth: 2 },
+  card: { padding: 20, gap: 12, borderRadius: 28, borderWidth: 2 },
   itemTitle: { fontSize: 17, fontWeight: "700" },
   body: { fontSize: 15, lineHeight: 21 },
   meta: { fontSize: 14, lineHeight: 20 },
@@ -726,17 +726,19 @@ const styles = StyleSheet.create({
     gap: 10,
     alignItems: "center",
   },
-  editor: { gap: 8 },
+  editor: { gap: 12 },
   input: {
     minHeight: 70,
     borderWidth: 2,
-    borderRadius: 999,
-    padding: 10,
+    borderRadius: 20,
+    padding: 16,
+    textAlignVertical: "top",
     fontSize: 16,
   },
   button: {
     minHeight: 44,
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
     borderRadius: 28,
     alignItems: "center",
     justifyContent: "center",

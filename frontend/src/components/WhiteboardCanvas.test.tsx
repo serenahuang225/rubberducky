@@ -1,12 +1,13 @@
 import { act, fireEvent, render } from '@testing-library/react-native';
 import React from 'react';
 import { View } from 'react-native';
+import { Text as SvgText } from 'react-native-svg';
 
 import { getTheme } from '../board/palette';
 import type { SceneObjectRecord } from '../board/sceneTypes';
 
 import { BoardInputLayer } from './BoardInputLayer';
-import { describeObject, objectBounds, orderedObjects, wordsToShow, wordTotal } from './SceneObjectView';
+import { describeObject, objectBounds, orderedObjects, wordsToShow, wordTotal, SceneObjectView, termBounds } from './SceneObjectView';
 import { earlierWorkIds, WhiteboardCanvas } from './WhiteboardCanvas';
 
 const theme = getTheme('paper');
@@ -409,4 +410,49 @@ describe('earlierWorkIds (current problem stays legible)', () => {
     expect(view.getByText('Your dot')).toBeTruthy();
     expect(view.getByText('Tutor posed the problem: "3(x - 2) = 12"')).toBeTruthy();
   });
+});
+
+
+describe('math-focused tutor board', () => {
+  it('keeps tutor explanations off the canvas', () => {
+    const view = render(<SceneObjectView theme={theme} object={object({
+      id: 'note', author_role: 'tutor', kind: 'text', semantic_role: 'teaching_note',
+      payload: { text: 'Here is a long explanation for the conversation.', x: 80, y: 120 },
+    })} />);
+    expect(view.toJSON()).toBeNull();
+  });
+
+  it.each(['paper', 'slate'] as const)('uses yellow tutor math on %s', (name) => {
+    const palette = getTheme(name);
+    const view = render(<SceneObjectView theme={palette} object={object({
+      id: 'math', author_role: 'tutor', kind: 'add_math',
+      payload: { text: '2x = 8', at: { x: 80, y: 120 }, color_role: 'tutor' },
+    })} />);
+    expect(view.UNSAFE_getByType(SvgText).props.fill).toBe(palette.tutorInk);
+  });
+});
+
+
+describe('equation term highlighting', () => {
+  it('limits emphasis to the requested part of the equation', () => {
+    const equation = object({ id: 'eq', kind: 'add_math', author_role: 'tutor',
+      payload: { text: '2x + 6 = 14', at: { x: 80, y: 240 } } });
+    const whole = termBounds(equation, null)!;
+    const term = termBounds(equation, '6')!;
+    expect(term.minX).toBeGreaterThan(whole.minX);
+    expect(term.maxX - term.minX).toBeLessThan(whole.maxX - whole.minX);
+    expect(termBounds(equation, 'missing')).toBeNull();
+  });
+});
+
+
+it('aligns term highlights with the rendered font size and wrapped row', () => {
+  const math = object({ id: 'eq-sized', kind: 'add_math', author_role: 'tutor',
+    payload: { text: '2x + 6 = 14', at: { x: 80, y: 240 }, font_size: 30 } });
+  const highlight = termBounds(math, '6')!;
+  expect(highlight.minX).toBe(80 + 5 * 30 * 0.6 - 8);
+  expect(highlight.maxX - highlight.minX).toBe(30 * 0.6 + 16);
+  const statement = object({ id: 'wrapped', kind: 'text', semantic_role: 'problem_statement',
+    payload: { text: 'a '.repeat(24) + '2x = 8', x: 80, y: 120 } });
+  expect(termBounds(statement, '2x')!.minY).toBe(120 + 40 - 32);
 });

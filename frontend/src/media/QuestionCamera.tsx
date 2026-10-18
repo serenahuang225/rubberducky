@@ -8,7 +8,7 @@ import React, { useState } from "react";
 import { Pressable, StyleSheet, Text } from "react-native";
 
 import type { BoardTheme } from "../board/palette";
-import { type } from "../theme/tokens";
+import { radius, type } from "../theme/tokens";
 
 import type { QuestionImagePayload } from "./questionFile";
 import { photoBase64 } from "./questionPhoto";
@@ -80,8 +80,10 @@ export function QuestionCamera({ theme, busy, onCaptured, onError }: QuestionCam
 const styles = StyleSheet.create({
   open: {
     borderWidth: 1,
+    borderRadius: radius.pill,
     minHeight: 44,
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     justifyContent: "center",
   },
   openText: type.control,

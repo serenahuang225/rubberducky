@@ -9,6 +9,7 @@ from fastapi.openapi.utils import get_openapi
 from sqlalchemy.exc import SQLAlchemyError
 
 from app import __version__
+from app.activity import ActivityLog, ActivityMiddleware
 from app.api.demos import router as demos_router
 from app.api.errors import ErrorEnvelope, install_error_handlers
 from app.api.graph import router as graph_router
@@ -45,6 +46,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     # Creating the engine does not connect; the database is opened on first request.
     database = Database(resolved.database_url)
+    activity_log = ActivityLog(resolved.tutor_activity_log_path)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -56,6 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             logger.warning("Pending-turn recovery skipped: the database is not ready.")
         yield
         database.dispose()
+        activity_log.close()
 
     application = FastAPI(title="Rubberducky tutor API", version=__version__, lifespan=lifespan)
     application.state.settings = resolved
@@ -67,6 +70,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
         allow_credentials=False,
     )
+    if resolved.tutor_activity_log_path:
+        application.add_middleware(ActivityMiddleware, log=activity_log)
     install_error_handlers(application)
     application.include_router(health_router)
     application.include_router(demos_router)

@@ -73,17 +73,29 @@ function ToolButton({
         styles.button,
         column ? styles.buttonColumn : null,
         {
-          backgroundColor: active
+          backgroundColor: column ? "transparent" : active
             ? theme.controlBackground
             : pressed
               ? theme.boardGrain
               : theme.surface,
-          borderColor: active ? theme.controlBackground : theme.surfaceEdge,
+          borderColor: column ? "transparent" : active ? theme.controlBackground : theme.surfaceEdge,
+          borderLeftColor: column && active ? theme.controlBackground : column ? "transparent" : active ? theme.controlBackground : theme.surfaceEdge,
           opacity: disabled ? 0.45 : 1,
         },
       ]}
     >
-      <View accessible={false} importantForAccessibility="no-hide-descendants">
+      <View
+        accessible={false}
+        importantForAccessibility="no-hide-descendants"
+        style={column ? {
+          width: 36,
+          height: 36,
+          borderRadius: 18,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: active ? theme.controlBackground : "transparent",
+        } : undefined}
+      >
         {icon}
       </View>
       {iconsOnly ? null : (
@@ -92,7 +104,7 @@ function ToolButton({
           style={[
             styles.buttonText,
             column ? styles.buttonTextColumn : null,
-            { color: active ? theme.controlText : theme.labelText },
+            { color: active && !column ? theme.controlText : theme.labelText },
           ]}
         >
           {label}
@@ -198,7 +210,7 @@ const styles = StyleSheet.create({
   },
   railColumn: {
     width: 52,
-    gap: 2,
+    gap: 6,
     alignItems: "stretch",
     paddingVertical: 8,
   },
@@ -216,6 +228,8 @@ const styles = StyleSheet.create({
   },
   buttonColumn: {
     flexDirection: "column",
+    borderWidth: 0,
+    borderRadius: radius.md,
     paddingHorizontal: 4,
     gap: 2,
   },

@@ -16,18 +16,13 @@ _CRITERION_PHRASES = {
 
 def _check_in(plan: TurnPlan) -> str:
     p = plan.message_params
-    parts = []
-    if p.get("energy") in ("tired", "a_bit_tired"):
-        parts.append("Thanks for telling me. We'll go slower today, one small step at a time.")
-    elif p.get("energy") == "ready":
-        parts.append("Glad you're ready.")
     if p.get("returning") == "yes":
-        parts.append("Last time, grouping both terms helped after a hint.")
+        return "Last time, grouping helped; what is your first step?"
     if p.get("kind") == "explanation":
-        parts.append(f"Here's our task: {p['statement']} A sentence or two is plenty.")
-    else:
-        parts.append(f"Here's the problem: {p['statement']}. What's your first step?")
-    return " ".join(parts)
+        return "How would you explain the idea in your own words?"
+    if p.get("energy") in ("tired", "a_bit_tired"):
+        return "Let's take it gently: what's your first step?"
+    return "What's your first step?"
 
 
 def _scaffold(plan: TurnPlan) -> str:
@@ -108,9 +103,7 @@ def _step_feedback(plan: TurnPlan) -> str:
 def _reasoning_check(plan: TurnPlan) -> str:
     p = plan.message_params
     if p.get("calculus") == "yes":
-        return (
-            f"{p['value']} checks out. Add a few words naming the rule, such as the power rule."
-        )
+        return f"{p['value']} checks out. Add a few words naming the rule, such as the power rule."
     if "questionable" in p:
         return (
             f"{p['value']} does work, so the value isn't the question. You mentioned leaving a "
@@ -224,4 +217,6 @@ def render_utterance(plan: TurnPlan) -> str:
             body = _explanation_follow_up(plan)
         case "wrap_up":
             body = f"{_success_praise(plan)} That's today's set. You can finish here."
+    if plan.action_type == "check_in_and_pose":
+        return body
     return (opener(plan.personality, plan.comfort_override, plan.tone) + body).strip()

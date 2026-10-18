@@ -270,7 +270,7 @@ describe("WorkspaceScreen", () => {
     expect(typedStepInput(screen).props.value).toBe("2x +");
     expect(textOf(screen.getByTestId("prompt-problem"))).toBe("2(x + 3) = 14");
     expect(screen.getByTestId("whiteboard").props.accessibilityLabel).toBe(
-      "Whiteboard, empty",
+      "Whiteboard: 0 of your marks, 1 tutor marks",
     );
     // No tutor words, representation or diagnostic appeared from a wait signal.
     expect(screen.queryByTestId("prompt-tutor")).toBeNull();
@@ -575,4 +575,15 @@ describe("WorkspaceScreen", () => {
       setItem.mockImplementation(originalSetItem);
     }
   });
+});
+
+it('Check answer submits the typed answer as an explicit final-answer check', async () => {
+  const { requests, fetchImpl } = makeFakeApi();
+  const view = renderWorkspace(fetchImpl);
+  await waitFor(() => expect(view.getByTestId('prompt-problem')).toBeTruthy());
+  fireEvent.changeText(typedStepInput(view), 'x = 4');
+  fireEvent.press(view.getByTestId('check-answer'));
+  await waitFor(() => expect(requests.some((request) => request.url.endsWith('/work'))).toBe(true));
+  const sent = requests.find((request) => request.url.endsWith('/work'))!;
+  expect(sent.body).toMatchObject({ text: 'x = 4', boxed_answer: true });
 });

@@ -138,7 +138,9 @@ export function SettingsScreen({
     persona === null
       ? null
       : describeAvailability(persona, { timeZone, locale });
-  const locked = availability?.locked ?? true;
+  // Duck switching follows the normal server availability rule.
+  const duckChangesPaused = false;
+  const locked = duckChangesPaused || (availability?.locked ?? true);
   // A pick is only shown while the server allows a change; otherwise the stored duck is.
   const personality = locked
     ? storedPersonality
@@ -193,7 +195,7 @@ export function SettingsScreen({
               accessibilityLiveRegion="polite"
               style={[styles.note, locked ? text : muted]}
             >
-              {availability?.summary}
+              {duckChangesPaused ? "Tutor changes are paused for this demo." : availability?.summary}
             </Text>
             <Text style={[styles.groupLabel, text]}>Rubber duck</Text>
             <View
@@ -237,7 +239,9 @@ export function SettingsScreen({
               accessibilityRole="button"
               accessibilityLabel="Save rubber duck"
               accessibilityHint={
-                locked
+                duckChangesPaused
+                  ? "Tutor changes are paused for this demo"
+                  : locked
                   ? "Unavailable until the time shown above"
                   : "Uses up this week’s duck change"
               }
@@ -245,7 +249,7 @@ export function SettingsScreen({
               aria-disabled={!canSave}
               disabled={!canSave}
               onPress={() => {
-                if (persona !== null && personality !== null) {
+                if (canSave && persona !== null && personality !== null) {
                   void settings.changePair(persona.appearance, personality);
                 }
               }}
@@ -472,12 +476,12 @@ export function SettingsScreen({
 }
 
 const styles = StyleSheet.create({
-  section: { padding: 16, gap: 10, borderRadius: 28, borderWidth: 2 },
+  section: { padding: 24, gap: 16, borderRadius: 28, borderWidth: 2 },
   sectionTitle: { fontSize: 20, fontWeight: "700" },
   groupLabel: { fontSize: 16, fontWeight: "700" },
   note: { fontSize: 15, lineHeight: 21 },
   error: { fontSize: 14, lineHeight: 20 },
-  cardRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  cardRow: { flexDirection: "row", flexWrap: "wrap", gap: 16 },
   choiceCard: { width: 200 },
   portrait: { alignSelf: "center" },
   cardTitle: { fontSize: 16, fontWeight: "700" },

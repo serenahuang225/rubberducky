@@ -167,7 +167,7 @@ export function ToggleRow({
 const styles = StyleSheet.create({
   card: {
     minHeight: 44,
-    padding: 14,
+    padding: 20,
     gap: 8,
     borderWidth: 2,
     borderRadius: radius.lg,
@@ -175,8 +175,8 @@ const styles = StyleSheet.create({
   marker: type.meta,
   toggle: {
     minHeight: 52,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
     gap: 12,
     flexDirection: "row",
     alignItems: "center",

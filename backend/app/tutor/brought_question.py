@@ -14,6 +14,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
+from pydantic import ValidationError
 from sqlalchemy import select
 
 from app.config import Settings
@@ -37,6 +38,7 @@ from app.schemas.curriculum import Problem
 from app.schemas.learner import Personality
 from app.schemas.tutor import MAX_UTTERANCE_CHARS, CheckInRequest, HandholdMode, LearnerControl
 from app.whiteboard.scene import log_tutor_add, retire_tutor_objects
+from app.whiteboard.tools import AddMath
 
 LEARNER_PROBLEM_PREFIX = "problem.lrn."
 MAX_QUESTION_IMAGE_BYTES = 1_500_000
@@ -67,6 +69,7 @@ class BroughtQuestion:
     approach: str = ""
     contradiction: str = ""
     explained_failure: bool = False
+    drawing_actions: tuple[dict[str, object], ...] = ()
 
 
 def is_learner_problem(problem_id: str) -> bool:
@@ -121,7 +124,28 @@ def parse_tutor_display(raw: str) -> BroughtQuestion:
         raise BroughtQuestionError(
             "Claude's reply could not be shown. Try sending the question again."
         )
+    equations = data.get("equations", [])
+    if not isinstance(equations, list) or len(equations) > 2:
+        raise BroughtQuestionError("The tutor sent too much board work. Try again.")
+    drawing_actions: list[dict[str, object]] = []
+    try:
+        for index, equation in enumerate(equations):
+            if not isinstance(equation, dict):
+                raise ValueError("equation must be an object")
+            action = AddMath.model_validate(
+                {
+                    "tool": "add_math",
+                    "semantic_role": "annotation",
+                    "at": {"x": TEACHING_X, "y": TEACHING_Y + index * 110},
+                    "text": equation.get("text"),
+                    "highlight_term": equation.get("highlight_term"),
+                }
+            )
+            drawing_actions.append(action.model_dump(mode="json", exclude_none=True))
+    except (ValueError, ValidationError) as error:
+        raise BroughtQuestionError("The tutor's equation could not be shown. Try again.") from error
     return BroughtQuestion(
+        drawing_actions=tuple(drawing_actions),
         statement=statement,
         teaching=teaching,
         next_step=next_step,
@@ -175,22 +199,40 @@ def follow_up_display(
     handhold: HandholdMode = "balanced",
     control: LearnerControl = "none",
     personality: Personality = "janelle",
+    board_context: str | None = None,
+    board_images: list[bytes] | None = None,
 ) -> BroughtQuestion:
     """Claude's next note, after the learner writes or asks for help."""
     parts = [f"Question: {statement}", f"Handhold: {handhold}."]
     if prior_note:
         parts.append(f"What you last showed them:\n{prior_note}")
     parts.append(f"What they just did:\n{learner_text or 'They asked for help.'}")
+    if board_context:
+        parts.append(board_context)
+    blocks: list[dict[str, object]] = []
+    for image in board_images or []:
+        blocks.append(
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": base64.b64encode(image).decode("ascii"),
+                },
+            }
+        )
+    blocks.append({"type": "text", "text": "\n\n".join(parts)})
     raw = complete_tutoring(
         settings,
         system=followup_system(handhold, control, personality),
-        blocks=[{"type": "text", "text": "\n\n".join(parts)}],
+        blocks=blocks,
     )
     parsed = parse_tutor_display(raw)
     # Keep the question they already see, even if the model restates it differently.
     return BroughtQuestion(
         statement=statement,
         teaching=parsed.teaching,
+        drawing_actions=parsed.drawing_actions,
         next_step=parsed.next_step,
         approach=parsed.approach,
         contradiction=parsed.contradiction,
@@ -237,7 +279,13 @@ def open_learner_problem(
 
 
 def place_teaching_note(
-    repo: ScopedRepository, session_id: str, turn_id: str, teaching: str, now: datetime
+    repo: ScopedRepository,
+    session_id: str,
+    turn_id: str,
+    teaching: str,
+    now: datetime,
+    *,
+    action_index: int = 0,
 ) -> str:
     """Replace the previous tutor note with the words Claude just wrote, and log the add."""
     previous = list(
@@ -276,7 +324,7 @@ def place_teaching_note(
             deleted_at=None,
         )
     )
-    log_tutor_add(repo, session_id, turn_id, 0, object_id, payload, now)
+    log_tutor_add(repo, session_id, turn_id, action_index, object_id, payload, now)
     repo.db.flush()
     return object_id
 

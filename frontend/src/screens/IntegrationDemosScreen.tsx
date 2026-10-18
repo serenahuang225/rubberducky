@@ -201,7 +201,7 @@ function ReadyDemos({
 
 const styles = StyleSheet.create({
   stack: { gap: 16 },
-  section: { padding: 16, gap: 10, borderRadius: 28, borderWidth: 2 },
+  section: { padding: 24, gap: 16, borderRadius: 28, borderWidth: 2 },
   sectionTitle: { fontSize: 20, fontWeight: "700" },
   groupTitle: { fontSize: 16, fontWeight: "700" },
   note: { fontSize: 15, lineHeight: 21 },

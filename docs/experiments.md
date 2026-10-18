@@ -1,5 +1,9 @@
 # Offline modeling experiments
 
+This is an offline command reference and historical smoke-run record, not the hosted
+demo model inventory. The hosted modes use the scripted provider or Claude; neither uses
+these checkpoints. No training was rerun for the 18 October 2026 documentation cleanup.
+
 These commands check that a causal GRU and a tiny LoRA adapter can train, save, reload and score
 held-out rows. They run on the CPU with at most two numerical threads. They do not download
 pretrained weights, call a paid teacher, or use student recordings.
@@ -20,9 +24,12 @@ windows are built. The comparison with BKT uses the same eligible observation ID
 before it observes. AUROC is omitted when a score file has only one outcome class.
 
 ```sh
-EXP="env PYTHONPATH=backend OMP_NUM_THREADS=2 backend/.venv/bin/python"
-$EXP -m experiments.tracing train --synthetic --seed 17 --epochs 2 --output artifacts/gru-smoke
-$EXP -m experiments.tracing evaluate --checkpoint artifacts/gru-smoke \
+# Run from the repository root; keep this function in the same shell for later examples.
+experiment_python() {
+  env PYTHONPATH=backend OMP_NUM_THREADS=2 MKL_NUM_THREADS=2 backend/.venv/bin/python "$@"
+}
+experiment_python -m experiments.tracing train --synthetic --seed 17 --epochs 2 --output artifacts/gru-smoke
+experiment_python -m experiments.tracing evaluate --checkpoint artifacts/gru-smoke \
   --output artifacts/gru-smoke/eval.json
 ```
 
@@ -63,12 +70,12 @@ Reviewed fictional rows live in
 concept family and holds out whole groups. Prompt and padding labels are `-100`.
 
 ```sh
-$EXP -m experiments.tutor_data validate \
+experiment_python -m experiments.tutor_data validate \
   --input backend/experiments/tutor_data/fixtures/reviewed_shared.jsonl
-$EXP -m experiments.tutor_data prepare \
+experiment_python -m experiments.tutor_data prepare \
   --input backend/experiments/tutor_data/fixtures/reviewed_shared.jsonl \
   --output artifacts/tutor-data --seed 17
-$EXP -m experiments.tutor_data dry-run \
+experiment_python -m experiments.tutor_data dry-run \
   --input backend/experiments/tutor_data/fixtures/reviewed_shared.jsonl \
   --output artifacts/tutor-data-dry --seed 17
 ```
@@ -94,10 +101,10 @@ The default base is a randomly initialized Llama config (hidden size 32, one lay
 refuses to download unless a later command explicitly allows it; that command was not run.
 
 ```sh
-$EXP -m experiments.lora train --smoke --seed 17 --steps 2 \
+experiment_python -m experiments.lora train --smoke --seed 17 --steps 2 \
   --data artifacts/tutor-data --output artifacts/lora-smoke
-$EXP -m experiments.lora reload --checkpoint artifacts/lora-smoke
-$EXP -m experiments.lora evaluate --checkpoint artifacts/lora-smoke --data artifacts/tutor-data
+experiment_python -m experiments.lora reload --checkpoint artifacts/lora-smoke
+experiment_python -m experiments.lora evaluate --checkpoint artifacts/lora-smoke --data artifacts/tutor-data
 ```
 
 Recorded `train` result (exit 0):

@@ -28,6 +28,13 @@ const STATEMENT_FONT_SIZE = 32;
 const STATEMENT_LINE_HEIGHT = 40;
 const STATEMENT_WRAP = 48;
 const MATH_FONT_SIZE = 44;
+function mathFont(payload: Record<string, unknown>): number {
+  const stored = typeof payload.font_size === 'number' ? Math.min(44, payload.font_size) : MATH_FONT_SIZE;
+  const at = payloadPoint(payload, 'at');
+  const text = payloadText(payload, 'text');
+  const available = 1600 - (at?.x ?? 80) - 120;
+  return Math.max(18, Math.min(stored, available / Math.max((text?.length ?? 1) * 0.6, 1)));
+}
 const TEACHING_FONT_SIZE = 28;
 const TEACHING_LINE_HEIGHT = 36;
 const BRACKET_TICK = 26;
@@ -35,7 +42,7 @@ const ARROW_HEAD = 22;
 
 /** Text bounds estimate for highlight washes (the server owns the true layout). */
 function textBounds(at: LogicalPoint, text: string, fontSize: number): Bounds {
-  const width = Math.max(1, text.length) * fontSize * 0.56;
+  const width = Math.max(1, text.length) * fontSize * 0.6;
   return { minX: at.x - 8, minY: at.y - fontSize, maxX: at.x + width + 8, maxY: at.y + 12 };
 }
 
@@ -64,14 +71,6 @@ export function wordsToShow(text: string, count: number): string {
 
 export function wordTotal(text: string): number {
   return text.split(/\s+/).filter((word) => word.length > 0).length;
-}
-
-/** The board keeps one sentence. The chat keeps the rest of the reply. */
-function openingLine(text: string): string {
-  const end = text.search(/[.!?](\s|$)/);
-  const sentence = end === -1 ? text : text.slice(0, end + 1);
-  if (sentence.length <= 160) return sentence;
-  return `${sentence.slice(0, 157).trimEnd()}…`;
 }
 
 function teachingLines(payload: Record<string, unknown>, text: string): string[] {
@@ -105,10 +104,10 @@ export function objectBounds(object: SceneObjectRecord): Bounds | null {
     if (object.semantic_role === 'problem_statement') {
       const lines = wrapWords(text, STATEMENT_WRAP, 6);
       return {
-        minX: x,
+        minX: x - 8,
         minY: y - STATEMENT_FONT_SIZE,
-        maxX: x + STATEMENT_WRAP * STATEMENT_FONT_SIZE * 0.56,
-        maxY: y + Math.max(0, lines.length - 1) * STATEMENT_LINE_HEIGHT + 8,
+        maxX: x + Math.max(...lines.map((line) => line.length)) * STATEMENT_FONT_SIZE * 0.6 + 8,
+        maxY: y + Math.max(0, lines.length - 1) * STATEMENT_LINE_HEIGHT + 12,
       };
     }
     return textBounds({ x, y }, text, STATEMENT_FONT_SIZE);
@@ -117,7 +116,7 @@ export function objectBounds(object: SceneObjectRecord): Bounds | null {
     const text = payloadText(payload, 'text');
     const at = payloadPoint(payload, 'at');
     if (text === null || at === null) return null;
-    return textBounds(at, text, MATH_FONT_SIZE);
+    return textBounds(at, text, mathFont(payload));
   }
   const start = payloadPoint(payload, 'start');
   const end = payloadPoint(payload, 'end');
@@ -130,6 +129,23 @@ export function objectBounds(object: SceneObjectRecord): Bounds | null {
     };
   }
   return null;
+}
+
+/** Match the same font metrics used to draw math, rather than marking the whole row. */
+export function termBounds(object: SceneObjectRecord, term: string | null): Bounds | null {
+  if (term === null) return objectBounds(object);
+  const text = payloadText(object.payload, 'text');
+  if (text === null) return null;
+  const at = object.kind === 'add_math' ? payloadPoint(object.payload, 'at') :
+    typeof object.payload.x === 'number' && typeof object.payload.y === 'number'
+      ? { x: object.payload.x, y: object.payload.y } : null;
+  if (at === null) return null;
+  const size = object.kind === 'add_math' ? mathFont(object.payload) : STATEMENT_FONT_SIZE;
+  const lines = object.semantic_role === 'problem_statement' ? wrapWords(text, STATEMENT_WRAP, 6) : [text];
+  const row = lines.findIndex((line) => line.includes(term));
+  if (row < 0) return null;
+  const index = lines[row].indexOf(term);
+  return textBounds({ x: at.x + index * size * 0.6, y: at.y + row * STATEMENT_LINE_HEIGHT }, term, size);
 }
 
 function bracketPath(start: LogicalPoint, end: LogicalPoint): string {
@@ -166,16 +182,11 @@ export type SceneObjectViewProps = {
   visibleWords?: number;
 };
 
-export function SceneObjectView({ object, theme, resolveTarget, visibleWords }: SceneObjectViewProps) {
+export function SceneObjectView({ object, theme, resolveTarget }: SceneObjectViewProps) {
   const { kind, payload } = object;
   const assigned = colorForRole(theme, payloadRole(payload));
-  // Yellow tutor ink does not read on the white paper, so those marks use blue.
-  // The chalkboard keeps yellow tutor ink on the blue sheet.
-  const ink =
-    theme.name === "paper" && assigned === theme.tutorInk ? theme.studentInk : assigned;
-  // Sentences are the readable ink: blue on paper, white on the chalkboard.
-  // Yellow stays on highlights and on a tutor stroke's accent.
-  const lessonInk = theme.studentInk;
+  const ink = object.author_role === 'tutor' ? theme.tutorInk : assigned;
+  const lessonInk = ink;
 
   if (kind === 'path' || kind === 'draw_path') {
     const points = payloadPoints(payload);
@@ -216,33 +227,8 @@ export function SceneObjectView({ object, theme, resolveTarget, visibleWords }: 
     return stroke(ink, width);
   }
 
-  if (kind === 'text' && object.semantic_role === 'teaching_note') {
-    const text = payloadText(payload, 'text');
-    const at =
-      typeof payload.x === 'number' && typeof payload.y === 'number'
-        ? { x: payload.x, y: payload.y }
-        : null;
-    if (text === null || at === null) return null;
-    const shown = openingLine(visibleWords === undefined ? text : wordsToShow(text, visibleWords));
-    if (shown.length === 0) return null;
-    const lines = wrapWords(shown);
-    return (
-      <G>
-        {lines.map((line, index) => (
-          <SvgText
-            key={`${object.id}-${index}`}
-            x={at.x}
-            y={at.y + index * TEACHING_LINE_HEIGHT}
-            fontSize={TEACHING_FONT_SIZE}
-            fill={lessonInk}
-            fontFamily={font.sans}
-          >
-            {line}
-          </SvgText>
-        ))}
-      </G>
-    );
-  }
+  // Explanations stay in chat; reserve the board for math.
+  if (kind === 'text' && object.semantic_role === 'teaching_note') return null;
 
   if (kind === 'text' && object.semantic_role === 'problem_statement') {
     const text = payloadText(payload, 'text');
@@ -261,7 +247,9 @@ export function SceneObjectView({ object, theme, resolveTarget, visibleWords }: 
             y={at.y + index * STATEMENT_LINE_HEIGHT}
             fontSize={STATEMENT_FONT_SIZE}
             fill={lessonInk}
-            fontFamily={font.sans}
+            fontFamily={font.mono}
+            textLength={line.length * STATEMENT_FONT_SIZE * 0.6}
+            lengthAdjust="spacingAndGlyphs"
           >
             {line}
           </SvgText>
@@ -278,26 +266,38 @@ export function SceneObjectView({ object, theme, resolveTarget, visibleWords }: 
           : null)
       : payloadPoint(payload, 'at');
     if (text === null || at === null) return null;
-    const fontSize = kind === 'text' ? STATEMENT_FONT_SIZE : MATH_FONT_SIZE;
+    const fontSize = kind === 'text' ? STATEMENT_FONT_SIZE : mathFont(payload);
+    const emphasis = termBounds(object, payloadText(payload, 'highlight_term'));
     return (
-      <SvgText x={at.x} y={at.y} fontSize={fontSize} fill={ink} fontFamily={font.sans}>
-        {text}
-      </SvgText>
+      <G>
+        {payloadText(payload, 'highlight_term') !== null && emphasis !== null ? (
+          <Rect x={emphasis.minX} y={emphasis.minY} width={emphasis.maxX - emphasis.minX}
+            height={emphasis.maxY - emphasis.minY} fill={theme.highlightFill}
+            stroke={theme.tutorInk} strokeWidth={2} rx={6} />
+        ) : null}
+        <SvgText x={at.x} y={at.y} fontSize={fontSize} fill={ink} fontFamily={font.mono}
+          textLength={text.length * fontSize * 0.6} lengthAdjust="spacingAndGlyphs">
+          {text}
+        </SvgText>
+      </G>
     );
   }
 
   if (kind === 'highlight') {
     const targetId = payloadText(payload, 'target_object_id');
     const target = targetId !== null && resolveTarget ? resolveTarget(targetId) : null;
-    const bounds = target !== null ? objectBounds(target) : null;
+    const bounds = target !== null ? termBounds(target, payloadText(payload, 'term')) : null;
     if (bounds === null) return null;
     return (
       <Rect
-        x={bounds.minX - 10}
-        y={bounds.minY - 10}
-        width={bounds.maxX - bounds.minX + 20}
-        height={bounds.maxY - bounds.minY + 20}
+        x={bounds.minX}
+        y={bounds.minY}
+        width={bounds.maxX - bounds.minX}
+        height={bounds.maxY - bounds.minY}
         fill={theme.highlightFill}
+        stroke={theme.tutorInk}
+        strokeWidth={2}
+        rx={6}
       />
     );
   }

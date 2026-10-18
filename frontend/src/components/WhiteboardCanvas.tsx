@@ -10,7 +10,7 @@
 
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
-import Svg, { G, Rect } from 'react-native-svg';
+import Svg, { G, Path, Rect } from 'react-native-svg';
 
 import {
   BOARD_HEIGHT,
@@ -66,6 +66,7 @@ export type WhiteboardCanvasProps = {
   theme: BoardTheme;
   mode: BoardInputMode;
   /** Commit a finished student stroke (logical points; a single point is a dot). */
+  onInkActivity?: () => void;
   onStroke: (points: readonly LogicalPoint[]) => void;
   /** Erase mode: the learner tapped near one of their own marks. */
   onEraseAt: (objectId: string) => void;
@@ -82,6 +83,16 @@ export type WhiteboardCanvasProps = {
 };
 
 export const EARLIER_WORK_OPACITY = 0.4;
+
+// Logical coordinates keep the grid aligned with ink when the board resizes.
+const GRID_SPACING = 40;
+const GRID_PATH = [
+  ...Array.from({ length: BOARD_WIDTH / GRID_SPACING + 1 }, (_, i) =>
+    `M ${i * GRID_SPACING} 0 V ${BOARD_HEIGHT}`),
+  ...Array.from({ length: BOARD_HEIGHT / GRID_SPACING + 1 }, (_, i) =>
+    `M 0 ${i * GRID_SPACING} H ${BOARD_WIDTH}`),
+].join(' ');
+
 
 /** Ids of the learner's marks written before the current (second or later) problem. */
 export function earlierWorkIds(
@@ -113,6 +124,7 @@ export function WhiteboardCanvas({
   theme,
   mode,
   onStroke,
+  onInkActivity,
   onEraseAt,
   onDoubleTap,
   inputDisabled = false,
@@ -154,7 +166,8 @@ export function WhiteboardCanvas({
 
   const handlePreview = useCallback((points: readonly LogicalPoint[]) => {
     liveRef.current?.setPoints(points);
-  }, []);
+    onInkActivity?.();
+  }, [onInkActivity]);
 
   const onStrokeRef = useRef(onStroke);
   const onDoubleTapRef = useRef(onDoubleTap);
@@ -360,6 +373,14 @@ export function WhiteboardCanvas({
             stroke={theme.board}
             strokeWidth={1 / transform.scale}
           />
+          <Path
+            d={GRID_PATH}
+            fill="none"
+            stroke={theme.studentInk}
+            strokeOpacity={theme.name === 'paper' ? 0.12 : 0.16}
+            strokeWidth={0.75 / transform.scale}
+            pointerEvents="none"
+          />
           {ordered.map((object) => {
             const arriving =
               animateTutorMarks &&
@@ -440,6 +461,7 @@ const styles = StyleSheet.create({
   frame: {
     flex: 1,
     minHeight: 0,
+    borderRadius: 28,
     overflow: 'hidden',
   },
   inputLayer: {
