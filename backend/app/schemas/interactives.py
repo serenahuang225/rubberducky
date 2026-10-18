@@ -175,3 +175,17 @@ class ReleasedExplanation(ContractModel):
         ):
             raise ValueError("a verified release needs every created sandbox confirmed deleted")
         return self
+
+
+class LearnerExplanation(ContractModel):
+    """Offline explanation for the learner screen.
+
+    ``live_services_contacted`` is fixed false: this contract cannot represent a Factory or
+    Daytona call. A generated release still has to come from the trusted pipeline, which this
+    response does not invoke.
+    """
+
+    schema_version: Literal["learner-explanation.v1"] = "learner-explanation.v1"
+    live_services_contacted: Literal[False] = False
+    notice: Annotated[str, Field(min_length=1, max_length=400)]
+    release: ReleasedExplanation
