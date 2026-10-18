@@ -2,7 +2,8 @@
  * Compact, read-only context for the tutor's current move: which approach it used, whether
  * an answer was disclosed, whether support was reduced, the separate math and reasoning
  * judgments, and an optional "Why this move?" inspector for the tentative hypothesis, its
- * alternatives and the actual sources. It never edits anything; the board stays primary.
+ * alternatives and the actual sources. It never edits the board. Below that inspector, the
+ * offline learner explanation parses a released spec and mounts the native manipulative.
  */
 
 import React, { useState } from 'react';
@@ -10,6 +11,10 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import type { TutorTurnResult } from '../api/contracts';
 import type { BoardTheme } from '../board/palette';
+import {
+  LearnerExplanation,
+  type LoadLearnerExplanation,
+} from '../interactives/LearnerExplanation';
 import { describeTurn, type DiagnosticView } from '../state/turnInsight';
 import { font, radius, type } from '../theme/tokens';
 
@@ -18,6 +23,10 @@ import { HoldPressable } from './HoldPressable';
 export type TeachingContextProps = {
   theme: BoardTheme;
   turn: TutorTurnResult | null;
+  /** Test and caller override. Omitted, the control loads the offline learner explanation. */
+  loadExplanation?: LoadLearnerExplanation;
+  /** When set, the control shows this payload and does not fetch. */
+  explanationPayload?: unknown;
 };
 
 const MAX_SOURCES_SHOWN = 6;
@@ -100,13 +109,26 @@ function DiagnosticPanel({ theme, diagnostic }: { theme: BoardTheme; diagnostic:
   );
 }
 
-export function TeachingContext({ theme, turn }: TeachingContextProps) {
+export function TeachingContext({
+  theme,
+  turn,
+  loadExplanation,
+  explanationPayload,
+}: TeachingContextProps) {
   // Open state belongs to one turn, so a newer turn starts collapsed again.
   const [openFor, setOpenFor] = useState<string | null>(null);
   const turnId = turn?.turn_id ?? null;
   const open = turnId !== null && openFor === turnId;
+  const explanation = (
+    <LearnerExplanation
+      theme={theme}
+      conceptId={turn?.current_problem?.concept_id}
+      load={loadExplanation}
+      payload={explanationPayload}
+    />
+  );
 
-  if (turn === null) return null;
+  if (turn === null) return explanation;
   const insight = describeTurn(turn);
   const hasChips =
     insight.representation !== null ||
@@ -117,15 +139,16 @@ export function TeachingContext({ theme, turn }: TeachingContextProps) {
     insight.mathJudgment !== null ||
     insight.reasoningJudgment !== null ||
     insight.independence !== null;
-  if (!hasChips && !hasJudgments && insight.diagnostic === null) return null;
+  if (!hasChips && !hasJudgments && insight.diagnostic === null) return explanation;
 
   const text = { color: theme.labelText };
   const muted = { color: theme.labelMuted };
   return (
-    <View
-      testID="teaching-context"
-      style={[styles.box, { borderTopColor: theme.surfaceEdge }]}
-    >
+    <View>
+      <View
+        testID="teaching-context"
+        style={[styles.box, { borderTopColor: theme.surfaceEdge }]}
+      >
       {hasChips ? (
         <View style={styles.chips}>
           {insight.representation !== null ? (
@@ -185,6 +208,8 @@ export function TeachingContext({ theme, turn }: TeachingContextProps) {
           {open ? <DiagnosticPanel theme={theme} diagnostic={insight.diagnostic} /> : null}
         </>
       ) : null}
+    </View>
+      {explanation}
     </View>
   );
 }

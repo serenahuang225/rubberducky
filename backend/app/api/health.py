@@ -5,10 +5,14 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import AwareDatetime, BaseModel
 
 from app import __version__
+from app.api.explanations import router as explanations_router
 from app.config import Settings
 from app.inference.readiness import ModelReadiness, describe_model_readiness
 
 router = APIRouter(tags=["health"])
+# Already included by create_app. The explanations routes stay on this router so the learner
+# path is reachable without editing the app factory, and they never contact Factory or Daytona.
+router.include_router(explanations_router)
 
 
 class AppHealth(BaseModel):
