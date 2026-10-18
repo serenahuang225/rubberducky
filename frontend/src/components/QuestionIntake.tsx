@@ -8,7 +8,9 @@ import { Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-na
 
 import type { CheckInInput } from "../api/client";
 import type { BoardTheme } from "../board/palette";
+import { QuestionCamera } from "../media/QuestionCamera";
 import { readQuestionFile, type QuestionImagePayload } from "../media/questionFile";
+import { WebQuestionCamera } from "../media/WebQuestionCamera";
 import { type } from "../theme/tokens";
 
 const ENERGY_OPTIONS = [
@@ -17,6 +19,15 @@ const ENERGY_OPTIONS = [
   { value: "tired" as const, label: "Really tired" },
 ];
 
+function iosBrowser(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const agent = navigator.userAgent;
+  return (
+    /iPad|iPhone|iPod/.test(agent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
+}
+
 function fileLabel(
   testID: string,
   label: string,
@@ -24,14 +35,17 @@ function fileLabel(
   onPicked: (event: Event) => void,
   busy: boolean,
   theme: BoardTheme,
+  capture?: "environment" | "user",
 ) {
   return createElement(
     "label",
     {
       "data-testid": testID,
       style: {
+        position: "relative",
         display: "inline-flex",
         alignItems: "center",
+        overflow: "hidden",
         minHeight: 44,
         padding: "0 12px",
         border: `1px solid ${theme.controlEdge}`,
@@ -46,9 +60,21 @@ function fileLabel(
     createElement("input", {
       type: "file",
       accept,
+      capture,
       disabled: busy,
       onChange: onPicked,
-      style: { display: "none" },
+      // iPad Safari ignores a file input that is display:none, so the control stays
+      // in the label and is only visually hidden.
+      style: {
+        position: "absolute",
+        top: 0,
+        left: 0,
+        width: "100%",
+        height: "100%",
+        opacity: 0,
+        fontSize: 16,
+        cursor: busy ? "default" : "pointer",
+      },
     }),
     label,
   );
@@ -118,8 +144,9 @@ export function QuestionIntake({ theme, busy, onStart }: QuestionIntakeProps) {
     >
       <Text style={[styles.title, { color: theme.labelText }]}>What are you working on?</Text>
       <Text style={[styles.sub, { color: theme.labelMuted }]}>
-        Type the question, upload a file, or paste a screenshot. Your tutor reads it and
-        shows the explanation here.
+        {Platform.OS === "web"
+          ? "Type the question, take a photo, upload a file, or paste a screenshot. Your tutor reads it and shows the explanation here."
+          : "Type the question, or take a photo of it. Your tutor reads it and shows the explanation here."}
       </Text>
       <TextInput
         testID="question-input"
@@ -155,12 +182,40 @@ export function QuestionIntake({ theme, busy, onStart }: QuestionIntakeProps) {
       {Platform.OS === "web" ? (
         <View style={styles.row}>
           {fileLabel("question-upload", "Upload a file", "image/png,image/jpeg,image/webp,text/plain,.txt", onPicked, busy, theme)}
-          {fileLabel("question-screenshot", "Screenshot or photo", "image/png,image/jpeg,image/webp", onPicked, busy, theme)}
+          {iosBrowser() ? (
+            fileLabel(
+              "question-photo",
+              "Take a photo",
+              "image/*",
+              onPicked,
+              busy,
+              theme,
+              "environment",
+            )
+          ) : (
+            <WebQuestionCamera
+              theme={theme}
+              busy={busy}
+              onCaptured={(captured) => {
+                setFileError(null);
+                setImage(captured);
+                setImageLabel("Photo");
+              }}
+              onError={setFileError}
+            />
+          )}
         </View>
       ) : (
-        <Text style={[styles.sub, { color: theme.labelMuted }]}>
-          On this device, type the question. Pictures can be added in the browser.
-        </Text>
+        <QuestionCamera
+          theme={theme}
+          busy={busy}
+          onCaptured={(captured) => {
+            setFileError(null);
+            setImage(captured);
+            setImageLabel("Photo");
+          }}
+          onError={setFileError}
+        />
       )}
       {fileError !== null ? (
         <Text testID="question-file-error" style={[styles.sub, { color: theme.danger }]}>

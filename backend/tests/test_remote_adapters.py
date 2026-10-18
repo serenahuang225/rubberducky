@@ -734,6 +734,31 @@ class TestClaudeValidAndRequestShape:
         )
         assert built.model == MODEL
 
+    def test_workspace_header_is_sent_and_a_missing_workspace_is_explained(self) -> None:
+        workspace_body = {
+            "type": "error",
+            "error": {
+                "type": "invalid_request_error",
+                "message": "This API key is not scoped to a workspace",
+            },
+        }
+        w = wire(
+            httpx2,
+            lambda _request: httpx2.Response(400, json=workspace_body),
+        )
+        adapter = ClaudeAdapter(
+            model=MODEL,
+            api_key=SECRET,
+            workspace_id="wrkspc_test",
+            limits=fast_limits(),
+            http_client=httpx2.Client(transport=w.transport()),
+        )
+        with pytest.raises(ProviderRejectedError, match="HTTP 400") as raised:
+            adapter.complete_blocks(system="tutor", content="hi", max_tokens=16, timeout=5)
+        assert w.requests[0].headers["anthropic-workspace-id"] == "wrkspc_test"
+        assert "ANTHROPIC_WORKSPACE_ID" in raised.value.public_message
+        assert SECRET not in raised.value.public_message
+
 
 class TestClaudeStreamsAndDrafts:
     @pytest.mark.parametrize("size", [1, 3, 11, 100])

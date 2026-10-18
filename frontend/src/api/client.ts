@@ -6,6 +6,8 @@
  * can resync on `revision_conflict` instead of guessing.
  */
 
+import { z } from "zod";
+
 import {
   accessibilityPreferencesSchema,
   correctionReceiptSchema,
@@ -285,6 +287,15 @@ export class ApiClient {
 
   endSession(sessionId: string): Promise<Session> {
     return this.request("POST", `/sessions/${sessionId}/end`, sessionSchema);
+  }
+
+  /** Committed and in-progress turns, oldest first, for the conversation panel. */
+  turnEvents(sessionId: string): Promise<TutorTurnResult[]> {
+    return this.request(
+      "GET",
+      `/sessions/${sessionId}/events?limit=50`,
+      z.array(tutorTurnResultSchema),
+    );
   }
 
   /** Honest provider identity/readiness, so the UI can label a mock as a mock. */

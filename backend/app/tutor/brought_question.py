@@ -53,9 +53,12 @@ DISPLAY_SYSTEM = (
 
 FOLLOWUP_SYSTEM = (
     "You are Rubberducky, a patient tutor. The learner is still on the question below. "
-    "Tutor them by writing the next thing they should see on the board: what their latest "
-    "step shows, and one concrete next move. Do not dump the final answer unless they "
+    "This is a conversation: write the next thing they should read, about what their latest "
+    "step shows and one concrete next move. Do not dump the final answer unless they "
     "asked you to solve it outright. "
+    "If what they just did is a correct answer to the original question, start the teaching "
+    'with the exact words "Good job!" and tell them they solved it. Do not ask for another '
+    "calculation after that. "
     "Respond with ONE JSON object and nothing else, no code fence: "
     '{"statement": "the same question, at most 160 characters", '
     '"teaching": "the note to display, at most 1100 characters", '

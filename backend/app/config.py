@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     tutor_endpoint_streaming: bool = True
     anthropic_api_key: SecretStr | None = None
     anthropic_model: str | None = None
+    # Required when the key can act in more than one workspace (wrkspc_…).
+    anthropic_workspace_id: str | None = None
     # Runtime explanation generation through the installed Factory Droid CLI (droid-sdk).
     # Needs external_integrations_enabled, this flag and an explicit executable path; the
     # presence of a key in the environment never activates it.

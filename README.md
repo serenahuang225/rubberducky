@@ -90,7 +90,7 @@ the repository-root `.env` file. To load a file, point `TUTOR_ENV_FILE` at it, f
 | `TUTOR_REMOTE_TIMEOUT_SECONDS` / `_MAX_ATTEMPTS` / `_BACKOFF_SECONDS` | `30` / `3` / `0.5` | Remote deadline (all attempts), attempts and base backoff |
 | `TUTOR_REMOTE_MAX_OUTPUT_TOKENS` / `_MAX_REQUEST_CHARS` | `512` / `32000` | Remote output and request-size ceilings |
 | `TUTOR_ENDPOINT_BASE_URL` / `_MODEL` / `_API_KEY` / `_STREAMING` | unset / unset / unset / `true` | OpenAI-compatible server (`.../chat/completions`) |
-| `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` | unset | Claude; no default model is guessed |
+| `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` / `ANTHROPIC_WORKSPACE_ID` | unset | Claude; no default model is guessed. A key that is not scoped to one workspace must send the `wrkspc_` id |
 | `TUTOR_MEDIA_FIXTURES_ENABLED` | `true` | Shows the labeled simulated voice and photo fixtures in the app; real capture is unaffected |
 
 ## Optional voice and camera
@@ -123,6 +123,11 @@ cancel any speech. A speech or caption callback that arrives after that is ignor
 ## Tutor language-model providers
 
 The default is `TUTOR_PROVIDER=mock`, a labeled deterministic tutor that is not a language model.
+With `TUTOR_PROVIDER=claude` and `EXTERNAL_INTEGRATIONS_ENABLED=true` in the file loaded by
+`TUTOR_ENV_FILE`, the opening screen accepts a typed question, a text file, a screenshot, or a photo from the iPad camera.
+Claude reads it and the reply is shown in the prompt and as a note on the board. The picture
+is sent for that turn and is not stored. The built-in algebra unit is still available as
+"Use a practice problem".
 Every provider, mock or not, only *proposes* a draft. The coordinator commits it only when it is a
 complete, valid draft for the current turn and session revision; a truncated, malformed, stale or
 rejected draft fails the turn with no tutor text, drawings, hints or memory written. A provider
@@ -183,8 +188,9 @@ The frontend finds the API at `EXPO_PUBLIC_API_BASE_URL` if set. Otherwise the w
 Ports: API **3100**, web **3101**, Expo native development server **8081**.
 
 ```sh
-# API on loopback
-PYTHONPATH=backend backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 3100
+# API on loopback. TUTOR_ENV_FILE loads .env.local (Claude key and model). Without it the
+# tutor stays the scripted mock and cannot read a question the learner brings.
+TUTOR_ENV_FILE=.env.local PYTHONPATH=backend backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 3100
 
 # Web build of the client on loopback
 cd frontend && EXPO_NO_DOTENV=1 npx expo start --web --localhost --port 3101
@@ -450,3 +456,33 @@ The tutor uses Chalk (`chalkcompute`) only for an optional tutoring-evaluation a
 disabled by default. Nothing is deployed to Chalk unless you run Chalk commands yourself.
 
 Docs: https://docs.chalk.ai
+
+---
+
+## Agent handoff — start here for remaining work
+
+**This is an additive documentation handoff, not permission to resume the paused mission,
+browser testing, live integrations or current development services.** The existing README
+above is preserved verbatim; its manual setup/live-provider/LAN examples are not current
+agent execution authorization.
+
+- **[Remaining-work index, assignment map and all37 pending assertions](docs/agent-handoff/README.md)**
+- **[Backend setup, isolated database, module/API flow and commands](backend/README.md)**
+- **[Frontend setup, shared-client flow, scripts and service safety](frontend/README.md)**
+- [Working-tree ownership and interrupted-worker recovery](docs/agent-handoff/working-tree/README.md)
+
+Snapshot at `904d965`: learning-loop is closed/validated33/33; formal total is33 passed/
+37 pending. Agency implementation is mostly complete, not formally finished. Factory/Daytona
+adapters/native component and Chalk evaluator are implemented; learner manipulative wiring,
+Photon messaging/LiveKit voice, remaining media validation, external modeling integration,
+delivery and actual user-iPad acceptance remain. The interrupted Photon worker only explored;
+its `in_progress` label does not mean a live worker or finished bridge.
+
+**Browser work is USER-PAUSED.** Do not start/stop/adopt user3100/3101/8081 services or use
+proposed3103. Future resumed mission tests use approved isolated API3102/separate DB and
+owner-coordinated web3101 with explicit override; see the index before any action.
+GRU/shared-dataset/LoRA implementation belongs to another agent: receive its commits/results,
+do not duplicate it. Historical tests are not fresh certification of current dirty UI, and
+fixtures are not live perception/delivery, trained-model quality, learning gains or physical
+iPad/Pencil evidence. Each assignment includes concrete scope, prerequisites, existing
+acceptance behavior, future verification and a copyable agent prompt.

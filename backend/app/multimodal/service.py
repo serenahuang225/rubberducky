@@ -57,6 +57,19 @@ CLARIFICATION = (
 )
 
 
+def _transmitted(settings: Settings) -> list[str]:
+    if settings.tutor_provider == "claude" and settings.external_integrations_enabled:
+        return [
+            "A question you type, upload, or screenshot at the start is sent to Anthropic "
+            "so Claude can read it and write the note you see. The picture is not saved.",
+            "Voice and camera from the media panel are still not sent.",
+        ]
+    return [
+        "No provider is configured, so no audio, image or transcript is sent anywhere.",
+        "If a provider is added later, what is sent will be listed here first.",
+    ]
+
+
 def capabilities(settings: Settings) -> MediaCapabilities:
     fixtures = settings.tutor_media_fixtures_enabled
     return MediaCapabilities(
@@ -100,10 +113,7 @@ def capabilities(settings: Settings) -> MediaCapabilities:
                 "Nothing is recorded: audio, video and photos are not saved or logged.",
                 "Text you confirm as a step is stored like any typed step; you can delete it.",
             ],
-            transmitted=[
-                "No provider is configured, so no audio, image or transcript is sent anywhere.",
-                "If a provider is added later, what is sent will be listed here first.",
-            ],
+            transmitted=_transmitted(settings),
         ),
     )
 

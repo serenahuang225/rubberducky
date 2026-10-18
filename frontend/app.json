@@ -7,8 +7,28 @@
     "userInterfaceStyle": "light",
     "platforms": ["ios", "android", "web"],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Rubberducky uses the camera so you can photograph a question for your tutor."
+      }
     },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Rubberducky uses the camera so you can photograph a question for your tutor.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Rubberducky uses the camera so you can photograph a question for your tutor.",
+          "microphonePermission": false,
+          "photosPermission": false
+        }
+      ]
+    ],
     "web": {
       "bundler": "metro",
       "output": "single"

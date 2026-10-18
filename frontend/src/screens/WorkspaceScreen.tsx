@@ -7,7 +7,7 @@
  * never submits work or speaks on a timer.
  */
 
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -23,12 +23,15 @@ import type { ApiClient } from "../api/client";
 import type {
   AccessibilityPreferences,
   TutorConfiguration,
+  TutorTurnResult,
 } from "../api/contracts";
 import { getTheme, type BoardTheme, type BoardThemeName } from "../board/palette";
 import { loadThemeName, saveThemeName } from "../storage/credentials";
 import type { BoardInputMode } from "../components/BoardInputLayer";
 import { MediaPanel } from "../components/MediaPanel";
 import { PromptBar } from "../components/PromptBar";
+import { TutorChat } from "../components/TutorChat";
+import { messagesFromTurns } from "../components/chatMessages";
 import { QuestionIntake } from "../components/QuestionIntake";
 import { MarkIcon, marks, SquareButton } from "../components/SquareButton";
 import { TeachingContext } from "../components/TeachingContext";
@@ -164,6 +167,21 @@ export function WorkspaceScreen({
   const [noted, setNoted] = useState(false);
   const [ending, setEnding] = useState(false);
   const [endError, setEndError] = useState<string | null>(null);
+  const [chatTurns, setChatTurns] = useState<TutorTurnResult[]>([]);
+  const chatKey = workspace.lastTurn?.turn_id ?? "none";
+
+  useEffect(() => {
+    let active = true;
+    client
+      .turnEvents(sessionId)
+      .then((events) => {
+        if (active) setChatTurns(events);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [client, sessionId, chatKey]);
 
   React.useEffect(() => {
     let active = true;
@@ -629,6 +647,25 @@ export function WorkspaceScreen({
           }}
         />
       </View>
+      <TutorChat
+        theme={theme}
+        messages={messagesFromTurns(
+          chatTurns.length > 0
+            ? chatTurns
+            : workspace.lastTurn !== null
+              ? [workspace.lastTurn]
+              : [],
+        )}
+        draft={draft}
+        busy={workspace.busyLabel !== null}
+        canReply={!workspace.needsCheckIn}
+        thinking={workspace.busyLabel}
+        onChangeDraft={(text) => {
+          setDraft(text);
+          wait.clearStillThinkingNote();
+        }}
+        onSend={submitDraft}
+      />
       <ToolRail
         theme={theme}
         mode={mode}

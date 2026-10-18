@@ -41,11 +41,19 @@ class ClaudeAdapter(RemoteAdapter):
         model: str,
         api_key: str,
         limits: RemoteLimits,
+        workspace_id: str | None = None,
         http_client: httpx2.Client | None = None,
     ) -> None:
         super().__init__(limits)
         self.model = model
-        self._client = anthropic.Anthropic(api_key=api_key, max_retries=0, http_client=http_client)
+        workspace = (workspace_id or "").strip()
+        headers = {"anthropic-workspace-id": workspace} if workspace else None
+        self._client = anthropic.Anthropic(
+            api_key=api_key,
+            max_retries=0,
+            default_headers=headers,
+            http_client=http_client,
+        )
 
     @classmethod
     def from_settings(
@@ -58,6 +66,7 @@ class ClaudeAdapter(RemoteAdapter):
         return cls(
             model=settings.anthropic_model,
             api_key=settings.anthropic_api_key.get_secret_value(),
+            workspace_id=settings.anthropic_workspace_id,
             limits=RemoteLimits.from_settings(settings),
             http_client=http_client,
         )
@@ -73,6 +82,40 @@ class ClaudeAdapter(RemoteAdapter):
         return AdapterCapabilities(
             streaming=True, cancellable=True, retries=True, transmission="remote_provider"
         )
+
+    def complete_blocks(
+        self,
+        *,
+        system: str,
+        content: str | list[dict[str, Any]],
+        max_tokens: int,
+        timeout: float,
+    ) -> str:
+        """One finished Messages call. Image blocks are allowed; the key stays in the client."""
+        user_content: Any = content
+        try:
+            message = self._client.messages.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                system=system,
+                messages=[{"role": "user", "content": user_content}],
+                timeout=max(0.001, timeout),
+            )
+        except ProviderError:
+            raise
+        except Exception as error:
+            raise _translate(error, CancelToken()) from None
+        if message.stop_reason is None or message.stop_reason == "max_tokens":
+            raise MalformedDraftError("claude reply was cut off before it finished")
+        parts: list[str] = []
+        for block in message.content:
+            text = getattr(block, "text", None)
+            if isinstance(text, str):
+                parts.append(text)
+        reply = "".join(parts).strip()
+        if not reply:
+            raise MalformedDraftError("claude reply was empty")
+        return reply
 
     def _complete(self, call: CallContext) -> Completion:
         system = "\n\n".join(m.content for m in call.messages if m.role == "system")
@@ -127,6 +170,23 @@ def _retry_after(response: Any) -> float | None:
     return value if value is not None and value >= 0 else None
 
 
+def _rejected(error: anthropic.APIStatusError, status: int) -> ProviderRejectedError:
+    """A 400 that mentions a workspace gets a learner-safe next step. The raw body stays out."""
+    rejected = ProviderRejectedError(f"claude rejected the request (HTTP {status})")
+    message = ""
+    body = error.body
+    if isinstance(body, dict):
+        detail = body.get("error")
+        if isinstance(detail, dict) and isinstance(detail.get("message"), str):
+            message = detail["message"]
+    if "workspace" in message.lower():
+        rejected.public_message = (
+            "Claude needs a workspace id. Set ANTHROPIC_WORKSPACE_ID to the wrkspc_ id "
+            "from the Claude console Workspaces page, then restart the tutor."
+        )
+    return rejected
+
+
 def _translate(error: Exception, cancel: CancelToken) -> ProviderError:
     """Map an SDK/transport failure to a typed error that carries no SDK text or secrets."""
     if cancel.cancelled:
@@ -143,7 +203,7 @@ def _translate(error: Exception, cancel: CancelToken) -> ProviderError:
             return TransientProviderError(
                 f"claude returned HTTP {status}", retry_after=_retry_after(error.response)
             )
-        return ProviderRejectedError(f"claude rejected the request (HTTP {status})")
+        return _rejected(error, status)
     if isinstance(error, RuntimeError):
         # The SDK raises this when the SSE stream ends before the message completes.
         return TransientProviderError("claude stream ended before the message completed")

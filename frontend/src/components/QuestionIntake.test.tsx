@@ -1,10 +1,20 @@
-import { fireEvent, render } from "@testing-library/react-native";
+import { fireEvent, render, waitFor } from "@testing-library/react-native";
 import React from "react";
+import { Platform } from "react-native";
 
 import type { CheckInInput } from "../api/client";
 import { getTheme } from "../board/palette";
 
 import { QuestionIntake } from "./QuestionIntake";
+
+jest.mock("expo-image-picker", () => ({
+  requestCameraPermissionsAsync: async () => ({ granted: true }),
+  launchCameraAsync: async () => ({
+    canceled: false,
+    assets: [{ base64: "abc123", uri: "file://question.jpg", width: 1280, height: 720 }],
+  }),
+  CameraType: { back: "back", front: "front" },
+}));
 
 const theme = getTheme("paper");
 
@@ -48,5 +58,15 @@ describe("QuestionIntake", () => {
     const { view, starts } = renderIntake();
     fireEvent.press(view.getByTestId("question-start"));
     expect(starts).toEqual([]);
+  });
+
+  it("sends a photo from the device camera as the question", async () => {
+    if (Platform.OS === "web") return;
+    const { view, starts } = renderIntake();
+    fireEvent.press(view.getByTestId("question-photo"));
+    await waitFor(() => expect(view.getByText("Attached: Photo")).toBeTruthy());
+    fireEvent.press(view.getByTestId("question-start"));
+    expect(starts[0]?.image).toEqual({ mediaType: "image/jpeg", base64: "abc123" });
+    expect(starts[0]?.practice).toBe(false);
   });
 });
