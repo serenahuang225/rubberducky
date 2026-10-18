@@ -47,7 +47,7 @@ function makeBackend() {
             error: {
               code: "persona_change_locked",
               message:
-                "Appearance and personality can change again at 2026-10-17T12:30:00Z.",
+                "Your rubber duck can change again at 2026-10-17T12:30:00Z.",
             },
           });
         }

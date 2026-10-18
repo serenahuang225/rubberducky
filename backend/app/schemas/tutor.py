@@ -336,11 +336,11 @@ class PersonaOptions(ContractModel):
     appearances: list[Appearance]
     personalities: list[Personality]
     comfort_overrides: list[ComfortOverride]
-    note: ShortText = "Appearance and personality are chosen separately; none implies ability."
+    note: ShortText = "Choose a rubber duck. The choice does not imply ability."
 
 
 class TutorConfigurationRequest(_Request):
-    """Persona choice. Appearance and personality are independent axes; neither implies ability.
+    """Persona choice. The learner picks a rubber duck; appearance stays a stored default.
 
     The comfort override takes effect immediately and never touches the other axes; leaving it
     out keeps the current override (``none`` on the first selection).

@@ -31,7 +31,7 @@ _ERRORS: dict[int | str, dict[str, object]] = {
 
 
 def _not_selected() -> ApiError:
-    return ApiError(404, "persona_not_selected", "Choose an appearance and personality first.")
+    return ApiError(404, "persona_not_selected", "Choose a rubber duck first.")
 
 
 @router.get(
@@ -66,7 +66,7 @@ def put_tutor_configuration(body: TutorConfigurationRequest, repo: ScopedRepo) -
         raise ApiError(
             409,
             "persona_change_locked",
-            "Appearance and personality can change again at "
+            "Your rubber duck can change again at "
             f"{available.isoformat().replace('+00:00', 'Z')}. "
             "Comfort and accessibility settings can still be changed now.",
             headers={"Retry-After": str(max(1, math.ceil((available - now).total_seconds())))},
@@ -86,7 +86,7 @@ def put_comfort_override(body: ComfortOverrideRequest, repo: ScopedRepo) -> Pers
         result = rules.set_comfort_override(repo, body.comfort_override, utc_now())
     except rules.PersonaNotSelectedError as error:
         raise ApiError(
-            409, "persona_not_selected", "Choose an appearance and personality first."
+            409, "persona_not_selected", "Choose a rubber duck first."
         ) from error
     repo.db.commit()
     return result

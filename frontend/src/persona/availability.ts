@@ -62,7 +62,7 @@ export function describeAvailability(
       local: null,
       utc: null,
       summary:
-        "Appearance and personality can change now. Comfort and accessibility can always change.",
+        "Your rubber duck can change now. Comfort and accessibility can always change.",
     };
   }
   const instant =
@@ -75,7 +75,7 @@ export function describeAvailability(
       local: null,
       utc: null,
       summary:
-        "Appearance and personality are locked and the next change time is not available. Comfort and accessibility can still change now.",
+        "Your rubber duck is locked and the next change time is not available. Comfort and accessibility can still change now.",
     };
   }
   const when =
@@ -84,6 +84,6 @@ export function describeAvailability(
     locked: true,
     local: instant.local,
     utc: instant.utc,
-    summary: `Appearance and personality can change again at ${when}. Comfort and accessibility can still change now.`,
+    summary: `Your rubber duck can change again at ${when}. Comfort and accessibility can still change now.`,
   };
 }
