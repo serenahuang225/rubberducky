@@ -201,11 +201,16 @@ class DaytonaTrustedChecker:
                 )
         finally:
             # Also reached on cancellation: delete before the cancellation propagates.
-            deleted = await self._cleanup(client, run_id, created, handles)
+            deleted, cleanup_complete = await self._cleanup(client, run_id, created, handles)
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(
                     asyncio.shield(client.close()), timeout=self._config.cleanup_timeout_seconds
                 )
+        if not cleanup_complete:
+            # Takes precedence over the check outcome: a sandbox may still exist and bill.
+            raise SandboxCheckError(
+                "cleanup_failed", created=tuple(created), deleted=tuple(deleted)
+            )
         if failure is not None or report is None:
             code: FallbackReason = failure.code if failure is not None else "checks_unavailable"
             raise SandboxCheckError(code, created=tuple(created), deleted=tuple(deleted))
@@ -270,12 +275,18 @@ class DaytonaTrustedChecker:
         run_id: str,
         created: list[str],
         handles: dict[str, Any],
-    ) -> list[str]:
+    ) -> tuple[list[str], bool]:
+        """Delete this attempt's sandboxes by exact ID.
+
+        Returns the confirmed-deleted IDs and whether cleanup is known to be complete: a failed
+        delete, or a failed label lookup that leaves a possible orphan unknown, is not.
+        """
         seconds = self._config.cleanup_timeout_seconds
+        complete = True
         if not created:
             # create() may have been interrupted after the service made the sandbox but before
             # we learned its ID: find it by this attempt's unique label, never by anything else.
-            with contextlib.suppress(Exception):
+            try:
                 async with asyncio.timeout(seconds):
                     query = _label_query(run_id)
                     async for sandbox in client.list(query):
@@ -283,6 +294,8 @@ class DaytonaTrustedChecker:
                         if labels.get(RUN_LABEL) == run_id and str(sandbox.id) not in handles:
                             created.append(str(sandbox.id))
                             handles[str(sandbox.id)] = sandbox
+            except Exception:
+                complete = False
         deleted: list[str] = []
         for sandbox_id in created:
             try:
@@ -290,10 +303,11 @@ class DaytonaTrustedChecker:
                     asyncio.shield(client.delete(handles[sandbox_id], timeout=seconds, wait=True)),
                     timeout=seconds + 5,
                 )
-            except Exception:  # noqa: S112 - the missing ID in `deleted` is the visible record
+            except Exception:
+                complete = False
                 continue
             deleted.append(sandbox_id)
-        return deleted
+        return deleted, complete
 
 
 def _label_query(run_id: str) -> Any:

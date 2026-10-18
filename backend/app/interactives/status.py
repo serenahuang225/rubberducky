@@ -74,8 +74,9 @@ def _factory_status(settings: Settings) -> IntegrationStatus:
         label="Factory Droid explanation generation (configured, unverified)",
         detail=(
             "The installed Droid CLI has not been run, so authentication, model access and "
-            "credits are unverified. A bounded request is sent to it only when a generation "
-            "is explicitly started."
+            "credits are unverified. The Droid CLI has no spending cap; the credit limit only "
+            "stops a run after usage is reported. A bounded request is sent to it only when "
+            "a generation is explicitly started."
         ),
     )
 

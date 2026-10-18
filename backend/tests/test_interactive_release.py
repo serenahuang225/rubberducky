@@ -239,6 +239,7 @@ def test_cancelling_a_release_in_the_sandbox_cleans_up_then_propagates(tmp_path:
         ({"structured_output": {"spec": {"component": "<script>"}}}, "invalid_candidate"),
         ({"mode": "error_turn"}, "generation_failed"),
         ({"structured_output": droid_output(), "credits": 99.0}, "cost_exceeded"),
+        ({"structured_output": droid_output(), "credits": None}, "cost_unverified"),
     ],
 )
 def test_unusable_generation_falls_back_before_any_sandbox_exists(
@@ -500,3 +501,32 @@ class TestCli:
         assert code == 2
         assert "refused" in payload
         assert droid_spawns(tmp_path) == 0
+
+
+def test_a_sandbox_that_cannot_be_deleted_is_never_a_verified_release(tmp_path: Path) -> None:
+    service = FakeDaytonaService()
+    service.delete_failures = {"sbx-created-1"}
+    pipeline = real_pipeline(tmp_path, service, {"structured_output": droid_output()})
+    released = release(pipeline)
+    assert released.source == "prevetted_fallback"
+    assert released.fallback_reason == "cleanup_failed"
+    assert released.label == FALLBACK_LABEL
+    assert released.sandbox_ids_created == ["sbx-created-1"]
+    assert released.sandbox_ids_deleted == []
+
+
+def test_a_verified_release_cannot_hide_an_undeleted_sandbox() -> None:
+    fields: dict[str, Any] = {
+        "source": "generated_verified",
+        "label": GENERATED_LABEL,
+        "spec": DISTRIBUTION_FALLBACK,
+        "spec_digest": trusted_checks.canonical_digest(
+            DISTRIBUTION_FALLBACK.model_dump(mode="json")
+        ),
+        "factory_state": "configured_unverified",
+        "daytona_state": "configured_unverified",
+        "created_at": "2026-10-17T12:00:00Z",
+    }
+    ReleasedExplanation(**fields, sandbox_ids_created=["a"], sandbox_ids_deleted=["a"])
+    with pytest.raises(ValueError, match="sandbox"):
+        ReleasedExplanation(**fields, sandbox_ids_created=["a"], sandbox_ids_deleted=[])

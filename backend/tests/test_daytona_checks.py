@@ -276,13 +276,36 @@ def test_cancel_during_create_deletes_the_unacknowledged_sandbox_by_its_exact_id
     assert_decoys_untouched(service)
 
 
-def test_a_delete_that_fails_is_visible_as_created_but_not_deleted() -> None:
+def test_a_delete_that_fails_is_a_cleanup_error_not_a_passing_result() -> None:
     service = service_with_decoys()
     service.delete_failures = {"sbx-created-1"}
-    result = asyncio.run(checker(service).check(DISTRIBUTION_FALLBACK))
-    assert result.report.passed
-    assert result.sandbox_ids_created == ("sbx-created-1",)
-    assert result.sandbox_ids_deleted == ()
+    with pytest.raises(SandboxCheckError) as caught:
+        asyncio.run(checker(service).check(DISTRIBUTION_FALLBACK))
+    assert caught.value.code == "cleanup_failed"
+    assert caught.value.created == ("sbx-created-1",)
+    assert caught.value.deleted == ()
+    assert "sbx-created-1" in service.sandboxes
+    assert_decoys_untouched(service)
+
+
+def test_cleanup_failure_after_a_failed_check_still_reports_the_undeleted_id() -> None:
+    service = service_with_decoys()
+    service.exec_mode = "garbage"
+    service.delete_failures = {"sbx-created-1"}
+    with pytest.raises(SandboxCheckError) as caught:
+        asyncio.run(checker(service).check(DISTRIBUTION_FALLBACK))
+    assert caught.value.code == "cleanup_failed"
+    assert caught.value.created == ("sbx-created-1",) and caught.value.deleted == ()
+
+
+def test_an_unverifiable_label_lookup_is_a_cleanup_error() -> None:
+    service = service_with_decoys()
+    service.create_mode = "orphan_error"
+    service.list_error = True
+    with pytest.raises(SandboxCheckError) as caught:
+        asyncio.run(checker(service).check(DISTRIBUTION_FALLBACK))
+    assert caught.value.code == "cleanup_failed"
+    assert caught.value.created == () and caught.value.deleted == ()
 
 
 def test_oversize_candidate_is_refused_before_any_client_exists() -> None:

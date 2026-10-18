@@ -136,11 +136,13 @@ FallbackReason = Literal[
     "invalid_candidate",
     "oversize_candidate",
     "cost_exceeded",
+    "cost_unverified",
     "invariant_failed",
     "checks_unavailable",
     "checks_failed",
     "checks_timeout",
     "checks_malformed",
+    "cleanup_failed",
 ]
 
 IntegrationState = Literal["disabled", "not_configured", "configured_unverified"]
@@ -168,4 +170,8 @@ class ReleasedExplanation(ContractModel):
     def _source_matches_reason(self) -> Self:
         if (self.source == "prevetted_fallback") != (self.fallback_reason is not None):
             raise ValueError("a fallback names its reason; a verified release has none")
+        if self.source == "generated_verified" and sorted(self.sandbox_ids_created) != sorted(
+            self.sandbox_ids_deleted
+        ):
+            raise ValueError("a verified release needs every created sandbox confirmed deleted")
         return self

@@ -221,6 +221,7 @@ def test_prompt_redacts_secret_shaped_text_and_has_no_identifiers() -> None:
             "oversize_candidate",
         ),
         ({"structured_output": good_output(), "credits": 99.0}, "cost_exceeded"),
+        ({"structured_output": good_output(), "credits": None}, "cost_unverified"),
         ({"mode": "error_turn"}, "generation_failed"),
         ({"mode": "bad_reason"}, "generation_failed"),
         ({"mode": "crash_on_start"}, "generation_failed"),
@@ -239,6 +240,29 @@ def test_unsafe_or_failed_results_are_refused_with_a_stable_code(
     for entry in read_records(droid_dir):
         if entry["event"] == "start":
             assert wait_dead(entry["pid"])
+
+
+def test_a_reported_overrun_interrupts_the_run_before_it_finishes(droid_dir: Path) -> None:
+    # The turn would hang forever after the update: only the mid-run check can end it.
+    exe = install_fake_droid(droid_dir, {"mode": "hang_after_usage", "usage_updates": [0.5, 9.0]})
+    started = time.monotonic()
+    with pytest.raises(InteractiveError) as caught:
+        run_generate(config_for(exe, max_credits=1.0, timeout_seconds=30), request())
+    assert caught.value.code == "cost_exceeded"
+    assert time.monotonic() - started < 15
+    records = read_records(droid_dir)
+    assert "droid.interrupt_session" in [r["method"] for r in records if r["event"] == "request"]
+    start = next(r for r in records if r["event"] == "start")
+    assert wait_dead(start["pid"])
+
+
+def test_usage_within_the_limit_is_accepted_at_the_boundary(droid_dir: Path) -> None:
+    exe = install_fake_droid(
+        droid_dir,
+        {"structured_output": good_output(), "usage_updates": [0.5, 1.0], "credits": 1.0},
+    )
+    candidate = run_generate(config_for(exe, max_credits=1.0), request())
+    assert candidate.factory_credits == pytest.approx(1.0)
 
 
 def test_missing_executable_fails_without_a_subprocess(tmp_path: Path) -> None:

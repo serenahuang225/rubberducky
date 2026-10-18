@@ -71,6 +71,13 @@ describe("untrusted payloads never parse into something renderable", () => {
     expect(parsed.ok).toBe(false);
   });
 
+  it("rejects a verified release whose created sandbox was not confirmed deleted", () => {
+    const data = clone(verifiedGrouping);
+    data.sandbox_ids_deleted = [];
+    expect(data.sandbox_ids_created.length).toBeGreaterThan(0);
+    expect(parseReleasedExplanation(data).ok).toBe(false);
+  });
+
   it.each([null, undefined, 3, "text", [], {}])("rejects non-objects like %p", (input) => {
     expect(parseReleasedExplanation(input).ok).toBe(false);
   });

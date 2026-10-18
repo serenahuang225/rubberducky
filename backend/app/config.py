@@ -69,7 +69,8 @@ class Settings(BaseSettings):
     factory_timeout_seconds: float = Field(default=60.0, gt=0, le=300)
     factory_max_prompt_chars: int = Field(default=4_000, ge=200, le=16_000)
     factory_max_output_chars: int = Field(default=6_000, ge=200, le=32_000)
-    # Credits reported by the finished run; a candidate that cost more is refused.
+    # Credits reported by the Droid CLI. Not a spending cap: a run is interrupted once a
+    # reported total passes this, and a result without reported credits is refused.
     factory_max_credits: float = Field(default=5.0, ge=0, le=1_000)
     # Trusted candidate checks in a private ephemeral Daytona sandbox.
     daytona_checks_enabled: bool = False

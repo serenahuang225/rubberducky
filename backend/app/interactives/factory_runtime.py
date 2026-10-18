@@ -3,8 +3,11 @@
 This is the product's own runtime use of Droid, separate from using Droid to build the repo.
 The adapter starts the configured ``droid exec`` subprocess through ``droid_sdk.Session`` with
 no tools, rejected permission requests, an empty temporary working directory, a scrubbed
-environment, one deadline, a bounded prompt and a bounded structured reply. The reply is only
-a *candidate*: ``pipeline.release_explanation`` decides whether it may ever be shown.
+environment, one deadline, a bounded prompt and a bounded structured reply. Neither the SDK
+nor ``droid exec`` offers a spending cap, so cost is only watched, not capped: the run is
+interrupted once a reported credit total passes the limit, and a result that never reported
+its credits is refused. The reply is only a *candidate*: ``pipeline.release_explanation``
+decides whether it may ever be shown.
 
 Constructing the adapter has no side effects; the subprocess starts inside ``generate``.
 """
@@ -32,6 +35,7 @@ from droid_sdk import (
     RunTimeoutError,
     Session,
     SessionConfig,
+    TokenUsageUpdate,
 )
 
 from app.config import Settings
@@ -162,7 +166,11 @@ def candidate_from_result(
     if not isinstance(result, RunSuccess) or result.output is None:
         raise InteractiveError("invalid_candidate")
     credits = result.usage.factory_credits if result.usage is not None else None
-    if credits is not None and credits > config.max_credits:
+    # The CLI exposes no spending cap, so a candidate whose cost it never reported cannot be
+    # shown to have stayed within the configured limit and is refused.
+    if credits is None:
+        raise InteractiveError("cost_unverified")
+    if credits > config.max_credits:
         raise InteractiveError("cost_exceeded")
     return GeneratedCandidate(generated=result.output, factory_credits=credits)
 
@@ -203,12 +211,23 @@ class FactoryExplanationGenerator:
 
     async def _converse(self, session: Session, prompt: str) -> RunResult[GeneratedExplanation]:
         await session.open()
+        # Partial messages are what make the SDK deliver running usage updates.
         stream = session.stream(
-            prompt, output=GeneratedExplanation, timeout=self._config.timeout_seconds
+            prompt,
+            output=GeneratedExplanation,
+            timeout=self._config.timeout_seconds,
+            include_partial_messages=True,
         )
         async with stream:
-            async for _ in stream:
-                pass
+            async for event in stream:
+                # The SDK reports running usage while the turn is in flight. Leaving the
+                # block here interrupts the run; spend between two updates is not bounded.
+                if (
+                    isinstance(event, TokenUsageUpdate)
+                    and event.factory_credits is not None
+                    and event.factory_credits > self._config.max_credits
+                ):
+                    raise InteractiveError("cost_exceeded")
         result: RunResult[GeneratedExplanation] = stream.result
         return result
 
@@ -223,6 +242,8 @@ class FactoryExplanationGenerator:
             result = await asyncio.wait_for(
                 self._converse(session, prompt), timeout=self._config.timeout_seconds + 5
             )
+        except InteractiveError:
+            raise
         except (TimeoutError, RunTimeoutError) as error:
             raise InteractiveError("generation_timeout") from error
         except (DroidError, OSError) as error:

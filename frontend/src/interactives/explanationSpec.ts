@@ -71,10 +71,19 @@ export const releasedExplanationSchema = z
     fallback_reason: z.string().nullable(),
     factory_state: integrationState,
     daytona_state: integrationState,
+    sandbox_ids_created: z.array(z.string()).default([]),
+    sandbox_ids_deleted: z.array(z.string()).default([]),
   })
   .refine((released) => (released.source === "prevetted_fallback") === (released.fallback_reason !== null), {
     message: "a fallback names its reason; a verified release has none",
-  });
+  })
+  .refine(
+    (released) =>
+      released.source !== "generated_verified" ||
+      [...released.sandbox_ids_created].sort().join("\n") ===
+        [...released.sandbox_ids_deleted].sort().join("\n"),
+    { message: "a verified release needs every created sandbox confirmed deleted" },
+  );
 export type ReleasedExplanation = z.infer<typeof releasedExplanationSchema>;
 
 export type ParsedExplanation =

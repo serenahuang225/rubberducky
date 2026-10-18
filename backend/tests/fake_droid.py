@@ -41,6 +41,11 @@ def usage(credits):
             "cacheReadTokens": 0, "thinkingTokens": 0, "factoryCredits": credits}
 
 
+def usage_update(credits):
+    notify({"type": "session_token_usage_changed", "sessionId": "fake-session",
+            "tokenUsage": usage(credits)})
+
+
 def finish(turn_id, reason, credits=0.1):
     notify({"type": "agent_turn_completed", "reason": reason, "turnId": turn_id,
             "tokenUsage": usage(credits), "durationMs": 5})
@@ -82,6 +87,10 @@ for line in sys.stdin:
         turn_id = params.get("messageId")
         mode = SCENARIO.get("mode", "ok")
         if mode == "hang":
+            continue
+        for credits in SCENARIO.get("usage_updates", []):
+            usage_update(credits)
+        if mode == "hang_after_usage":
             continue
         if mode == "error_turn":
             finish(turn_id, "error")
